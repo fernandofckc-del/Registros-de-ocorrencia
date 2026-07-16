@@ -14,11 +14,11 @@
 
 // ==== TROQUE ESTE TOKEN por uma palavra secreta sua antes de publicar ====
 // Esse token TODO ENCARREGADO vai usar no celular dele pra poder sincronizar.
-var SECRET = 'TROQUE_ESTE_TOKEN_123';
+var SECRET = '123456789';
 
 // ==== TROQUE ESTA SENHA por outra, diferente da de cima ====
 // Essa senha SÓ VOCÊ deve saber. É o que protege a edição dos "Tipos de Ocorrência".
-var ADMIN_SECRET = 'TROQUE_ESTA_SENHA_ADMIN_456';
+var ADMIN_SECRET = '987654321';
 
 var SHEET_NAME = 'Ocorrencias';
 var FOLDER_NAME = 'Fotos_Ocorrencias_Irrigacao';
