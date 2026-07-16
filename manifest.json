@@ -1,0 +1,118 @@
+# Como colocar o Registro de Campo pra funcionar
+
+Este pacote tem duas partes que precisam ser configuradas **uma única vez**:
+
+1. O **"cofre central"** no Google (recebe os dados de todos os celulares)
+2. O **app** em si (instalado no celular de cada encarregado)
+
+Depois de configurado, ninguém mais precisa mexer nisso — só usar.
+
+---
+
+## PARTE 1 — Cofre central (Google Sheets + Drive)
+
+1. Acesse **sheets.google.com** e crie uma planilha nova (pode chamar de "Ocorrências Irrigação").
+2. Na planilha, vá em **Extensões > Apps Script**.
+3. Apague todo o código de exemplo que aparecer e cole o conteúdo do arquivo **Code.gs** (está neste pacote).
+4. Dentro do código, troque a linha:
+   ```
+   var SECRET = 'TROQUE_ESTE_TOKEN_123';
+   ```
+   por uma senha sua, por exemplo:
+   ```
+   var SECRET = 'irrigacao2026fernando';
+   ```
+   Guarde essa senha — **todo encarregado vai usar ela** no app pra sincronizar.
+
+   Troque também a linha:
+   ```
+   var ADMIN_SECRET = 'TROQUE_ESTA_SENHA_ADMIN_456';
+   ```
+   por outra senha, diferente da de cima, por exemplo:
+   ```
+   var ADMIN_SECRET = 'sofernandomexe789';
+   ```
+   Essa segunda senha **só você deve saber** — é o que permite mudar a lista de "Tipos de Ocorrência" que todo mundo usa. Ninguém mais precisa dela.
+5. Clique em **Salvar** (ícone de disquete).
+6. Clique em **Implantar > Nova implantação**.
+7. Em "Tipo", escolha **App da Web**.
+8. Configure:
+   - Executar como: **Eu (seu e-mail)**
+   - Quem pode acessar: **Qualquer pessoa**
+9. Clique em **Implantar**. Ele vai pedir autorização — aceite (é o seu próprio script, é seguro).
+10. Copie a **URL do app da Web** que aparece (algo como `https://script.google.com/macros/s/AKfycb.../exec`). Você vai colar essa URL no app.
+
+Pronto — sua planilha agora vai receber uma aba chamada "Ocorrencias" automaticamente na primeira vez que alguém salvar um registro, e as fotos vão aparecer numa pasta chamada "Fotos_Ocorrencias_Irrigacao" no seu Google Drive.
+
+---
+
+## PARTE 2 — Publicar o app (pra virar instalável)
+
+O app precisa estar num link de internet (mesmo que seja usado offline depois). A forma mais simples e gratuita é o **GitHub Pages**:
+
+1. Crie uma conta grátis em **github.com** (se ainda não tiver).
+2. Clique em **New repository** (repositório novo). Dê um nome, ex: `registro-irrigacao`. Marque como **Public**. Clique em **Create repository**.
+3. Dentro do repositório, clique em **Add file > Upload files**.
+4. Arraste todos estes arquivos do pacote:
+   - `index.html`
+   - `manifest.json`
+   - `service-worker.js`
+   - a pasta `icons` (com `icon-192.png` e `icon-512.png`)
+5. Clique em **Commit changes**.
+6. Vá em **Settings > Pages** (barra lateral esquerda).
+7. Em "Branch", escolha **main** e clique em **Save**.
+8. Espere 1-2 minutos. Vai aparecer um link tipo:
+   `https://SEUUSUARIO.github.io/registro-irrigacao/`
+
+Esse é o link do seu app! Abra ele no celular.
+
+---
+
+## PARTE 3 — Instalar no celular
+
+**Android (Chrome):**
+1. Abra o link do app no Chrome.
+2. Toque nos 3 pontinhos (menu) > **Adicionar à tela inicial** (ou vai aparecer um banner "Instalar app" sozinho).
+3. Confirme. Vai aparecer um ícone igual a um app normal.
+
+**iPhone (Safari):**
+1. Abra o link no Safari.
+2. Toque no ícone de compartilhar (quadrado com seta pra cima).
+3. Escolha **Adicionar à Tela de Início**.
+4. Confirme.
+
+---
+
+## PARTE 4 — Configurar a sincronização dentro do app
+
+1. Abra o app (pelo ícone instalado).
+2. Toque na engrenagem ⚙️ no canto superior direito.
+3. Cole a **URL do Apps Script** (Parte 1, passo 10).
+4. Digite o **Token** (a senha que você definiu no passo 4 da Parte 1).
+5. Toque em **Testar Conexão** — deve aparecer "Conexão funcionando!".
+6. Toque em **Salvar Configuração**.
+
+Repita essa Parte 4 em cada celular que for usar o app (o Apps Script já está pronto, só precisa configurar o app de cada encarregado uma vez).
+
+---
+
+## Como funciona no dia a dia
+
+- No campo, sem internet: o encarregado registra normalmente (com foto). Fica marcado como **"pendente"** no histórico.
+- Quando o celular pega internet de novo, o app sincroniza sozinho (ou toque em "Sincronizar agora" no topo da tela).
+- Você (Fernando) pode abrir o mesmo app no seu celular ou computador — assim que sincronizar, os registros de todos aparecem juntos no seu Histórico e Painel.
+- Você também pode abrir a planilha do Google Sheets diretamente pra ver os dados brutos ou fazer suas próprias análises.
+
+## Dúvidas comuns
+
+- **"Testar Conexão" falhou**: confira se copiou a URL certa (termina em `/exec`), se o token bate exatamente com o do Code.gs, e se o Apps Script foi implantado com acesso "Qualquer pessoa".
+- **Fotos não aparecem no Drive**: na primeira vez que o Apps Script salvar uma foto, o Google pode pedir autorização extra de acesso ao Drive — isso só acontece uma vez.
+- **Quero mudar o token depois**: troque no Code.gs, clique em Implantar > Gerenciar implantações > editar (ícone de lápis) > Nova versão > Implantar. Depois atualize o token em cada celular.
+
+## Várias fotos por ocorrência
+
+Cada ocorrência aceita até 4 fotos. No formulário, o botão "Adicionar foto" pode ser tocado várias vezes — cada foto vira uma miniatura, com um ✕ pra remover se errar.
+
+## Editar tipos de ocorrência (só você)
+
+Na tela de configuração (engrenagem ⚙️), mais embaixo tem a seção **"Tipos de Ocorrência (administrador)"**. Ali você digita a senha do `ADMIN_SECRET` e pode reescrever a lista (um tipo por linha). Ao salvar, a lista muda pra **todo mundo** que sincronizar depois — os encarregados só veem as opções, não conseguem alterá-las (mesmo que tentem, o servidor recusa sem a senha certa).
