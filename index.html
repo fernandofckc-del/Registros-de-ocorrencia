@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Registro de Campo · Irrigação</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#2F7DB0">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Reg. Irrigação">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background:#DDD3B8; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #241F1A;
+    display: flex;
+    justify-content: center;
+  }
+  #app {
+    width: 100%;
+    max-width: 480px;
+    min-height: 100vh;
+    background: #F3EEE0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  input, select, textarea, button { font-family: 'Inter', sans-serif; }
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid #2E6690;
+    outline-offset: 1px;
+  }
+
+  header.app-header { background: #2F7DB0; flex-shrink:0; }
+  .header-bar { height: 5px; background: linear-gradient(90deg, #C1501F 0 20%, #D6A233 20% 40%, #4C7C59 40% 60%, #2E6690 60% 80%, #C1501F 80% 100%); }
+  .header-inner { padding: 16px 18px 18px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+  .plate-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .14em; color: #9FC3B8; margin-bottom: 4px; }
+  .plate-title { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 20px; letter-spacing: .02em; color: #F3EEE0; line-height: 1.25; }
+  .gear-btn { background:none; border:none; color:#9FC3B8; font-size:20px; cursor:pointer; padding:4px; flex-shrink:0; }
+
+  .sync-pill {
+    display:flex; align-items:center; gap:6px; font-size:11.5px; padding:8px 12px; margin:10px 14px 0;
+    border-radius:20px; background:#EFE7D3; color:#4A4136; font-family:'IBM Plex Mono', monospace;
+  }
+  .sync-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .sync-btn { margin-left:auto; background:#2F7DB0; color:#F3EEE0; border:none; border-radius:14px; padding:4px 10px; font-size:10.5px; cursor:pointer; font-family:'Inter',sans-serif; font-weight:600; }
+
+  main { flex: 1; padding: 14px 14px 90px; overflow-y: auto; }
+
+  .card { background:#FFFDF8; border:1px solid #DCD3BC; border-radius:4px; padding:18px 16px 16px; position:relative; margin-bottom:14px; }
+  .card-tag { position:absolute; top:-1px; left:18px; width:34px; height:6px; background:#C1501F; border-radius:0 0 3px 3px; }
+
+  .field { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+  .field-label { font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.06em; color:#6B6153; text-transform:uppercase; }
+  .field input, .field select, .field textarea {
+    border:1px solid #D2C7AB; background:#FBF8F1; border-radius:3px; padding:10px; font-size:14.5px; color:#241F1A; width:100%;
+  }
+  .field textarea { min-height:60px; resize:vertical; font-family:inherit; }
+
+  .photo-block { display:flex; flex-direction:column; gap:6px; margin-top:2px; }
+  .photo-btn {
+    display:flex; align-items:center; gap:8px; justify-content:center;
+    background:#2F7DB0; color:#F3EEE0; border:none; border-radius:3px;
+    padding:12px; font-size:14px; font-weight:600; cursor:pointer; width:100%;
+  }
+  .photo-preview-wrap { position:relative; display:block; }
+  .photo-preview { width:100%; max-height:220px; object-fit:cover; border-radius:4px; border:1px solid #D2C7AB; display:block; }
+  .photo-remove-btn {
+    position:absolute; top:6px; right:6px; background:rgba(36,31,26,.75); color:#fff;
+    border:none; border-radius:3px; padding:4px 8px; font-size:11px; cursor:pointer;
+  }
+
+  .save-btn {
+    width:100%; margin-top:6px; background:#C1501F; color:#fff; border:none; border-radius:3px;
+    padding:13px; font-size:15px; font-weight:700; letter-spacing:.02em; cursor:pointer;
+  }
+  .save-btn:disabled { opacity:.6; }
+
+  .list { display:flex; flex-direction:column; gap:14px; }
+  .tag { display:flex; background:#FFFDF8; border:1px solid #DCD3BC; border-radius:4px; overflow:hidden; box-shadow:0 1px 2px rgba(36,31,26,.06); }
+  .tag-stub { width:66px; flex-shrink:0; background:#EFE7D3; padding:10px 6px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+  .tag-date { font-family:'IBM Plex Mono', monospace; font-size:11.5px; font-weight:600; color:#4A4136; }
+  .tag-setor { font-size:11px; color:#6B6153; margin-top:4px; }
+  .tag-perf { width:0; border-left:1.5px dashed #C9BC9C; }
+  .tag-body { flex:1; padding:10px 12px; min-width:0; }
+  .tag-body-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .tag-tipo { font-family:'Oswald', sans-serif; font-size:14.5px; font-weight:600; color:#241F1A; line-height:1.25; }
+  .tag-causa { font-size:11.5px; color:#8A5A44; margin-top:2px; }
+  .stamp {
+    font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:700; letter-spacing:.06em;
+    text-transform:uppercase; background:transparent; border:1.5px solid; border-radius:3px;
+    padding:3px 7px; transform:rotate(-2deg); cursor:pointer; white-space:nowrap;
+  }
+  .tag-desc { font-size:13px; color:#3A332B; margin:8px 0 0; line-height:1.4; }
+  .tag-acao { font-size:12.5px; color:#4C7C59; margin:6px 0 0; line-height:1.4; }
+  .tag-photo { width:100%; max-height:200px; object-fit:cover; border-radius:3px; margin-top:8px; border:1px solid #DCD3BC; display:block; }
+  .tag-footer { display:flex; justify-content:space-between; align-items:center; margin-top:10px; }
+  .tag-enc { font-size:11.5px; color:#6B6153; font-style:italic; display:flex; align-items:center; gap:6px; }
+  .pending-badge { font-family:'IBM Plex Mono', monospace; font-size:9.5px; background:#D6A233; color:#241F1A; padding:1px 6px; border-radius:8px; }
+  .del-btn { background:none; border:none; color:#B08968; cursor:pointer; padding:4px; font-size: 16px; }
+  .confirm-row { display:flex; align-items:center; gap:6px; font-size:11.5px; color:#3A332B; }
+  .confirm-yes { background:#4C7C59; color:#fff; border:none; border-radius:3px; padding:3px 8px; cursor:pointer; }
+  .confirm-no { background:#B4442E; color:#fff; border:none; border-radius:3px; padding:3px 8px; cursor:pointer; }
+
+  .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; color:#6B6153; padding:60px 20px; }
+
+  .kpi-row { display:flex; gap:8px; margin-bottom:14px; }
+  .kpi-tile { flex:1; background:#FFFDF8; border:1.5px solid #DCD3BC; border-radius:4px; padding:12px 8px; text-align:center; }
+  .kpi-num { font-family:'Oswald', sans-serif; font-size:24px; font-weight:700; color:#2F7DB0; }
+  .kpi-label { font-size:10.5px; color:#6B6153; margin-top:4px; line-height:1.25; }
+  .panel-title { font-family:'Oswald', sans-serif; font-size:14px; font-weight:600; margin:0 0 12px; text-transform:uppercase; letter-spacing:.03em; }
+  .bar-row { margin-bottom:10px; }
+  .bar-label-row { display:flex; justify-content:space-between; margin-bottom:4px; }
+  .bar-label { font-size:12.5px; color:#3A332B; }
+  .bar-count { font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600; color:#3A332B; }
+  .bar-track { height:8px; background:#EEE7D5; border-radius:4px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:4px; }
+
+  .toast {
+    position:fixed; bottom:76px; left:50%; transform:translateX(-50%);
+    background:#2F7DB0; color:#F3EEE0; padding:9px 16px; border-radius:20px;
+    font-size:12.5px; box-shadow:0 4px 10px rgba(0,0,0,.2); z-index:30; max-width: 90%; text-align:center;
+  }
+
+  nav.tabbar {
+    position: sticky; bottom:0; left:0; right:0; display:flex;
+    background:#FFFDF8; border-top:1px solid #DCD3BC; margin-top:auto;
+  }
+  .nav-btn {
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:10px 0 8px; background:none; border:none; color:#8A8072; cursor:pointer; position:relative;
+  }
+  .nav-btn.active { color:#C1501F; }
+  .nav-label { font-size:10.5px; font-weight:600; letter-spacing:.02em; }
+  .nav-badge {
+    position:absolute; top:0px; right:26%; background:#C1501F; color:#fff; font-size:9px; font-weight:700;
+    border-radius:8px; min-width:15px; height:15px; display:flex; align-items:center; justify-content:center; padding:0 3px;
+  }
+
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+
+  .modal-overlay {
+    display:none; position:fixed; inset:0; background:rgba(27,58,52,.55); z-index:50;
+    align-items:flex-end; justify-content:center;
+  }
+  .modal-overlay.active { display:flex; }
+  .modal-box {
+    background:#F3EEE0; width:100%; max-width:480px; border-radius:12px 12px 0 0; padding:20px 18px 26px;
+    max-height:85vh; overflow-y:auto;
+  }
+  .modal-title { font-family:'Oswald', sans-serif; font-size:17px; font-weight:600; margin-bottom:4px; }
+  .modal-sub { font-size:12px; color:#6B6153; margin-bottom:16px; line-height:1.4; }
+  .modal-close { position:absolute; top:14px; right:16px; background:none; border:none; font-size:20px; color:#6B6153; cursor:pointer; }
+  .test-result { font-size:12.5px; margin-top:8px; padding:8px 10px; border-radius:4px; display:none; }
+  .test-result.ok { display:block; background:#E4EFE6; color:#2F5C3D; }
+  .test-result.fail { display:block; background:#F5E3DC; color:#96351B; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="app-header">
+    <div class="header-bar"></div>
+    <div class="header-inner">
+      <div>
+        <div class="plate-label">CONTROLE DE CAMPO</div>
+        <div class="plate-title">REGISTRO DE OCORRÊNCIAS · IRRIGAÇÃO</div>
+        <div style="font-family:'IBM Plex Mono', monospace; font-size:9.5px; color:#6E8B85; margin-top:2px;">v6</div>
+      </div>
+      <button class="gear-btn" id="btn-settings" title="Configurar sincronização">⚙️</button>
+    </div>
+  </header>
+
+  <div id="sync-pill" class="sync-pill">
+    <span class="sync-dot" id="sync-dot" style="background:#8A8072"></span>
+    <span id="sync-text">Verificando...</span>
+    <button class="sync-btn" id="btn-sync-now">Sincronizar agora</button>
+  </div>
+
+  <div id="offline-pill" class="sync-pill" style="background:#EFE7D3;">
+    <span class="sync-dot" id="offline-dot" style="background:#8A8072"></span>
+    <span id="offline-text">Verificando uso offline...</span>
+    <button class="sync-btn" id="btn-offline-check" style="background:#2E6690;">Preparar p/ offline</button>
+  </div>
+
+  <main>
+    <!-- REGISTRAR -->
+    <section id="tab-registrar" class="tab-panel active">
+      <div class="card">
+        <div class="card-tag"></div>
+        <div id="edit-banner" style="display:none; background:#EFE7D3; border-radius:4px; padding:8px 10px; margin-bottom:14px; font-size:12.5px; justify-content:space-between; align-items:center; gap:8px;">
+          <span>✏️ Editando ocorrência existente</span>
+          <button id="btn-cancel-edit" style="background:none;border:none;color:#96351B;font-weight:700;cursor:pointer;font-size:12.5px;">Cancelar</button>
+        </div>
+        <div class="field">
+          <span class="field-label">Cultura</span>
+          <select id="f-cultura"></select>
+        </div>
+        <div class="field">
+          <span class="field-label">Setor / Talhão</span>
+          <select id="f-setor"></select>
+        </div>
+        <div class="field">
+          <span class="field-label">Data</span>
+          <input id="f-data" type="date">
+        </div>
+        <div class="field">
+          <span class="field-label">Tipo de Ocorrência</span>
+          <select id="f-tipo">
+            <option value="">Selecione...</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="field-label">Causa Provável</span>
+          <select id="f-causa">
+            <option value="">Selecione...</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="field-label">Encarregado</span>
+          <input id="f-encarregado" type="text" placeholder="Nome">
+        </div>
+        <div class="field">
+          <span class="field-label">Descrição</span>
+          <textarea id="f-descricao" placeholder="O que foi encontrado"></textarea>
+        </div>
+        <div class="field">
+          <span class="field-label">Ação Tomada (opcional)</span>
+          <textarea id="f-acao" placeholder="O que já foi feito"></textarea>
+        </div>
+
+        <div class="photo-block">
+          <span class="field-label">Fotos da Ocorrência (até 4)</span>
+          <input id="f-foto-input" type="file" accept="image/*" capture="environment" style="display:none">
+          <div id="foto-gallery" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+          <button class="photo-btn" id="btn-foto">📷 Adicionar foto</button>
+        </div>
+
+        <button class="save-btn" id="btn-salvar">Salvar Ocorrência</button>
+      </div>
+    </section>
+
+    <!-- HISTORICO -->
+    <section id="tab-historico" class="tab-panel">
+      <div id="historico-content"></div>
+    </section>
+
+    <!-- PAINEL -->
+    <section id="tab-painel" class="tab-panel">
+      <div id="painel-content"></div>
+    </section>
+
+    <!-- MANUTENÇÃO -->
+    <section id="tab-manutencao" class="tab-panel">
+      <div id="manutencao-content"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <nav class="tabbar">
+    <button class="nav-btn active" data-tab="registrar">
+      <span>➕</span>
+      <span class="nav-label">Registrar</span>
+    </button>
+    <button class="nav-btn" data-tab="historico">
+      <span style="position:relative">📋<span id="nav-badge" class="nav-badge" style="display:none">0</span></span>
+      <span class="nav-label">Histórico</span>
+    </button>
+    <button class="nav-btn" data-tab="painel">
+      <span>📊</span>
+      <span class="nav-label">Painel</span>
+    </button>
+    <button class="nav-btn" data-tab="manutencao">
+      <span style="position:relative">🔧<span id="nav-badge-manut" class="nav-badge" style="display:none;background:#C1501F;">0</span></span>
+      <span class="nav-label">Manutenção</span>
+    </button>
+  </nav>
+</div>
+
+<!-- MODAL DE REGISTRAR MANUTENÇÃO -->
+<div class="modal-overlay" id="modal-manut-overlay">
+  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:85vh;">
+    <div style="overflow-y:auto; padding:20px 18px 6px;">
+      <button class="modal-close" id="btn-close-manut-modal">✕</button>
+      <div class="modal-title">Registrar Manutenção</div>
+      <div class="modal-sub">Escolha a cultura e o talhão que recebeu a manutenção.</div>
+      <div class="field">
+        <span class="field-label">Cultura</span>
+        <select id="manut-cultura-select"></select>
+      </div>
+      <div class="field">
+        <span class="field-label">Talhão / Setor</span>
+        <select id="manut-setor-select"></select>
+      </div>
+      <div class="field">
+        <span class="field-label">Data</span>
+        <input id="manut-data" type="date">
+      </div>
+      <div class="field">
+        <span class="field-label">Encarregado</span>
+        <input id="manut-encarregado" type="text" placeholder="Nome">
+      </div>
+      <div class="field">
+        <span class="field-label">Observação (opcional)</span>
+        <textarea id="manut-observacao" placeholder="Algo a registrar sobre essa manutenção"></textarea>
+      </div>
+    </div>
+    <div style="padding:12px 18px 18px; border-top:1px solid #E5DFC9; background:#FFFDF8; flex-shrink:0;">
+      <button class="save-btn" id="btn-save-manut" style="margin-top:0;">Salvar Manutenção</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DE EXCLUIR MANUTENÇÃO (SOMENTE ADMIN) -->
+<div class="modal-overlay" id="modal-delmanut-overlay">
+  <div class="modal-box" style="position:relative">
+    <button class="modal-close" id="btn-close-delmanut-modal">✕</button>
+    <div class="modal-title" id="delmanut-title">🔒 Excluir Registro</div>
+    <div class="modal-sub">Essa ação só pode ser feita com a senha de administrador, e precisa de internet.</div>
+    <div class="field">
+      <span class="field-label">Senha de Administrador</span>
+      <input id="delmanut-pass" type="password" placeholder="Senha definida no Code.gs (ADMIN_SECRET)">
+    </div>
+    <button class="save-btn" id="btn-confirm-delmanut" style="background:#B4442E;">Confirmar Exclusão</button>
+    <div id="delmanut-result" class="test-result"></div>
+  </div>
+</div>
+
+<!-- MODAL DE CONFIGURAÇÃO -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-box" style="position:relative">
+    <button class="modal-close" id="btn-close-modal">✕</button>
+    <div class="modal-title">Configurar Sincronização</div>
+    <div class="modal-sub">Cole aqui o link do seu Google Apps Script (a "URL de implantação") e o token secreto que você definiu no Code.gs. Isso só precisa ser feito uma vez por celular.</div>
+    <div class="field">
+      <span class="field-label">URL do Apps Script</span>
+      <input id="cfg-url" type="text" placeholder="https://script.google.com/macros/s/AKfycb.../exec">
+    </div>
+    <div class="field">
+      <span class="field-label">Token</span>
+      <input id="cfg-token" type="text" placeholder="mesmo valor de SECRET no Code.gs">
+    </div>
+    <button class="photo-btn" id="btn-test-connection" style="background:#2E6690">Testar Conexão</button>
+    <div id="test-result" class="test-result"></div>
+    <button class="save-btn" id="btn-save-config">Salvar Configuração</button>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔒 Tipos de Ocorrência (administrador)</div>
+    <div class="modal-sub">Só quem sabe a senha de administrador consegue alterar essa lista. Ela é a mesma para todos os celulares.</div>
+    <div class="field">
+      <span class="field-label">Senha de Administrador</span>
+      <input id="admin-pass" type="password" placeholder="Senha definida no Code.gs (ADMIN_SECRET)">
+    </div>
+    <div class="field">
+      <span class="field-label">Tipos (um por linha)</span>
+      <textarea id="admin-tipos" style="min-height:140px;" placeholder="Carregando..."></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-tipos" style="background:#8A5A44">Salvar Tipos</button>
+    <div id="admin-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔒 Causa Provável (administrador)</div>
+    <div class="modal-sub">Mesma senha de administrador de cima. Também vale para todos os celulares.</div>
+    <div class="field">
+      <span class="field-label">Causas (uma por linha)</span>
+      <textarea id="admin-causas" style="min-height:140px;" placeholder="Carregando..."></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-causas" style="background:#8A5A44">Salvar Causas</button>
+    <div id="admin-causas-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔒 Culturas de Manutenção (administrador)</div>
+    <div class="modal-sub">Mesma senha de administrador. Uma cultura por linha, formato: <b>Nome, dias</b> (ex.: Coco, 15)</div>
+    <div class="field">
+      <span class="field-label">Culturas e intervalo de reentrada</span>
+      <textarea id="admin-culturas" style="min-height:100px;" placeholder="Carregando..."></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-culturas" style="background:#8A5A44">Salvar Culturas</button>
+    <div id="admin-culturas-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔒 Talhões / Setores (administrador)</div>
+    <div class="modal-sub">Mesma senha de administrador. Um talhão por linha, formato: <b>Nome, Cultura</b> (ex.: TA1, Cacau)</div>
+    <div class="field">
+      <span class="field-label">Talhões e cultura a que pertencem</span>
+      <textarea id="admin-talhoes" style="min-height:140px;" placeholder="Carregando..."></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-talhoes" style="background:#8A5A44">Salvar Talhões</button>
+    <div id="admin-talhoes-result" class="test-result"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var RECORDS_KEY = "oc_records_v2";
+  var CONFIG_KEY = "oc_config_v1";
+
+  var TIPOS = [
+    "Mangueira Desconectada", "Vazamento", "Conector Quebrado",
+    "Mangueira Furada (Espinho/Roseta)", "Registro/Válvula com Defeito",
+    "Gotejador Entupido", "Outro"
+  ];
+  var CAUSAS = [
+    "Erro Operacional", "Desgaste Natural", "Espinho/Roseta", "Animal",
+    "Falha de Material", "Pressão Excessiva", "Outro"
+  ];
+  var STATUSES = ["Aberto", "Em Andamento", "Resolvido"];
+  var STATUS_COLOR = { "Aberto": "#C1501F", "Em Andamento": "#D6A233", "Resolvido": "#4C7C59" };
+  var PALETTE = ["#2E6690", "#C1501F", "#4C7C59", "#D6A233", "#8A5A44", "#5C6B73", "#7A6C5D"];
+  var MAX_FOTOS = 4;
+  var TIPOS_CACHE_KEY = "oc_tipos_cache_v1";
+  var CAUSAS_CACHE_KEY = "oc_causas_cache_v1";
+  var currentTipos = TIPOS.slice();
+  var currentCausas = CAUSAS.slice();
+
+  var CULTURAS_PADRAO = [{ nome: "Coco", intervalo: 15 }, { nome: "Cacau", intervalo: 20 }];
+  var TALHOES_PADRAO = [{ nome: "D1", cultura: "Coco" }, { nome: "D2", cultura: "Coco" }, { nome: "TA1", cultura: "Cacau" }, { nome: "TA2", cultura: "Cacau" }];
+  var CULTURAS_CACHE_KEY = "manut_culturas_cache_v1";
+  var TALHOES_CACHE_KEY = "manut_talhoes_cache_v1";
+  var MANUT_KEY = "manut_records_v1";
+  var currentCulturas = CULTURAS_PADRAO.slice();
+  var currentTalhoes = TALHOES_PADRAO.slice();
+  var manutRecords = [];
+  var manutExpanded = {};
+  var pendingDeleteManutId = null;
+  var pendingDeleteKind = "manutencao";
+  var manutConfirmDelId = null;
+
+  var records = [];
+  var config = { url: "", token: "" };
+  var pendingFotos = [];
+  var confirmDelId = null;
+  var syncing = false;
+  var lastSyncAt = null;
+  var editingId = null;
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function fmtDate(iso) {
+    if (!iso) return "";
+    var p = String(iso).split("T")[0].split("-");
+    if (p.length < 3) return iso;
+    return p[2] + "/" + p[1] + "/" + p[0];
+  }
+  function escapeHtml(s) {
+    return String(s || "").replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+  }
+
+  // ---------- persistência local ----------
+  function loadRecords() {
+    try {
+      var raw = localStorage.getItem(RECORDS_KEY);
+      records = raw ? JSON.parse(raw) : [];
+    } catch (e) { records = []; }
+  }
+  function saveRecords() {
+    try {
+      localStorage.setItem(RECORDS_KEY, JSON.stringify(records));
+      return true;
+    } catch (e) {
+      showToast("Armazenamento cheio. Apague fotos/ocorrências antigas.");
+      return false;
+    }
+  }
+  function loadManutRecords() {
+    try {
+      var raw = localStorage.getItem(MANUT_KEY);
+      manutRecords = raw ? JSON.parse(raw) : [];
+    } catch (e) { manutRecords = []; }
+  }
+  function saveManutRecords() {
+    try {
+      localStorage.setItem(MANUT_KEY, JSON.stringify(manutRecords));
+      return true;
+    } catch (e) {
+      showToast("Armazenamento cheio.");
+      return false;
+    }
+  }
+  function loadConfig() {
+    try {
+      var raw = localStorage.getItem(CONFIG_KEY);
+      config = raw ? JSON.parse(raw) : { url: "", token: "" };
+    } catch (e) { config = { url: "", token: "" }; }
+  }
+  function saveConfig() {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  }
+
+  function showToast(msg) {
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(showToast._h);
+    showToast._h = setTimeout(function () { t.style.display = "none"; }, 2600);
+  }
+
+  function populateSelect(id, options) {
+    var el = document.getElementById(id);
+    var current = el.value;
+    el.innerHTML = "";
+    var blank = document.createElement("option");
+    blank.value = ""; blank.textContent = "Selecione...";
+    el.appendChild(blank);
+    options.forEach(function (o) {
+      var opt = document.createElement("option");
+      opt.value = o; opt.textContent = o;
+      el.appendChild(opt);
+    });
+    if (options.indexOf(current) > -1) el.value = current;
+  }
+
+  function renderFotoGallery() {
+    var gallery = document.getElementById("foto-gallery");
+    var addBtn = document.getElementById("btn-foto");
+    gallery.innerHTML = "";
+    pendingFotos.forEach(function (src, idx) {
+      var wrap = document.createElement("div");
+      wrap.className = "photo-preview-wrap";
+      wrap.style.width = "calc(50% - 4px)";
+      wrap.innerHTML = '<img class="photo-preview" style="max-height:120px" src="' + src + '" alt="Foto ' + (idx + 1) + '">' +
+        '<button class="photo-remove-btn" data-remove-foto="' + idx + '">✕</button>';
+      gallery.appendChild(wrap);
+    });
+    gallery.querySelectorAll("[data-remove-foto]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        pendingFotos.splice(parseInt(b.getAttribute("data-remove-foto"), 10), 1);
+        renderFotoGallery();
+      });
+    });
+    if (pendingFotos.length >= MAX_FOTOS) {
+      addBtn.style.display = "none";
+    } else {
+      addBtn.style.display = "flex";
+      addBtn.textContent = "📷 Adicionar foto (" + pendingFotos.length + "/" + MAX_FOTOS + ")";
+    }
+  }
+
+  function compressImage(file, maxW, quality, cb) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, maxW / img.width);
+        var w = Math.round(img.width * scale);
+        var h = Math.round(img.height * scale);
+        var canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        cb(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = function () { showToast("Não consegui carregar a imagem."); };
+      img.src = reader.result;
+    };
+    reader.onerror = function () { showToast("Não consegui ler o arquivo."); };
+    reader.readAsDataURL(file);
+  }
+
+  function resetForm() {
+    populateOcorrenciaSetorSelect(document.getElementById("f-cultura").value, "");
+    document.getElementById("f-data").value = todayStr();
+    document.getElementById("f-tipo").value = "";
+    document.getElementById("f-causa").value = "";
+    document.getElementById("f-encarregado").value = "";
+    document.getElementById("f-descricao").value = "";
+    document.getElementById("f-acao").value = "";
+    pendingFotos = [];
+    renderFotoGallery();
+    editingId = null;
+    document.getElementById("edit-banner").style.display = "none";
+    document.getElementById("btn-salvar").textContent = "Salvar Ocorrência";
+  }
+
+  function startEdit(id) {
+    var r = records.find(function (x) { return x.id === id; });
+    if (!r) return;
+    editingId = id;
+    document.getElementById("f-cultura").value = r.cultura || "";
+    populateOcorrenciaSetorSelect(document.getElementById("f-cultura").value, r.setor || "");
+    document.getElementById("f-data").value = r.data || todayStr();
+    document.getElementById("f-tipo").value = r.tipo || "";
+    document.getElementById("f-causa").value = r.causa || "";
+    document.getElementById("f-encarregado").value = r.encarregado || "";
+    document.getElementById("f-descricao").value = r.descricao || "";
+    document.getElementById("f-acao").value = r.acao || "";
+    pendingFotos = (r.fotos || []).slice();
+    renderFotoGallery();
+    document.getElementById("edit-banner").style.display = "flex";
+    document.getElementById("btn-salvar").textContent = "Salvar Alterações";
+    switchTab("registrar");
+  }
+
+  function cancelEdit() {
+    resetForm();
+    switchTab("historico");
+  }
+
+  function switchTab(tab) {
+    document.querySelectorAll(".tab-panel").forEach(function (el) { el.classList.remove("active"); });
+    document.getElementById("tab-" + tab).classList.add("active");
+    document.querySelectorAll(".nav-btn").forEach(function (el) {
+      el.classList.toggle("active", el.getAttribute("data-tab") === tab);
+    });
+    if (tab === "historico") renderHistorico();
+    if (tab === "painel") renderPainel();
+    if (tab === "manutencao") {
+      try { renderManutencao(); } catch (err) {
+        document.getElementById("manutencao-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar a Manutenção agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
+    updateBadge();
+  }
+
+  function updateBadge() {
+    var visible = records.filter(function (r) { return !r._pendingDelete; });
+    var b = document.getElementById("nav-badge");
+    if (visible.length > 0) { b.style.display = "flex"; b.textContent = visible.length; }
+    else { b.style.display = "none"; }
+
+    var overdue = currentTalhoes.filter(function (t) { return computeSetorStatus(t).status === "atrasado"; }).length;
+    var bm = document.getElementById("nav-badge-manut");
+    if (overdue > 0) { bm.style.display = "flex"; bm.textContent = overdue; }
+    else { bm.style.display = "none"; }
+  }
+
+  // ---------- status / exclusão (local, fila de sync) ----------
+  function cycleStatus(id) {
+    var i = records.findIndex(function (r) { return r.id === id; });
+    if (i === -1) return;
+    var idx = STATUSES.indexOf(records[i].status);
+    records[i].status = STATUSES[(idx + 1) % STATUSES.length];
+    records[i]._pendingStatus = true;
+    saveRecords();
+    renderHistorico();
+    trySync();
+  }
+
+  function doDelete(id) {
+    var i = records.findIndex(function (r) { return r.id === id; });
+    if (i === -1) return;
+    confirmDelId = null;
+    if (!records[i]._synced) {
+      // nunca foi enviado pro servidor - pode apagar local sem senha, não tem risco
+      records = records.filter(function (r) { return r.id !== id; });
+      saveRecords();
+      showToast("Ocorrência removida.");
+      renderHistorico();
+      updateBadge();
+      return;
+    }
+    // já está no servidor - exige senha de administrador
+    openDeleteManutModal(id, "ocorrencia");
+  }
+
+  // ---------- render ----------
+  function renderHistorico() {
+    var el = document.getElementById("historico-content");
+    var visible = records.filter(function (r) { return !r._pendingDelete; });
+    if (visible.length === 0) {
+      el.innerHTML = '<div class="empty-state">' +
+        '<div style="font-size:28px;">🗂️</div>' +
+        '<p>Nenhuma ocorrência registrada ainda.</p>' +
+        '<p style="opacity:.7;font-size:13px;">Use a aba Registrar para lançar a primeira.</p>' +
+        '</div>';
+      return;
+    }
+    var html = '<div class="list">';
+    visible.forEach(function (r) {
+      var color = STATUS_COLOR[r.status] || "#333";
+      var pendente = !r._synced || r._pendingStatus || r._pendingUpdate;
+      html += '<div class="tag">' +
+        '<div class="tag-stub"><div class="tag-date">' + escapeHtml(fmtDate(r.data)) + '</div><div class="tag-setor">' + escapeHtml(r.setor) + '</div></div>' +
+        '<div class="tag-perf"></div>' +
+        '<div class="tag-body">' +
+          '<div class="tag-body-top">' +
+            '<div><div class="tag-tipo">' + escapeHtml(r.tipo) + '</div><div class="tag-causa">Causa: ' + escapeHtml(r.causa) + '</div>' +
+              (r.cultura ? '<div style="font-size:10.5px;color:#2F7DB0;font-weight:700;margin-top:2px;">' + escapeHtml(r.cultura) + '</div>' : '') +
+            '</div>' +
+            '<button class="stamp" style="border-color:' + color + ';color:' + color + '" data-cycle="' + r.id + '" title="Toque para mudar o status">' + escapeHtml(r.status) + '</button>' +
+          '</div>' +
+          '<p class="tag-desc">' + escapeHtml(r.descricao) + '</p>' +
+          (r.acao ? '<p class="tag-acao"><b>Ação:</b> ' + escapeHtml(r.acao) + '</p>' : '') +
+          ((r.fotos && r.fotos.length) ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">' +
+            r.fotos.map(function (f) { return '<img class="tag-photo" style="width:calc(50% - 3px);margin-top:0;" src="' + f + '" alt="Foto da ocorrência">'; }).join('') +
+            '</div>' : '') +
+          '<div class="tag-footer">' +
+            '<span class="tag-enc">' + escapeHtml(r.encarregado) + (pendente ? ' <span class="pending-badge">pendente</span>' : '') + '</span>' +
+            '<span style="display:flex;gap:10px;align-items:center;">' +
+              '<button class="del-btn" data-edit="' + r.id + '" title="Editar">✏️</button>' +
+              '<button class="del-btn" data-del="' + r.id + '" title="Excluir (admin)">🗑</button>' +
+            '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+
+    el.querySelectorAll("[data-cycle]").forEach(function (b) {
+      b.addEventListener("click", function () { cycleStatus(b.getAttribute("data-cycle")); });
+    });
+    el.querySelectorAll("[data-del]").forEach(function (b) {
+      b.addEventListener("click", function () { doDelete(b.getAttribute("data-del")); });
+    });
+    el.querySelectorAll("[data-edit]").forEach(function (b) {
+      b.addEventListener("click", function () { startEdit(b.getAttribute("data-edit")); });
+    });
+  }
+
+  function barRowHtml(label, count, total, color) {
+    var pct = total ? Math.round((count / total) * 100) : 0;
+    return '<div class="bar-row">' +
+      '<div class="bar-label-row"><span class="bar-label">' + escapeHtml(label) + '</span><span class="bar-count">' + count + '</span></div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+      '</div>';
+  }
+
+  function renderPainel() {
+    var el = document.getElementById("painel-content");
+    var visible = records.filter(function (r) { return !r._pendingDelete; });
+    var total = visible.length;
+    if (total === 0) {
+      el.innerHTML = '<div class="empty-state">Sem dados ainda. Registre a primeira ocorrência para ver o painel.</div>';
+      return;
+    }
+    var byTipo = {}, byCausa = {}, byCultura = {}, byStatus = { "Aberto": 0, "Em Andamento": 0, "Resolvido": 0 };
+    visible.forEach(function (r) {
+      byTipo[r.tipo] = (byTipo[r.tipo] || 0) + 1;
+      byCausa[r.causa] = (byCausa[r.causa] || 0) + 1;
+      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+      var culturaKey = r.cultura || "Sem cultura";
+      byCultura[culturaKey] = (byCultura[culturaKey] || 0) + 1;
+    });
+    var tipoEntries = Object.keys(byTipo).map(function (k) { return [k, byTipo[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    var causaEntries = Object.keys(byCausa).map(function (k) { return [k, byCausa[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    var culturaEntries = Object.keys(byCultura).map(function (k) { return [k, byCultura[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    var topCausas = causaEntries.slice(0, 3);
+    var kpiColors = ["#C1501F", "#8A5A44", "#2E6690"];
+
+    var html = '<div class="kpi-row">' +
+      '<div class="kpi-tile"><div class="kpi-num">' + total + '</div><div class="kpi-label">Total de Ocorrências</div></div>' +
+      '</div>';
+
+    if (topCausas.length) {
+      html += '<div class="kpi-row">';
+      topCausas.forEach(function (e, i) {
+        var pct = total ? Math.round((e[1] / total) * 100) : 0;
+        var col = kpiColors[i % kpiColors.length];
+        html += '<div class="kpi-tile" style="border-color:' + col + '"><div class="kpi-num" style="color:' + col + '">' + pct + '%</div><div class="kpi-label">Causa: ' + escapeHtml(e[0]) + '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="card"><div class="card-tag"></div><h3 class="panel-title">Status</h3>';
+    STATUSES.forEach(function (s) { html += barRowHtml(s, byStatus[s] || 0, total, STATUS_COLOR[s]); });
+    html += '</div>';
+
+    html += '<div class="card"><div class="card-tag"></div><h3 class="panel-title">Por Cultura</h3>';
+    culturaEntries.forEach(function (e, i) { html += barRowHtml(e[0], e[1], total, PALETTE[i % PALETTE.length]); });
+    html += '</div>';
+
+    html += '<div class="card"><div class="card-tag"></div><h3 class="panel-title">Por Tipo de Ocorrência</h3>';
+    tipoEntries.forEach(function (e, i) { html += barRowHtml(e[0], e[1], total, PALETTE[i % PALETTE.length]); });
+    html += '</div>';
+
+    html += '<div class="card"><div class="card-tag"></div><h3 class="panel-title">Por Causa Provável</h3>';
+    causaEntries.forEach(function (e, i) { html += barRowHtml(e[0], e[1], total, PALETTE[i % PALETTE.length]); });
+    html += '</div>';
+
+    el.innerHTML = html;
+  }
+
+  // ============================================================
+  // MANUTENÇÃO PREVENTIVA
+  // ============================================================
+
+  function parseISODate(str) {
+    // aceita "YYYY-MM-DD" (input date) ou "DD/MM/YYYY" (vindo do servidor/planilha)
+    if (!str) return null;
+    var s = String(str);
+    var m1 = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m1) return new Date(Date.UTC(parseInt(m1[1], 10), parseInt(m1[2], 10) - 1, parseInt(m1[3], 10)));
+    var m2 = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m2) return new Date(Date.UTC(parseInt(m2[3], 10), parseInt(m2[2], 10) - 1, parseInt(m2[1], 10)));
+    return null;
+  }
+  function todayUTC() {
+    var t = new Date();
+    return new Date(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()));
+  }
+  function addDaysUTC(date, days) {
+    var d = new Date(date.getTime());
+    d.setUTCDate(d.getUTCDate() + days);
+    return d;
+  }
+  function diffDaysUTC(a, b) {
+    return Math.round((a.getTime() - b.getTime()) / 86400000);
+  }
+  function fmtDateUTC(d) {
+    if (!d) return "";
+    var dd = String(d.getUTCDate()).padStart(2, "0");
+    var mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    return dd + "/" + mm + "/" + d.getUTCFullYear();
+  }
+
+  function getCulturaOf(talhaoObj) {
+    return currentCulturas.find(function (c) { return c.nome === talhaoObj.cultura; }) || { nome: talhaoObj.cultura, intervalo: 15 };
+  }
+
+  function computeSetorStatus(talhaoObj) {
+    var recs = manutRecords.filter(function (r) {
+      return r.setor === talhaoObj.nome && !r._pendingDelete;
+    });
+    if (!recs.length) {
+      return { status: "nunca", lastDate: null, diasDesde: null, proxima: null, diasAte: null };
+    }
+    recs.sort(function (a, b) {
+      var da = parseISODate(a.data), db = parseISODate(b.data);
+      return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+    });
+    var intervalo = getCulturaOf(talhaoObj).intervalo;
+    var last = parseISODate(recs[0].data);
+    var today = todayUTC();
+    var proxima = addDaysUTC(last, intervalo);
+    var diasDesde = diffDaysUTC(today, last);
+    var diasAte = diffDaysUTC(proxima, today);
+    var status = diasAte < 0 ? "atrasado" : (diasAte <= 3 ? "proximo" : "em_dia");
+    return { status: status, lastDate: last, diasDesde: diasDesde, proxima: proxima, diasAte: diasAte, ultimoRegistro: recs[0] };
+  }
+
+  var MANUT_STATUS_COLOR = { atrasado: "#C1501F", proximo: "#D6A233", em_dia: "#4C7C59", nunca: "#8A8072" };
+  var MANUT_STATUS_LABEL = {
+    atrasado: "Atrasado", proximo: "Próximo do prazo", em_dia: "Em dia", nunca: "Nunca registrada"
+  };
+
+  function renderManutencao() {
+    var el = document.getElementById("manutencao-content");
+    // Defensivo: nunca deixa a aba "sumir" mesmo se o cache local ficar vazio por algum motivo.
+    if (!currentCulturas.length) currentCulturas = CULTURAS_PADRAO.slice();
+    if (!currentTalhoes.length) currentTalhoes = TALHOES_PADRAO.slice();
+
+    var html = '<button class="photo-btn" id="btn-open-manut-generic" style="background:#C1501F;margin-bottom:4px;">➕ Registrar Manutenção</button>';
+    var order = { atrasado: 0, proximo: 1, nunca: 2, em_dia: 3 };
+
+    currentCulturas.forEach(function (cultura) {
+      var talhoesDaCultura = currentTalhoes.filter(function (t) { return t.cultura === cultura.nome; });
+      if (!talhoesDaCultura.length) return;
+
+      var withStatus = talhoesDaCultura.map(function (t) { return { talhao: t, info: computeSetorStatus(t) }; });
+      withStatus.sort(function (a, b) { return order[a.info.status] - order[b.info.status]; });
+
+      html += '<div style="display:flex;align-items:baseline;gap:8px;margin:18px 0 10px;">' +
+        '<h3 style="font-family:\'Oswald\',sans-serif;font-size:16px;font-weight:600;color:#241F1A;margin:0;">' + escapeHtml(cultura.nome) + '</h3>' +
+        '<span style="font-size:11.5px;color:#6B6153;">reentrada a cada ' + cultura.intervalo + ' dias</span>' +
+      '</div><div>';
+
+      withStatus.forEach(function (item) {
+        var t = item.talhao, info = item.info;
+        var color = MANUT_STATUS_COLOR[info.status];
+        var linhaDireita;
+        if (info.status === "nunca") {
+          linhaDireita = '<span style="color:' + color + ';font-weight:600;">Nunca registrada</span>';
+        } else if (info.status === "atrasado") {
+          linhaDireita = 'Última: ' + fmtDateUTC(info.lastDate) + ' · <span style="color:' + color + ';font-weight:700;">Atrasado ' + Math.abs(info.diasAte) + 'd</span>';
+        } else {
+          linhaDireita = 'Última: ' + fmtDateUTC(info.lastDate) + ' · <span style="color:' + color + ';font-weight:700;">Próx.: ' + fmtDateUTC(info.proxima) + '</span>';
+        }
+        var expanded = !!manutExpanded[t.nome];
+        html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-left:4px solid ' + color + ';border-radius:4px;margin-bottom:6px;overflow:hidden;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;cursor:pointer;" data-toggle-hist="' + escapeHtml(t.nome) + '">' +
+            '<span style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;color:#241F1A;flex-shrink:0;">' + escapeHtml(t.nome) + ' <span style="font-size:10px;color:#B0A78E;">' + (expanded ? '▲' : '▼') + '</span></span>' +
+            '<span style="font-size:11.5px;color:#6B6153;text-align:right;">' + linhaDireita + '</span>' +
+          '</div>';
+        if (expanded) {
+          var hist = manutRecords.filter(function (r) { return r.setor === t.nome && !r._pendingDelete; })
+            .sort(function (a, b) {
+              var da = parseISODate(a.data), db = parseISODate(b.data);
+              return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+            });
+          html += '<div style="padding:0 12px 10px;border-top:1px dashed #E5DFC9;">';
+          if (!hist.length) {
+            html += '<p style="font-size:11.5px;color:#8A8072;margin:8px 0 0;">Sem registros ainda.</p>';
+          }
+          hist.forEach(function (r) {
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0EAD9;">' +
+              '<div style="font-size:11.5px;color:#3A332B;">' +
+                '<b>' + escapeHtml(fmtDateUTC(parseISODate(r.data))) + '</b> · ' + escapeHtml(r.encarregado) +
+                (r.observacao ? '<br><span style="color:#6B6153;">' + escapeHtml(r.observacao) + '</span>' : '') +
+              '</div>' +
+              '<button class="del-btn" data-del-manut="' + r.id + '" title="Excluir (admin)">🗑</button>' +
+            '</div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    });
+
+    el.innerHTML = html;
+
+    var btnGeneric = document.getElementById("btn-open-manut-generic");
+    if (btnGeneric) btnGeneric.addEventListener("click", function () { openManutModal(null); });
+
+    el.querySelectorAll("[data-toggle-hist]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var nome = b.getAttribute("data-toggle-hist");
+        manutExpanded[nome] = !manutExpanded[nome];
+        renderManutencao();
+      });
+    });
+    el.querySelectorAll("[data-del-manut]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openDeleteManutModal(b.getAttribute("data-del-manut"));
+      });
+    });
+  }
+
+  function openDeleteManutModal(id, kind) {
+    pendingDeleteManutId = id;
+    pendingDeleteKind = kind || "manutencao";
+    document.getElementById("delmanut-title").textContent = pendingDeleteKind === "ocorrencia" ? "🔒 Excluir Ocorrência" : "🔒 Excluir Registro de Manutenção";
+    document.getElementById("delmanut-pass").value = "";
+    document.getElementById("delmanut-result").style.display = "none";
+    document.getElementById("modal-delmanut-overlay").classList.add("active");
+  }
+  function closeDeleteManutModal() {
+    document.getElementById("modal-delmanut-overlay").classList.remove("active");
+    pendingDeleteManutId = null;
+  }
+  function confirmDeleteManut() {
+    var pass = document.getElementById("delmanut-pass").value.trim();
+    var resultEl = document.getElementById("delmanut-result");
+    resultEl.className = "test-result";
+    resultEl.style.display = "block";
+    if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a sincronização primeiro."; return; }
+    if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+    if (!navigator.onLine) { resultEl.className = "test-result fail"; resultEl.textContent = "Precisa de internet para excluir."; return; }
+    resultEl.textContent = "Excluindo...";
+    var action = pendingDeleteKind === "ocorrencia" ? "delete" : "delete_manutencao";
+    postToBackend({ action: action, adminToken: pass, id: pendingDeleteManutId }).then(function (res) {
+      if (res && res.ok) {
+        if (pendingDeleteKind === "ocorrencia") {
+          records = records.filter(function (r) { return r.id !== pendingDeleteManutId; });
+          saveRecords();
+          showToast("Ocorrência excluída.");
+          closeDeleteManutModal();
+          renderHistorico();
+        } else {
+          manutRecords = manutRecords.filter(function (r) { return r.id !== pendingDeleteManutId; });
+          saveManutRecords();
+          showToast("Registro excluído.");
+          closeDeleteManutModal();
+          renderManutencao();
+        }
+        updateBadge();
+      } else {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = (res && res.error) ? res.error : "Não consegui excluir.";
+      }
+    }).catch(function (err) {
+      resultEl.className = "test-result fail";
+      resultEl.textContent = "Erro de conexão: " + (err && err.message ? err.message : String(err));
+    });
+  }
+
+  function populateManutSetorSelect(culturaNome) {
+    var setorSelect = document.getElementById("manut-setor-select");
+    var talhoesDaCultura = currentTalhoes.filter(function (t) { return t.cultura === culturaNome; });
+    setorSelect.innerHTML = "";
+    talhoesDaCultura.forEach(function (t) {
+      var opt = document.createElement("option");
+      opt.value = t.nome; opt.textContent = t.nome;
+      setorSelect.appendChild(opt);
+    });
+  }
+
+  // Preenche o seletor de Setor/Talhão do formulário de ocorrências, filtrado
+  // pela cultura escolhida. Se o registro sendo editado tem um setor antigo
+  // (texto livre, de antes desse campo virar lista), preserva ele como opção
+  // extra pra não perder o dado.
+  function populateOcorrenciaSetorSelect(culturaNome, preservarValor) {
+    var setorSelect = document.getElementById("f-setor");
+    var valorAtual = setorSelect.value;
+    var talhoesDaCultura = currentTalhoes.filter(function (t) { return t.cultura === culturaNome; });
+    setorSelect.innerHTML = "";
+    talhoesDaCultura.forEach(function (t) {
+      var opt = document.createElement("option");
+      opt.value = t.nome; opt.textContent = t.nome;
+      setorSelect.appendChild(opt);
+    });
+    var alvo = preservarValor !== undefined ? preservarValor : valorAtual;
+    var jaExiste = talhoesDaCultura.some(function (t) { return t.nome === alvo; });
+    if (alvo && !jaExiste) {
+      var extra = document.createElement("option");
+      extra.value = alvo; extra.textContent = alvo + " (antigo)";
+      setorSelect.appendChild(extra);
+    }
+    if (alvo) setorSelect.value = alvo;
+  }
+
+  function openManutModal(setorNome) {
+    var culturas = currentCulturas.length ? currentCulturas : CULTURAS_PADRAO;
+    var culturaSelect = document.getElementById("manut-cultura-select");
+    culturaSelect.innerHTML = "";
+    culturas.forEach(function (c) {
+      var opt = document.createElement("option");
+      opt.value = c.nome; opt.textContent = c.nome;
+      culturaSelect.appendChild(opt);
+    });
+
+    var preSelectedTalhao = setorNome ? currentTalhoes.find(function (t) { return t.nome === setorNome; }) : null;
+    var culturaInicial = preSelectedTalhao ? preSelectedTalhao.cultura : (culturas[0] && culturas[0].nome);
+    culturaSelect.value = culturaInicial;
+    populateManutSetorSelect(culturaInicial);
+    if (setorNome) document.getElementById("manut-setor-select").value = setorNome;
+
+    document.getElementById("manut-data").value = todayStr();
+    document.getElementById("manut-encarregado").value = "";
+    document.getElementById("manut-observacao").value = "";
+    document.getElementById("modal-manut-overlay").classList.add("active");
+  }
+  function closeManutModal() {
+    document.getElementById("modal-manut-overlay").classList.remove("active");
+  }
+
+  function handleSaveManutencao() {
+    try {
+      var setorSelecionado = document.getElementById("manut-setor-select").value;
+      var data = document.getElementById("manut-data").value || todayStr();
+      var encarregado = document.getElementById("manut-encarregado").value.trim();
+      var observacao = document.getElementById("manut-observacao").value.trim();
+      if (!setorSelecionado) {
+        showToast("Selecione o talhão/setor.");
+        return;
+      }
+      if (!encarregado) {
+        showToast("Preencha o nome do encarregado.");
+        return;
+      }
+      var rec = {
+        id: uid(), setor: setorSelecionado, data: data, encarregado: encarregado, observacao: observacao,
+        _synced: false, _pendingDelete: false
+      };
+      manutRecords.unshift(rec);
+      if (!saveManutRecords()) return;
+      showToast("Manutenção registrada.");
+      closeManutModal();
+      renderManutencao();
+      updateBadge();
+      trySync();
+    } catch (err) {
+      showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
+    }
+  }
+
+  function handleSave() {
+    var cultura = document.getElementById("f-cultura").value;
+    var setor = document.getElementById("f-setor").value.trim();
+    var data = document.getElementById("f-data").value || todayStr();
+    var tipo = document.getElementById("f-tipo").value;
+    var causa = document.getElementById("f-causa").value;
+    var encarregado = document.getElementById("f-encarregado").value.trim();
+    var descricao = document.getElementById("f-descricao").value.trim();
+    var acao = document.getElementById("f-acao").value.trim();
+
+    if (!setor || !tipo || !causa || !encarregado || !descricao) {
+      showToast("Preencha setor, tipo, causa, encarregado e descrição.");
+      return;
+    }
+
+    if (editingId) {
+      var i = records.findIndex(function (r) { return r.id === editingId; });
+      if (i === -1) { resetForm(); return; }
+      var rec = records[i];
+      rec.cultura = cultura; rec.setor = setor; rec.data = data; rec.tipo = tipo; rec.causa = causa;
+      rec.encarregado = encarregado; rec.descricao = descricao; rec.acao = acao;
+      rec.fotos = pendingFotos.slice();
+
+      if (rec._synced) rec._pendingUpdate = true;
+      saveRecords();
+      showToast("Ocorrência atualizada.");
+      resetForm();
+      switchTab("historico");
+      trySync();
+      return;
+    }
+
+    var newRec = {
+      id: uid(), status: "Aberto", cultura: cultura, data: data, setor: setor, tipo: tipo, causa: causa,
+      encarregado: encarregado, descricao: descricao, acao: acao, fotos: pendingFotos.slice(),
+      _synced: false, _pendingStatus: false, _pendingDelete: false, _pendingUpdate: false
+    };
+    records.unshift(newRec);
+    if (saveRecords()) {
+      showToast("Ocorrência registrada.");
+      resetForm();
+      switchTab("historico");
+      trySync();
+    }
+  }
+
+  // ---------- sincronização ----------
+  function updateSyncUI(state, text) {
+    var dot = document.getElementById("sync-dot");
+    var label = document.getElementById("sync-text");
+    var colors = { ok: "#4C7C59", warn: "#D6A233", off: "#8A8072", busy: "#2E6690" };
+    dot.style.background = colors[state] || "#8A8072";
+    label.textContent = text;
+  }
+
+  function pendingCount() {
+    var oc = records.filter(function (r) { return !r._synced || r._pendingStatus || r._pendingUpdate || r._pendingDelete; }).length;
+    var mn = manutRecords.filter(function (r) { return !r._synced || r._pendingDelete; }).length;
+    return oc + mn;
+  }
+
+  function refreshSyncPill() {
+    if (!config.url) {
+      updateSyncUI("warn", "Sincronização não configurada");
+      return;
+    }
+    if (!navigator.onLine) {
+      var p = pendingCount();
+      updateSyncUI("off", "Offline" + (p ? " — " + p + " pendente(s)" : " — tudo salvo no aparelho"));
+      return;
+    }
+    var pc = pendingCount();
+    if (pc > 0) {
+      updateSyncUI("warn", pc + " pendente(s) para sincronizar");
+    } else {
+      var when = lastSyncAt ? lastSyncAt.toLocaleTimeString().slice(0, 5) : "--:--";
+      updateSyncUI("ok", "Sincronizado às " + when);
+    }
+  }
+
+  function postToBackend(payload) {
+    return fetch(config.url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          throw new Error("Resposta inesperada do servidor: " + text.slice(0, 150));
+        }
+      });
+    });
+  }
+
+  function trySync(silent) {
+    if (!config.url || !config.token) { refreshSyncPill(); return Promise.resolve(); }
+    if (!navigator.onLine) { refreshSyncPill(); return Promise.resolve(); }
+    if (syncing) return Promise.resolve();
+    syncing = true;
+    updateSyncUI("busy", "Sincronizando...");
+
+    var toCreate = records.filter(function (r) { return !r._synced; });
+    var toUpdateStatus = records.filter(function (r) { return r._synced && r._pendingStatus && !r._pendingDelete; });
+    var toUpdateFull = records.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toDelete = records.filter(function (r) { return r._pendingDelete; });
+    var toCreateManut = manutRecords.filter(function (r) { return !r._synced; });
+    var syncErrors = [];
+
+    var chain = Promise.resolve();
+
+    toCreate.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "create", id: r.id, data: r.data, setor: r.setor,
+          tipo: r.tipo, causa: r.causa, encarregado: r.encarregado, descricao: r.descricao,
+          acao: r.acao, status: r.status, fotos: r.fotos || [], cultura: r.cultura || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._synced = true;
+            if (res.fotoUrls) r.fotos = res.fotoUrls;
+            saveRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro desconhecido ao criar");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toUpdateFull.forEach(function (r) {
+      chain = chain.then(function () {
+        var payload = {
+          token: config.token, action: "update", id: r.id, data: r.data, setor: r.setor,
+          tipo: r.tipo, causa: r.causa, encarregado: r.encarregado, descricao: r.descricao,
+          acao: r.acao, status: r.status, fotos: r.fotos || [], cultura: r.cultura || ""
+        };
+        return postToBackend(payload).then(function (res) {
+          if (res && res.ok) {
+            r._pendingUpdate = false;
+            if (res.fotoUrls) r.fotos = res.fotoUrls;
+            saveRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro desconhecido ao atualizar");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toUpdateStatus.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({ token: config.token, action: "update_status", id: r.id, status: r.status })
+          .then(function (res) {
+            if (res && res.ok) { r._pendingStatus = false; saveRecords(); }
+            else { syncErrors.push((res && res.error) ? res.error : "erro ao mudar status"); }
+          })
+          .catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+
+
+    toCreateManut.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "create_manutencao", id: r.id, setor: r.setor,
+          data: r.data, encarregado: r.encarregado, observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) { r._synced = true; saveManutRecords(); }
+          else { syncErrors.push((res && res.error) ? res.error : "erro ao criar manutenção"); }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    // puxar o que já está sincronizado (visão unificada de todos os celulares)
+    chain = chain.then(function () {
+      return fetch(config.url + "?t=" + Date.now()).then(function (r) { return r.text(); }).then(function (text) {
+        var res;
+        try { res = JSON.parse(text); } catch (e) {
+          syncErrors.push("Resposta inesperada ao buscar dados: " + text.slice(0, 150));
+          return;
+        }
+        if (!res || !res.ok) { syncErrors.push((res && res.error) ? res.error : "erro ao buscar dados"); return; }
+        if (res.tipos && res.tipos.length) {
+          currentTipos = res.tipos;
+          localStorage.setItem(TIPOS_CACHE_KEY, JSON.stringify(currentTipos));
+          populateSelect("f-tipo", currentTipos);
+        }
+        if (res.causas && res.causas.length) {
+          currentCausas = res.causas;
+          localStorage.setItem(CAUSAS_CACHE_KEY, JSON.stringify(currentCausas));
+          populateSelect("f-causa", currentCausas);
+        }
+        if (res.culturas && res.culturas.length) {
+          currentCulturas = res.culturas;
+          localStorage.setItem(CULTURAS_CACHE_KEY, JSON.stringify(currentCulturas));
+          populateSelect("f-cultura", currentCulturas.map(function (c) { return c.nome; }));
+        }
+        if (res.talhoes && res.talhoes.length) {
+          currentTalhoes = res.talhoes;
+          localStorage.setItem(TALHOES_CACHE_KEY, JSON.stringify(currentTalhoes));
+          if (!editingId) populateOcorrenciaSetorSelect(document.getElementById("f-cultura").value);
+        }
+        if (res.manutencoes) {
+          var localManutIds = {};
+          manutRecords.forEach(function (r) { localManutIds[r.id] = true; });
+          res.manutencoes.forEach(function (row) {
+            if (!row.id || localManutIds[row.id]) return;
+            manutRecords.push({
+              id: row.id, setor: row.setor, data: row.data, encarregado: row.encarregado,
+              observacao: row.observacao || "", _synced: true, _pendingDelete: false
+            });
+          });
+          saveManutRecords();
+        }
+        if (!res.rows) return;
+        var localIds = {};
+        records.forEach(function (r) { localIds[r.id] = true; });
+        res.rows.forEach(function (row) {
+          if (!row.id || localIds[row.id]) return;
+          records.push({
+            id: row.id, data: row.data, setor: row.setor, tipo: row.tipo, causa: row.causa,
+            encarregado: row.encarregado, descricao: row.descricao, acao: row.acao,
+            status: row.status || "Aberto", fotos: row.fotos || [], cultura: row.cultura || "",
+            _synced: true, _pendingStatus: false, _pendingDelete: false, _pendingUpdate: false
+          });
+        });
+        records.sort(function (a, b) { return (b.data || "").localeCompare(a.data || ""); });
+        saveRecords();
+      }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+    });
+
+    return chain.then(function () {
+      syncing = false;
+      lastSyncAt = new Date();
+      refreshSyncPill();
+      updateBadge();
+      if (syncErrors.length) {
+        showToast("Erro ao sincronizar: " + syncErrors[0]);
+      }
+      if (document.getElementById("tab-historico").classList.contains("active")) renderHistorico();
+      if (document.getElementById("tab-painel").classList.contains("active")) renderPainel();
+      if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao();
+    }).catch(function (err) {
+      syncing = false;
+      refreshSyncPill();
+      showToast("Erro ao sincronizar: " + (err && err.message ? err.message : String(err)));
+    });
+  }
+
+  function testConnection() {
+    var url = document.getElementById("cfg-url").value.trim();
+    var token = document.getElementById("cfg-token").value.trim();
+    var resultEl = document.getElementById("test-result");
+    resultEl.className = "test-result";
+    resultEl.textContent = "Testando...";
+    resultEl.style.display = "block";
+    if (!url || !token) {
+      resultEl.className = "test-result fail";
+      resultEl.textContent = "Preencha a URL e o token antes de testar.";
+      return;
+    }
+    fetch(url + "?t=" + Date.now())
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.ok) {
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Conexão funcionando! " + (res.rows ? res.rows.length : 0) + " registro(s) encontrados no servidor.";
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = "O servidor respondeu, mas algo está errado. Confira a URL.";
+        }
+      })
+      .catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Não consegui conectar. Confira a URL, sua internet, e se o Apps Script foi publicado como 'Qualquer pessoa'.";
+      });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    try {
+      var cachedTipos = localStorage.getItem(TIPOS_CACHE_KEY);
+      if (cachedTipos) currentTipos = JSON.parse(cachedTipos);
+    } catch (e) {}
+    try {
+      var cachedCausas = localStorage.getItem(CAUSAS_CACHE_KEY);
+      if (cachedCausas) currentCausas = JSON.parse(cachedCausas);
+    } catch (e) {}
+    try {
+      var cachedCulturas = localStorage.getItem(CULTURAS_CACHE_KEY);
+      if (cachedCulturas) currentCulturas = JSON.parse(cachedCulturas);
+    } catch (e) {}
+    try {
+      var cachedTalhoes = localStorage.getItem(TALHOES_CACHE_KEY);
+      if (cachedTalhoes) currentTalhoes = JSON.parse(cachedTalhoes);
+    } catch (e) {}
+    populateSelect("f-tipo", currentTipos);
+    populateSelect("f-causa", currentCausas);
+    populateSelect("f-cultura", currentCulturas.map(function (c) { return c.nome; }));
+    populateOcorrenciaSetorSelect(document.getElementById("f-cultura").value);
+    document.getElementById("f-data").value = todayStr();
+    renderFotoGallery();
+
+    loadRecords();
+    loadManutRecords();
+    loadConfig();
+    document.getElementById("cfg-url").value = config.url || "";
+    document.getElementById("cfg-token").value = config.token || "";
+    updateBadge();
+    refreshSyncPill();
+
+    document.querySelectorAll(".nav-btn").forEach(function (b) {
+      b.addEventListener("click", function () { switchTab(b.getAttribute("data-tab")); });
+    });
+
+    document.getElementById("btn-foto").addEventListener("click", function () {
+      document.getElementById("f-foto-input").click();
+    });
+    document.getElementById("f-foto-input").addEventListener("change", function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (pendingFotos.length >= MAX_FOTOS) {
+        showToast("Máximo de " + MAX_FOTOS + " fotos por ocorrência.");
+        e.target.value = "";
+        return;
+      }
+      var btn = document.getElementById("btn-foto");
+      btn.textContent = "Processando...";
+      compressImage(file, 1000, 0.62, function (dataUrl) {
+        pendingFotos.push(dataUrl);
+        renderFotoGallery();
+        e.target.value = "";
+      });
+    });
+
+    document.getElementById("btn-salvar").addEventListener("click", handleSave);
+    document.getElementById("btn-cancel-edit").addEventListener("click", cancelEdit);
+
+    document.getElementById("btn-save-manut").addEventListener("click", handleSaveManutencao);
+    document.getElementById("btn-close-manut-modal").addEventListener("click", closeManutModal);
+    document.getElementById("modal-manut-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-manut-overlay") closeManutModal();
+    });
+    document.getElementById("manut-cultura-select").addEventListener("change", function (e) {
+      populateManutSetorSelect(e.target.value);
+    });
+    document.getElementById("f-cultura").addEventListener("change", function (e) {
+      populateOcorrenciaSetorSelect(e.target.value, "");
+    });
+    document.getElementById("btn-close-delmanut-modal").addEventListener("click", closeDeleteManutModal);
+    document.getElementById("modal-delmanut-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-delmanut-overlay") closeDeleteManutModal();
+    });
+    document.getElementById("btn-confirm-delmanut").addEventListener("click", confirmDeleteManut);
+
+    // ---- config modal ----
+    document.getElementById("btn-settings").addEventListener("click", function () {
+      document.getElementById("modal-overlay").classList.add("active");
+      document.getElementById("admin-tipos").value = currentTipos.join("\n");
+      document.getElementById("admin-result").style.display = "none";
+      document.getElementById("admin-causas").value = currentCausas.join("\n");
+      document.getElementById("admin-causas-result").style.display = "none";
+      document.getElementById("admin-culturas").value = currentCulturas.map(function (c) { return c.nome + ", " + c.intervalo; }).join("\n");
+      document.getElementById("admin-culturas-result").style.display = "none";
+      document.getElementById("admin-talhoes").value = currentTalhoes.map(function (t) { return t.nome + ", " + t.cultura; }).join("\n");
+      document.getElementById("admin-talhoes-result").style.display = "none";
+    });
+    document.getElementById("btn-close-modal").addEventListener("click", function () {
+      document.getElementById("modal-overlay").classList.remove("active");
+    });
+    document.getElementById("modal-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-overlay") e.currentTarget.classList.remove("active");
+    });
+    document.getElementById("btn-test-connection").addEventListener("click", testConnection);
+    document.getElementById("btn-save-config").addEventListener("click", function () {
+      config.url = document.getElementById("cfg-url").value.trim();
+      config.token = document.getElementById("cfg-token").value.trim();
+      saveConfig();
+      document.getElementById("modal-overlay").classList.remove("active");
+      showToast("Configuração salva.");
+      refreshSyncPill();
+      trySync();
+    });
+
+    document.getElementById("btn-sync-now").addEventListener("click", function () { trySync(); });
+
+    document.getElementById("btn-save-tipos").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var lines = document.getElementById("admin-tipos").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+      var resultEl = document.getElementById("admin-result");
+      resultEl.className = "test-result";
+      resultEl.style.display = "block";
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      if (!lines.length) { resultEl.className = "test-result fail"; resultEl.textContent = "A lista não pode ficar vazia."; return; }
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_tipos", adminToken: pass, tipos: lines }).then(function (res) {
+        if (res && res.ok) {
+          currentTipos = res.tipos || lines;
+          localStorage.setItem(TIPOS_CACHE_KEY, JSON.stringify(currentTipos));
+          populateSelect("f-tipo", currentTipos);
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Tipos atualizados! Já valem para todos os celulares.";
+          document.getElementById("admin-pass").value = "";
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+        }
+      }).catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão. Verifique a internet.";
+      });
+    });
+
+    document.getElementById("btn-save-causas").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var lines = document.getElementById("admin-causas").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+      var resultEl = document.getElementById("admin-causas-result");
+      resultEl.className = "test-result";
+      resultEl.style.display = "block";
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      if (!lines.length) { resultEl.className = "test-result fail"; resultEl.textContent = "A lista não pode ficar vazia."; return; }
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_causas", adminToken: pass, causas: lines }).then(function (res) {
+        if (res && res.ok) {
+          currentCausas = res.causas || lines;
+          localStorage.setItem(CAUSAS_CACHE_KEY, JSON.stringify(currentCausas));
+          populateSelect("f-causa", currentCausas);
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Causas atualizadas! Já valem para todos os celulares.";
+          document.getElementById("admin-pass").value = "";
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+        }
+      }).catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão. Verifique a internet.";
+      });
+    });
+
+    document.getElementById("btn-save-culturas").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var lines = document.getElementById("admin-culturas").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+      var culturasArr = lines.map(function (l) {
+        var parts = l.split(",");
+        var nome = (parts[0] || "").trim();
+        var intervalo = parseInt((parts[1] || "").trim(), 10);
+        return { nome: nome, intervalo: isNaN(intervalo) ? 15 : intervalo };
+      }).filter(function (c) { return c.nome; });
+      var resultEl = document.getElementById("admin-culturas-result");
+      resultEl.className = "test-result";
+      resultEl.style.display = "block";
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      if (!culturasArr.length) { resultEl.className = "test-result fail"; resultEl.textContent = "A lista não pode ficar vazia. Use o formato: Nome, dias"; return; }
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_culturas", adminToken: pass, culturas: culturasArr }).then(function (res) {
+        if (res && res.ok) {
+          currentCulturas = res.culturas || culturasArr;
+          localStorage.setItem(CULTURAS_CACHE_KEY, JSON.stringify(currentCulturas));
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Culturas atualizadas! Já valem para todos os celulares.";
+          document.getElementById("admin-pass").value = "";
+          if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao();
+          updateBadge();
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+        }
+      }).catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão. Verifique a internet.";
+      });
+    });
+
+    document.getElementById("btn-save-talhoes").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var lines = document.getElementById("admin-talhoes").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+      var talhoesArr = lines.map(function (l) {
+        var parts = l.split(",");
+        var nome = (parts[0] || "").trim();
+        var cultura = (parts[1] || "").trim();
+        return { nome: nome, cultura: cultura };
+      }).filter(function (t) { return t.nome && t.cultura; });
+      var resultEl = document.getElementById("admin-talhoes-result");
+      resultEl.className = "test-result";
+      resultEl.style.display = "block";
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      if (!talhoesArr.length) { resultEl.className = "test-result fail"; resultEl.textContent = "A lista não pode ficar vazia. Use o formato: Nome, Cultura"; return; }
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_talhoes", adminToken: pass, talhoes: talhoesArr }).then(function (res) {
+        if (res && res.ok) {
+          currentTalhoes = res.talhoes || talhoesArr;
+          localStorage.setItem(TALHOES_CACHE_KEY, JSON.stringify(currentTalhoes));
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Talhões atualizados! Já valem para todos os celulares.";
+          document.getElementById("admin-pass").value = "";
+          if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao();
+          updateBadge();
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+        }
+      }).catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão. Verifique a internet.";
+      });
+    });
+
+    window.addEventListener("online", function () { refreshSyncPill(); trySync(); });
+    window.addEventListener("offline", refreshSyncPill);
+    setInterval(function () { if (navigator.onLine) trySync(); }, 25000);
+
+    if (navigator.onLine) trySync();
+
+    setupOfflineReadiness();
+  });
+
+  function updateOfflinePill(state, text) {
+    var dot = document.getElementById("offline-dot");
+    var label = document.getElementById("offline-text");
+    var colors = { ok: "#4C7C59", warn: "#D6A233", off: "#8A8072", busy: "#2E6690" };
+    dot.style.background = colors[state] || "#8A8072";
+    label.textContent = text;
+  }
+
+  // Confere de verdade (olhando dentro do Cache Storage do navegador) se os
+  // arquivos essenciais do app já estão salvos para uso sem internet.
+  function checkOfflineReady() {
+    if (!("caches" in window)) {
+      updateOfflinePill("warn", "Este navegador não suporta uso offline.");
+      return;
+    }
+    caches.keys().then(function (names) {
+      var match = names.filter(function (n) { return n.indexOf("registro-irrigacao-") === 0; });
+      if (!match.length) {
+        updateOfflinePill("warn", "Ainda não preparado. Toque em \"Preparar p/ offline\".");
+        return;
+      }
+      var checks = match.map(function (name) {
+        return caches.open(name).then(function (cache) { return cache.keys(); });
+      });
+      Promise.all(checks).then(function (allKeys) {
+        var urls = [];
+        allKeys.forEach(function (keys) { keys.forEach(function (r) { urls.push(r.url); }); });
+        var hasHtml = urls.some(function (u) { return u.indexOf("index.html") > -1 || /\/$/.test(u); });
+        var hasIcon = urls.some(function (u) { return u.indexOf("icon-192") > -1 || u.indexOf("icon-512") > -1; });
+        if (hasHtml) {
+          updateOfflinePill("ok", "Pronto para uso offline" + (hasIcon ? "" : " (ícone não salvo, mas app funciona)"));
+        } else {
+          updateOfflinePill("warn", "Incompleto. Toque em \"Preparar p/ offline\".");
+        }
+      });
+    });
+  }
+
+  function forceOfflinePrep() {
+    updateOfflinePill("busy", "Preparando...");
+    if (!("serviceWorker" in navigator)) {
+      updateOfflinePill("warn", "Este navegador não suporta uso offline.");
+      return;
+    }
+    navigator.serviceWorker.register("./service-worker.js").then(function (reg) {
+      return reg.update();
+    }).then(function () {
+      setTimeout(checkOfflineReady, 1500);
+    }).catch(function (err) {
+      updateOfflinePill("warn", "Falha ao preparar: " + (err && err.message ? err.message : String(err)));
+    });
+  }
+
+  function setupOfflineReadiness() {
+    document.getElementById("btn-offline-check").addEventListener("click", forceOfflinePrep);
+    if (!("serviceWorker" in navigator)) {
+      updateOfflinePill("warn", "Este navegador não suporta uso offline.");
+      return;
+    }
+
+    // Quando uma versão nova do app assume o controle, recarrega a página
+    // automaticamente UMA vez - sem isso, o navegador podia ficar preso
+    // numa versão antiga guardada em cache até alguém desinstalar/limpar tudo.
+    var jaRecarregou = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (jaRecarregou) return;
+      jaRecarregou = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker.register("./service-worker.js").then(function (reg) {
+      // Força checar se existe uma versão mais nova assim que o app abre.
+      reg.update().catch(function () {});
+      setTimeout(checkOfflineReady, 1200);
+    }).catch(function (err) {
+      updateOfflinePill("warn", "Falha ao registrar: " + (err && err.message ? err.message : String(err)));
+    });
+
+    // E continua checando de tempos em tempos enquanto o app fica aberto.
+    setInterval(function () {
+      if (navigator.onLine && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.getRegistration().then(function (reg) {
+          if (reg) reg.update().catch(function () {});
+        });
+      }
+    }, 60000);
+  }
+})();
+</script>
+</body>
+</html>
