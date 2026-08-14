@@ -1812,6 +1812,12 @@
     }
     html += '</div>';
 
+    // ================= PAINEL DA NOITE =================
+    // Uma "noite" não cabe num dia só do calendário: começa às 20h de um dia
+    // e termina às 05h do dia seguinte. Este painel junta as duas datas num
+    // lugar só, pra o Fernando não ter que caçar informação em dois dias.
+    html += renderPainelNoite_(bombData);
+
     // ================= RONDAS NOTURNAS =================
     html += '<div style="margin-top:6px;padding-top:14px;border-top:2px solid #DCD3BC;">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
@@ -1906,6 +1912,121 @@
       return "📱 " + operadorDispositivo.nome;
     }
     return "📱 celular compartilhado";
+  }
+
+  // Monta o resumo de uma NOITE inteira. Como a noite atravessa a
+  // meia-noite, as rondas ficam gravadas em duas datas diferentes: as de
+  // horário >= 12:00 (ex.: 20:00, 23:00) ficam no dia de início, e as de
+  // madrugada (ex.: 02:00, 05:00) no dia seguinte. Isso junta as duas.
+  function noiteDeReferencia_(dataBase) {
+    // Se a pessoa está olhando de madrugada (antes das 12h), a "noite atual"
+    // começou ontem. Senão, começa hoje mesmo.
+    var agoraH = new Date().getHours();
+    var ehHoje = (dataBase === todayStr());
+    if (ehHoje && agoraH < 12) return addDiasISO_(dataBase, -1);
+    return dataBase;
+  }
+  function addDiasISO_(dataISO, n) {
+    var d = new Date(dataISO + "T00:00:00");
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  function renderPainelNoite_(dataBase) {
+    if (!currentRondasHorarios.length) return "";
+    var noiteIni = noiteDeReferencia_(dataBase);
+    var noiteFim = addDiasISO_(noiteIni, 1);
+
+    // cada horário previsto cai numa das duas datas
+    var itens = currentRondasHorarios.map(function (hp) {
+      var dataDaRonda = (minutosDeHora_(hp) >= 720) ? noiteIni : noiteFim;
+      var regs = rondaRecords.filter(function (r) {
+        return r.data === dataDaRonda && r.horarioPrevisto === hp && !r._pendingDelete;
+      });
+      return { horario: hp, data: dataDaRonda, regs: regs, feita: regs.length > 0 };
+    }).sort(function (a, b) {
+      // ordena na sequência real da noite: 20:00, 23:00, 02:00, 05:00
+      var ma = minutosDeHora_(a.horario), mb = minutosDeHora_(b.horario);
+      if (ma < 720) ma += 1440;
+      if (mb < 720) mb += 1440;
+      return ma - mb;
+    });
+
+    var feitas = itens.filter(function (i) { return i.feita; }).length;
+    var totalRondas = itens.length;
+    var todasFeitas = feitas === totalRondas;
+
+    var problemas = [];
+    var plantonistasDaNoite = {};
+    itens.forEach(function (i) {
+      i.regs.forEach(function (r) {
+        if (r.plantonista) plantonistasDaNoite[r.plantonista] = true;
+        if (!r.bombaLigada) problemas.push("Bomba " + r.bomba + " parada na ronda das " + i.horario + (r.motivoParada ? " (" + r.motivoParada + ")" : ""));
+        if (r.painelStatus === "Com problema") problemas.push("Painel da bomba " + r.bomba + " com alarme na ronda das " + i.horario);
+      });
+      // ronda feita muito fora do horário também é um problema de verdade
+      if (i.feita && i.regs[0].horarioReal) {
+        var atr = atrasoRonda_(i.horario, i.regs[0].horarioReal);
+        if (atr !== null && atr > 60) problemas.push("Ronda das " + i.horario + " registrada " + atr + "min depois do previsto");
+      }
+    });
+    var nomes = Object.keys(plantonistasDaNoite);
+
+    var corTopo = todasFeitas ? (problemas.length ? "#B8862B" : "#4C7C59") : "#B4442E";
+    var fundoTopo = todasFeitas ? (problemas.length ? "#FBF4E4" : "#F2F8ED") : "#FBEDE8";
+
+    var h = '<div style="margin-top:6px;padding-top:14px;border-top:2px solid #DCD3BC;">' +
+      '<div style="font-family:\'Oswald\',sans-serif;font-size:15px;font-weight:600;margin-bottom:8px;">🌗 Painel da Noite</div>' +
+      '<div style="background:' + fundoTopo + ';border-left:4px solid ' + corTopo + ';border-radius:4px;padding:10px 12px;margin-bottom:10px;">' +
+        '<div style="font-size:12px;color:#6B6153;">Noite de ' + escapeHtml(fmtDate(noiteIni)) + ' para ' + escapeHtml(fmtDate(noiteFim)) + '</div>' +
+        '<div style="font-family:\'Oswald\',sans-serif;font-size:20px;font-weight:700;color:' + corTopo + ';margin-top:2px;">' +
+          feitas + ' de ' + totalRondas + ' rondas feitas' +
+        '</div>' +
+        (nomes.length ? '<div style="font-size:12px;color:#4A4136;margin-top:2px;">👤 ' + escapeHtml(nomes.join(", ")) + '</div>' : '') +
+      '</div>';
+
+    // trilha da noite, em sequência
+    h += '<div style="display:flex;gap:5px;margin-bottom:10px;">';
+    itens.forEach(function (i) {
+      var cor = i.feita ? "#4C7C59" : "#D2C7AB";
+      var fundo = i.feita ? "#EAF3E4" : "#F2EFE6";
+      var horaReal = i.feita ? i.regs[0].horarioReal : "";
+      h += '<div style="flex:1;text-align:center;background:' + fundo + ';border:1px solid ' + cor + ';border-radius:4px;padding:6px 2px;">' +
+        '<div style="font-size:9px;color:#6B6153;">' + escapeHtml(i.horario) + '</div>' +
+        '<div style="font-size:15px;line-height:1.1;">' + (i.feita ? "✅" : "⬜") + '</div>' +
+        (horaReal ? '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:9px;color:#4A4136;">' + escapeHtml(horaReal) + '</div>' : '<div style="font-size:9px;color:#B4442E;font-weight:700;">faltou</div>') +
+      '</div>';
+    });
+    h += '</div>';
+
+    if (problemas.length) {
+      h += '<div style="background:#FBEDE8;border-radius:4px;padding:8px 10px;margin-bottom:10px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#8A2E2E;margin-bottom:4px;">🚨 O que deu errado nessa noite</div>';
+      problemas.forEach(function (p) {
+        h += '<div style="font-size:11.5px;color:#8A2E2E;margin-bottom:2px;">• ' + escapeHtml(p) + '</div>';
+      });
+      h += '</div>';
+    } else if (todasFeitas) {
+      h += '<div style="background:#F2F8ED;border-radius:4px;padding:8px 10px;margin-bottom:10px;font-size:11.5px;color:#2F6B1F;">✅ Noite sem ocorrência: todas as rondas feitas no horário, bombas rodando e painéis sem alarme.</div>';
+    }
+
+    // nível do reservatório ao longo da noite - é o que teria pegado o
+    // problema do reservatório esvaziando sem ninguém notar
+    var niveis = itens.filter(function (i) { return i.feita && i.regs[0].nivelReservatorio; })
+      .map(function (i) { return { horario: i.horario, nivel: i.regs[0].nivelReservatorio }; });
+    if (niveis.length) {
+      var ordem = { "Cheio": 4, "Médio": 3, "Baixo": 2, "Vazio": 1 };
+      var caindo = niveis.length > 1 && (ordem[niveis[niveis.length - 1].nivel] || 0) < (ordem[niveis[0].nivel] || 0);
+      h += '<div style="background:' + (caindo ? "#FBF4E4" : "#FFFDF8") + ';border:1px solid ' + (caindo ? "#D6A233" : "#DCD3BC") + ';border-radius:4px;padding:8px 10px;margin-bottom:10px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#4A4136;margin-bottom:4px;">💧 Reservatório ao longo da noite</div>' +
+        '<div style="font-size:12px;color:#4A4136;">' +
+          niveis.map(function (n) { return escapeHtml(n.horario) + ": <b>" + escapeHtml(n.nivel) + "</b>"; }).join(" → ") +
+        '</div>' +
+        (caindo ? '<div style="font-size:11.5px;color:#7A5A18;font-weight:700;margin-top:4px;">⚠ O nível caiu ao longo da noite — vale checar a captação.</div>' : '') +
+      '</div>';
+    }
+
+    h += '</div>';
+    return h;
   }
 
   function abrirModalRonda(horarioPrevisto) {
@@ -3073,7 +3194,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v13';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v14';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
