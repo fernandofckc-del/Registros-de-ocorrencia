@@ -498,6 +498,46 @@
     </div>
     <button class="photo-btn" id="btn-save-talhoes" style="background:#8A5A44">Salvar Talhões</button>
     <div id="admin-talhoes-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">📱 Este celular é de quem?</div>
+    <div class="modal-sub">Se o celular for pessoal, o nome já vem preenchido sozinho toda vez que registrar uma ronda. Se for um celular único da empresa, deixe em "compartilhado" — aí o nome é digitado a cada registro. Isso vale só neste aparelho, não precisa de senha.</div>
+    <div class="field">
+      <span class="field-label">Modo</span>
+      <select id="cfg-operador-modo">
+        <option value="compartilhado">Celular compartilhado (digitar o nome sempre)</option>
+        <option value="pessoal">Celular pessoal (nome fixo)</option>
+      </select>
+    </div>
+    <div class="field" id="cfg-operador-nome-wrap" style="display:none;">
+      <span class="field-label">Nome do dono deste celular</span>
+      <input id="cfg-operador-nome" list="cfg-operador-lista" placeholder="Ex.: Alex" autocomplete="off">
+      <datalist id="cfg-operador-lista"></datalist>
+    </div>
+    <button class="photo-btn" id="btn-save-operador" style="background:#2F7DB0">Salvar neste celular</button>
+    <div id="cfg-operador-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔒 Rondas Noturnas (administrador)</div>
+    <div class="modal-sub">Define de quanto em quanto tempo o plantonista tem que conferir as bombas. Um horário por linha, formato <b>HH:MM</b>. Vale para todos os celulares.</div>
+    <div class="field">
+      <span class="field-label">Horários das rondas</span>
+      <textarea id="admin-rondas-horarios" style="min-height:96px;" placeholder="20:00&#10;23:00&#10;02:00&#10;05:00"></textarea>
+    </div>
+    <div class="field">
+      <span class="field-label">Tipo de painel de cada bomba</span>
+      <div class="modal-sub" style="margin-bottom:6px;">Uma bomba por linha, formato: <b>número, tipo</b> — tipo é <b>soft</b> (soft starter: foto + digitar corrente/tensão/horímetro) ou <b>inversor</b> (só foto). Ex.: 2, soft</div>
+      <textarea id="admin-paineis-bombas" style="min-height:96px;" placeholder="1, inversor&#10;2, soft&#10;3, inversor&#10;4, soft"></textarea>
+    </div>
+    <div class="field">
+      <span class="field-label">Nomes que aparecem na sugestão</span>
+      <div class="modal-sub" style="margin-bottom:6px;">Um nome por linha — os plantonistas e quem mais fizer leitura de hidrômetro.</div>
+      <textarea id="admin-plantonistas" style="min-height:96px;" placeholder="Alex&#10;Elivelto&#10;André&#10;Ivonaldo"></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-rondas-config" style="background:#8A5A44">Salvar Configuração das Rondas</button>
+    <div id="admin-rondas-result" class="test-result"></div>
   </div>
 </div>
 
@@ -2733,6 +2773,21 @@
         return t.nome + ", " + t.cultura + (t.valvulas && t.valvulas.length ? ", " + t.valvulas.join("+") : "");
       }).join("\n");
       document.getElementById("admin-talhoes-result").style.display = "none";
+      // --- rondas noturnas ---
+      document.getElementById("admin-rondas-horarios").value = currentRondasHorarios.join("\n");
+      document.getElementById("admin-paineis-bombas").value = currentPaineisBombas.map(function (p) {
+        return p.bomba + ", " + p.tipo;
+      }).join("\n");
+      document.getElementById("admin-plantonistas").value = currentPlantonistas.join("\n");
+      document.getElementById("admin-rondas-result").style.display = "none";
+      // --- quem usa este celular (local, sem senha) ---
+      document.getElementById("cfg-operador-modo").value = operadorDispositivo.modo || "compartilhado";
+      document.getElementById("cfg-operador-nome").value = operadorDispositivo.nome || "";
+      document.getElementById("cfg-operador-nome-wrap").style.display =
+        (operadorDispositivo.modo === "pessoal") ? "" : "none";
+      document.getElementById("cfg-operador-lista").innerHTML =
+        currentPlantonistas.map(function (n) { return '<option value="' + escapeHtml(n) + '">'; }).join("");
+      document.getElementById("cfg-operador-result").style.display = "none";
     });
     document.getElementById("btn-close-modal").addEventListener("click", function () {
       document.getElementById("modal-overlay").classList.remove("active");
@@ -2846,6 +2901,79 @@
       });
     });
 
+    document.getElementById("cfg-operador-modo").addEventListener("change", function (e) {
+      document.getElementById("cfg-operador-nome-wrap").style.display = (e.target.value === "pessoal") ? "" : "none";
+    });
+
+    document.getElementById("btn-save-operador").addEventListener("click", function () {
+      var modo = document.getElementById("cfg-operador-modo").value;
+      var nome = document.getElementById("cfg-operador-nome").value.trim();
+      var resultEl = document.getElementById("cfg-operador-result");
+      resultEl.className = "test-result"; resultEl.style.display = "block";
+      if (modo === "pessoal" && !nome) {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Informe o nome do dono deste celular.";
+        return;
+      }
+      operadorDispositivo = { modo: modo, nome: modo === "pessoal" ? nome : "" };
+      saveOperador();
+      resultEl.className = "test-result ok";
+      resultEl.textContent = (modo === "pessoal")
+        ? "Pronto! O nome de " + nome + " já vem preenchido neste celular."
+        : "Celular marcado como compartilhado — o nome será digitado a cada registro.";
+    });
+
+    document.getElementById("btn-save-rondas-config").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var resultEl = document.getElementById("admin-rondas-result");
+      resultEl.className = "test-result"; resultEl.style.display = "block";
+
+      var horarios = document.getElementById("admin-rondas-horarios").value
+        .split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+      // valida formato E se a hora existe de verdade (pega coisa tipo 25:99)
+      var invalidos = horarios.filter(function (h) {
+        var m = /^(\d{1,2}):(\d{2})$/.exec(h);
+        if (!m) return true;
+        var hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+        return hh > 23 || mm > 59;
+      });
+      var paineis = document.getElementById("admin-paineis-bombas").value
+        .split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; })
+        .map(function (l) {
+          var partes = l.split(",").map(function (x) { return x.trim(); });
+          return { bomba: parseInt(partes[0], 10) || 0, tipo: (partes[1] || "").toLowerCase() === "soft" ? "soft" : "inversor" };
+        }).filter(function (p) { return p.bomba > 0; });
+      var plantonistas = document.getElementById("admin-plantonistas").value
+        .split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      if (!horarios.length) { resultEl.className = "test-result fail"; resultEl.textContent = "Informe ao menos um horário de ronda."; return; }
+      if (invalidos.length) { resultEl.className = "test-result fail"; resultEl.textContent = "Horário inválido: " + invalidos.join(", ") + ". Use o formato HH:MM."; return; }
+
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_rondas_config", adminToken: pass, horarios: horarios, paineis: paineis, plantonistas: plantonistas })
+        .then(function (res) {
+          if (res && res.ok) {
+            currentRondasHorarios = res.horarios || horarios;
+            if (res.paineis) currentPaineisBombas = res.paineis;
+            if (res.plantonistas) currentPlantonistas = res.plantonistas;
+            localStorage.setItem(RONDAS_HORARIOS_CACHE_KEY, JSON.stringify(currentRondasHorarios));
+            localStorage.setItem(PAINEIS_BOMBAS_CACHE_KEY, JSON.stringify(currentPaineisBombas));
+            localStorage.setItem(PLANTONISTAS_CACHE_KEY, JSON.stringify(currentPlantonistas));
+            resultEl.className = "test-result ok";
+            resultEl.textContent = "Rondas atualizadas! Já valem para todos os celulares.";
+            document.getElementById("admin-pass").value = "";
+          } else {
+            resultEl.className = "test-result fail";
+            resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+          }
+        }).catch(function () {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = "Erro de conexão. Verifique a internet.";
+        });
+    });
+
     document.getElementById("btn-save-talhoes").addEventListener("click", function () {
       var pass = document.getElementById("admin-pass").value.trim();
       var lines = document.getElementById("admin-talhoes").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
@@ -2945,7 +3073,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v12';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v13';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
