@@ -300,6 +300,44 @@
 </div>
 
 <!-- MODAL DE REGISTRAR BOMBEAMENTO -->
+<!-- MODAL DE RONDA NOTURNA -->
+<div class="modal-overlay" id="modal-ronda-overlay">
+  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:90vh;">
+    <div style="overflow-y:auto; padding:20px 18px 6px;">
+      <button class="modal-close" id="btn-close-ronda-modal">✕</button>
+      <div class="modal-title" id="ronda-modal-title">Ronda</div>
+      <div class="modal-sub" id="ronda-modal-sub">O horário do registro é gravado automaticamente.</div>
+
+      <div class="field">
+        <span class="field-label">Quem está registrando</span>
+        <input id="ronda-plantonista" list="ronda-plantonista-lista" placeholder="Nome" autocomplete="off">
+        <datalist id="ronda-plantonista-lista"></datalist>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Nível do reservatório</span>
+        <select id="ronda-nivel">
+          <option value="">Selecione...</option>
+          <option>Cheio</option>
+          <option>Médio</option>
+          <option>Baixo</option>
+          <option>Vazio</option>
+        </select>
+      </div>
+
+      <div id="ronda-bombas-container"></div>
+
+      <div class="field">
+        <span class="field-label">Observação geral (opcional)</span>
+        <textarea id="ronda-observacao" placeholder="Algo a registrar sobre essa ronda"></textarea>
+      </div>
+    </div>
+    <div style="padding:12px 18px 18px; border-top:1px solid #E5DFC9; background:#FFFDF8; flex-shrink:0;">
+      <button class="save-btn" id="btn-save-ronda" style="margin-top:0;background:#4C7C59;">Salvar Ronda</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-bomb-overlay">
   <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:88vh;">
     <div style="overflow-y:auto; padding:20px 18px 6px;">
@@ -494,6 +532,26 @@
   var TALHOES_CACHE_KEY = "manut_talhoes_cache_v1";
   var MANUT_KEY = "manut_records_v1";
   var BOMB_KEY = "bomb_records_v1";
+  // ---- Rondas noturnas ----
+  var RONDA_KEY = "ronda_records_v1";
+  var RONDAS_HORARIOS_CACHE_KEY = "rondas_horarios_cache_v1";
+  var PAINEIS_BOMBAS_CACHE_KEY = "paineis_bombas_cache_v1";
+  var PLANTONISTAS_CACHE_KEY = "plantonistas_cache_v1";
+  // Identidade do aparelho: se o celular é pessoal, o nome já vem preenchido
+  // sozinho em toda ronda (é o caso da maioria). Se for um celular único da
+  // empresa, fica em modo compartilhado e aí sim pede o nome toda vez.
+  var OPERADOR_KEY = "bomb_operador_v1";
+  var operadorDispositivo = { modo: "compartilhado", nome: "" };
+  var rondaRecords = [];
+  var currentRondasHorarios = ["20:00", "23:00", "02:00", "05:00"];
+  var currentPaineisBombas = [
+    { bomba: 1, tipo: "inversor" }, { bomba: 2, tipo: "soft" },
+    { bomba: 3, tipo: "inversor" }, { bomba: 4, tipo: "soft" }
+  ];
+  var currentPlantonistas = ["Alex", "Elivelto", "André", "Ivonaldo"];
+  var rondaAberta = null;      // horário previsto da ronda sendo preenchida
+  var pendingFotosPainel = {}; // { bomba: dataUrl }
+
   var currentCulturas = CULTURAS_PADRAO.slice();
   var currentTalhoes = TALHOES_PADRAO.slice();
   var manutRecords = [];
@@ -580,6 +638,66 @@
       showToast("Armazenamento cheio.");
       return false;
     }
+  }
+  function loadRondaRecords() {
+    try {
+      var raw = localStorage.getItem(RONDA_KEY);
+      rondaRecords = raw ? JSON.parse(raw) : [];
+    } catch (e) { rondaRecords = []; }
+  }
+  function saveRondaRecords() {
+    try { localStorage.setItem(RONDA_KEY, JSON.stringify(rondaRecords)); return true; }
+    catch (e) { showToast("Armazenamento cheio."); return false; }
+  }
+  function loadOperador() {
+    try {
+      var raw = localStorage.getItem(OPERADOR_KEY);
+      if (raw) operadorDispositivo = JSON.parse(raw);
+    } catch (e) {}
+  }
+  function saveOperador() {
+    try { localStorage.setItem(OPERADOR_KEY, JSON.stringify(operadorDispositivo)); } catch (e) {}
+  }
+  // Nome que já vem preenchido: só quando o celular está marcado como
+  // pessoal. Em celular compartilhado devolve vazio, obrigando a digitar.
+  function nomeSugerido_() {
+    return operadorDispositivo.modo === "pessoal" ? (operadorDispositivo.nome || "") : "";
+  }
+  function tipoPainelDaBomba_(n) {
+    var p = currentPaineisBombas.find(function (x) { return String(x.bomba) === String(n); });
+    return p ? p.tipo : "inversor";
+  }
+  function getRondasDia_(data) {
+    return rondaRecords.filter(function (r) { return r.data === data && !r._pendingDelete; });
+  }
+  function getRondaBomba_(data, horarioPrevisto, bomba) {
+    return rondaRecords.find(function (r) {
+      return r.data === data && r.horarioPrevisto === horarioPrevisto &&
+        String(r.bomba) === String(bomba) && !r._pendingDelete;
+    });
+  }
+  function rondaFoiFeita_(data, horarioPrevisto) {
+    return rondaRecords.some(function (r) {
+      return r.data === data && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete;
+    });
+  }
+  function horaAgora_() {
+    var d = new Date();
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+  function minutosDeHora_(hhmm) {
+    if (!hhmm) return 0;
+    var p = String(hhmm).split(":");
+    return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+  }
+  // Diferença entre o horário real do registro e o previsto, tratando a
+  // virada da meia-noite (ronda das 02:00 registrada às 02:10, por exemplo).
+  function atrasoRonda_(previsto, real) {
+    if (!previsto || !real) return null;
+    var d = minutosDeHora_(real) - minutosDeHora_(previsto);
+    if (d > 720) d -= 1440;
+    if (d < -720) d += 1440;
+    return d;
   }
   function loadConfig() {
     try {
@@ -1653,7 +1771,70 @@
       html += '</div>';
     }
     html += '</div>';
+
+    // ================= RONDAS NOTURNAS =================
+    html += '<div style="margin-top:6px;padding-top:14px;border-top:2px solid #DCD3BC;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span style="font-family:\'Oswald\',sans-serif;font-size:15px;font-weight:600;">🌙 Rondas Noturnas</span>' +
+        '<span style="font-size:11px;color:#6B6153;">' + escapeHtml(rotuloOperador_()) + '</span>' +
+      '</div>' +
+      '<div style="font-size:11.5px;color:#6B6153;margin-bottom:10px;">Conferência das bombas durante o plantão. O horário do registro é gravado automaticamente.</div>';
+
+    var agoraMin = minutosDeHora_(horaAgora_());
+    var ehHoje = (bombData === todayStr());
+    currentRondasHorarios.forEach(function (hp) {
+      var feita = rondaFoiFeita_(bombData, hp);
+      var regs = rondaRecords.filter(function (r) { return r.data === bombData && r.horarioPrevisto === hp && !r._pendingDelete; });
+      var primeiro = regs[0];
+      var atrasada = false;
+      if (!feita && ehHoje) {
+        // rondas de madrugada (00:00-06:00) só "vencem" depois que passa a hora
+        var difAgora = agoraMin - minutosDeHora_(hp);
+        if (difAgora > 30 && difAgora < 720) atrasada = true;
+      }
+      var bombasDesligadas = regs.filter(function (r) { return !r.bombaLigada; });
+      var painelProblema = regs.filter(function (r) { return r.painelStatus === "Com problema"; });
+
+      var corBorda = feita ? (bombasDesligadas.length || painelProblema.length ? "#C1501F" : "#4C7C59") : (atrasada ? "#B4442E" : "#DCD3BC");
+      var fundo = feita ? (bombasDesligadas.length || painelProblema.length ? "#FBEDE8" : "#F2F8ED") : (atrasada ? "#FBEDE8" : "#FFFDF8");
+
+      html += '<div data-abrir-ronda="' + hp + '" style="background:' + fundo + ';border:1px solid ' + corBorda + ';border-left:4px solid ' + corBorda + ';border-radius:4px;padding:10px 12px;margin-bottom:8px;cursor:pointer;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<span style="font-weight:700;font-size:13.5px;">' + (feita ? "✅" : (atrasada ? "🚨" : "⏳")) + ' Ronda das ' + escapeHtml(hp) + '</span>' +
+          '<span style="font-size:11px;color:#6B6153;">' + (feita ? regs.length + ' bomba(s)' : (atrasada ? "ATRASADA" : "pendente")) + '</span>' +
+        '</div>';
+      if (feita && primeiro) {
+        var atraso = atrasoRonda_(hp, primeiro.horarioReal);
+        html += '<div style="font-size:12px;color:#4A4136;margin-top:4px;">' +
+          '🕐 Registrada às <b>' + escapeHtml(primeiro.horarioReal || "—") + '</b>' +
+          (atraso !== null && Math.abs(atraso) > 30
+            ? ' <span style="color:#B4442E;font-weight:700;">(' + (atraso > 0 ? atraso + "min depois" : (-atraso) + "min antes") + ')</span>' : '') +
+          (primeiro.plantonista ? '<br>👤 ' + escapeHtml(primeiro.plantonista) : '') +
+          (primeiro.nivelReservatorio ? '<br>💧 Reservatório: <b>' + escapeHtml(primeiro.nivelReservatorio) + '</b>' : '') +
+        '</div>';
+        if (bombasDesligadas.length) {
+          html += '<div style="background:#F5DADA;border-radius:3px;padding:5px 8px;margin-top:6px;font-size:11.5px;color:#8A2E2E;font-weight:600;">' +
+            '🚨 Bomba(s) desligada(s): ' + bombasDesligadas.map(function (r) { return r.bomba; }).join(", ") +
+            (bombasDesligadas[0].motivoParada ? '<br><span style="font-weight:400;">Motivo: ' + escapeHtml(bombasDesligadas[0].motivoParada) + '</span>' : '') +
+          '</div>';
+        }
+        if (painelProblema.length) {
+          html += '<div style="background:#F0E0C8;border-radius:3px;padding:5px 8px;margin-top:6px;font-size:11.5px;color:#7A5A18;font-weight:600;">' +
+            '⚠ Painel com problema: bomba(s) ' + painelProblema.map(function (r) { return r.bomba; }).join(", ") +
+          '</div>';
+        }
+      } else {
+        html += '<div style="font-size:12px;color:#6B6153;margin-top:3px;">Toque para registrar</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+
     el.innerHTML = html;
+
+    el.querySelectorAll("[data-abrir-ronda]").forEach(function (b) {
+      b.addEventListener("click", function () { abrirModalRonda(b.getAttribute("data-abrir-ronda")); });
+    });
 
     document.getElementById("bomb-data-picker").addEventListener("change", function (e) {
       bombData = e.target.value;
@@ -1678,6 +1859,189 @@
         openDeleteManutModal(b.getAttribute("data-del-bomb"), "bombeamento");
       });
     });
+  }
+
+  function rotuloOperador_() {
+    if (operadorDispositivo.modo === "pessoal" && operadorDispositivo.nome) {
+      return "📱 " + operadorDispositivo.nome;
+    }
+    return "📱 celular compartilhado";
+  }
+
+  function abrirModalRonda(horarioPrevisto) {
+    rondaAberta = horarioPrevisto;
+    pendingFotosPainel = {};
+    document.getElementById("ronda-modal-title").textContent = "Ronda das " + horarioPrevisto;
+    var jaFeita = rondaFoiFeita_(bombData, horarioPrevisto);
+    document.getElementById("ronda-modal-sub").textContent = jaFeita
+      ? "Ronda já registrada — você pode corrigir os dados abaixo."
+      : "O horário do registro é gravado automaticamente.";
+
+    document.getElementById("ronda-plantonista-lista").innerHTML =
+      currentPlantonistas.map(function (n) { return '<option value="' + escapeHtml(n) + '">'; }).join("");
+
+    var primeiro = rondaRecords.find(function (r) {
+      return r.data === bombData && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete;
+    });
+    document.getElementById("ronda-plantonista").value = primeiro ? (primeiro.plantonista || "") : nomeSugerido_();
+    document.getElementById("ronda-nivel").value = primeiro ? (primeiro.nivelReservatorio || "") : "";
+    document.getElementById("ronda-observacao").value = primeiro ? (primeiro.observacao || "") : "";
+
+    var cont = document.getElementById("ronda-bombas-container");
+    var html = "";
+    for (var n = 1; n <= 4; n++) {
+      var tipo = tipoPainelDaBomba_(n);
+      var reg = getRondaBomba_(bombData, horarioPrevisto, n);
+      var ligada = reg ? !!reg.bombaLigada : true;
+      if (reg && reg.fotoPainel) pendingFotosPainel[n] = reg.fotoPainel;
+      html += '<div style="background:#FBF8F1;border:1px solid #DCD3BC;border-radius:5px;padding:10px 12px;margin-bottom:10px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+          '<span style="font-weight:700;font-size:13.5px;">🚰 Bomba ' + n + '</span>' +
+          '<span style="font-size:10px;background:' + (tipo === "soft" ? "#2F7DB0" : "#8A5A44") + ';color:#fff;padding:2px 7px;border-radius:8px;font-weight:700;">' +
+            (tipo === "soft" ? "SOFT STARTER" : "INVERSOR") + '</span>' +
+        '</div>' +
+        '<div class="field" style="margin-bottom:8px;">' +
+          '<span class="field-label">A bomba está ligada?</span>' +
+          '<select data-ronda-ligada="' + n + '">' +
+            '<option value="sim"' + (ligada ? " selected" : "") + '>Sim, rodando normal</option>' +
+            '<option value="nao"' + (!ligada ? " selected" : "") + '>NÃO — está parada</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="field" data-motivo-wrap="' + n + '" style="margin-bottom:8px;' + (ligada ? "display:none;" : "") + '">' +
+          '<span class="field-label" style="color:#B4442E;">🚨 Por que está parada?</span>' +
+          '<input type="text" data-ronda-motivo="' + n + '" value="' + escapeHtml(reg ? (reg.motivoParada || "") : "") + '" placeholder="Ex.: falta de energia, disjuntor desarmado...">' +
+        '</div>' +
+        '<div class="field" style="margin-bottom:8px;">' +
+          '<span class="field-label">Painel</span>' +
+          '<select data-ronda-painel="' + n + '">' +
+            '<option value="OK"' + (reg && reg.painelStatus === "Com problema" ? "" : " selected") + '>OK, sem alarme</option>' +
+            '<option value="Com problema"' + (reg && reg.painelStatus === "Com problema" ? " selected" : "") + '>Com problema / alarme</option>' +
+          '</select>' +
+        '</div>';
+      if (tipo === "soft") {
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">' +
+          '<div class="field" style="margin-bottom:6px;"><span class="field-label">Corrente (A)</span><input type="number" step="0.01" data-ronda-corrente="' + n + '" value="' + escapeHtml(reg ? (reg.corrente || "") : "") + '"></div>' +
+          '<div class="field" style="margin-bottom:6px;"><span class="field-label">Tensão (V)</span><input type="number" step="0.01" data-ronda-tensao="' + n + '" value="' + escapeHtml(reg ? (reg.tensao || "") : "") + '"></div>' +
+          '<div class="field" style="margin-bottom:6px;"><span class="field-label">Horímetro</span><input type="number" step="0.01" data-ronda-horimetro="' + n + '" value="' + escapeHtml(reg ? (reg.horimetro || "") : "") + '"></div>' +
+        '</div>';
+      }
+      html += '<div class="field" style="margin-bottom:0;">' +
+        '<span class="field-label">Foto do painel</span>' +
+        '<input type="file" accept="image/*" capture="environment" data-ronda-foto-input="' + n + '" style="display:none">' +
+        '<div data-ronda-foto-preview="' + n + '" style="margin-bottom:6px;"></div>' +
+        '<button class="photo-btn" data-ronda-foto-btn="' + n + '" style="padding:8px;font-size:12px;">📷 Foto do Painel</button>' +
+      '</div>' +
+      '</div>';
+    }
+    cont.innerHTML = html;
+
+    // mostra/esconde o campo de motivo conforme a bomba estiver parada
+    cont.querySelectorAll("[data-ronda-ligada]").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        var n = sel.getAttribute("data-ronda-ligada");
+        var wrap = cont.querySelector('[data-motivo-wrap="' + n + '"]');
+        wrap.style.display = (sel.value === "nao") ? "" : "none";
+      });
+    });
+    cont.querySelectorAll("[data-ronda-foto-btn]").forEach(function (btn) {
+      var n = btn.getAttribute("data-ronda-foto-btn");
+      btn.addEventListener("click", function () {
+        cont.querySelector('[data-ronda-foto-input="' + n + '"]').click();
+      });
+    });
+    cont.querySelectorAll("[data-ronda-foto-input]").forEach(function (inp) {
+      var n = inp.getAttribute("data-ronda-foto-input");
+      inp.addEventListener("change", function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        compressImage(file, 1000, 0.62, function (dataUrl) {
+          pendingFotosPainel[n] = dataUrl;
+          renderFotoPainelPreview_(n);
+          e.target.value = "";
+        });
+      });
+    });
+    for (var k = 1; k <= 4; k++) renderFotoPainelPreview_(k);
+
+    document.getElementById("modal-ronda-overlay").classList.add("active");
+  }
+
+  function renderFotoPainelPreview_(n) {
+    var cont = document.getElementById("ronda-bombas-container");
+    var el = cont.querySelector('[data-ronda-foto-preview="' + n + '"]');
+    if (!el) return;
+    var url = pendingFotosPainel[n];
+    if (!url) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div style="position:relative;display:inline-block;">' +
+      '<img src="' + url + '" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">' +
+      '<button type="button" data-remove-painel="' + n + '" style="position:absolute;top:-6px;right:-6px;background:#C1501F;color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;line-height:1;">✕</button>' +
+    '</div>';
+    el.querySelector("[data-remove-painel]").addEventListener("click", function () {
+      delete pendingFotosPainel[n];
+      renderFotoPainelPreview_(n);
+    });
+  }
+
+  function fecharModalRonda() {
+    document.getElementById("modal-ronda-overlay").classList.remove("active");
+    rondaAberta = null;
+    pendingFotosPainel = {};
+  }
+
+  function salvarRonda() {
+    var cont = document.getElementById("ronda-bombas-container");
+    var plantonista = document.getElementById("ronda-plantonista").value.trim();
+    var nivel = document.getElementById("ronda-nivel").value;
+    var observacao = document.getElementById("ronda-observacao").value.trim();
+    if (!plantonista) { showToast("Preencha quem está registrando."); return; }
+    if (!nivel) { showToast("Informe o nível do reservatório."); return; }
+
+    // valida motivo obrigatório em bomba parada, antes de gravar qualquer coisa
+    for (var v = 1; v <= 4; v++) {
+      var ligadaV = cont.querySelector('[data-ronda-ligada="' + v + '"]').value === "sim";
+      var motivoV = cont.querySelector('[data-ronda-motivo="' + v + '"]').value.trim();
+      if (!ligadaV && !motivoV) {
+        showToast("Bomba " + v + " está parada — informe o motivo.");
+        return;
+      }
+    }
+
+    var agora = horaAgora_();
+    var houveParada = false;
+    for (var n = 1; n <= 4; n++) {
+      var ligada = cont.querySelector('[data-ronda-ligada="' + n + '"]').value === "sim";
+      var motivo = cont.querySelector('[data-ronda-motivo="' + n + '"]').value.trim();
+      var painelStatus = cont.querySelector('[data-ronda-painel="' + n + '"]').value;
+      var tipo = tipoPainelDaBomba_(n);
+      var corrEl = cont.querySelector('[data-ronda-corrente="' + n + '"]');
+      var tensEl = cont.querySelector('[data-ronda-tensao="' + n + '"]');
+      var horiEl = cont.querySelector('[data-ronda-horimetro="' + n + '"]');
+      if (!ligada) houveParada = true;
+
+      var existente = getRondaBomba_(bombData, rondaAberta, n);
+      var campos = {
+        data: bombData, horarioPrevisto: rondaAberta, plantonista: plantonista,
+        bomba: n, bombaLigada: ligada, nivelReservatorio: nivel,
+        painelTipo: tipo, painelStatus: painelStatus,
+        corrente: corrEl ? corrEl.value : "", tensao: tensEl ? tensEl.value : "",
+        horimetro: horiEl ? horiEl.value : "",
+        fotoPainel: pendingFotosPainel[n] || "",
+        motivoParada: ligada ? "" : motivo, observacao: observacao
+      };
+      if (existente) {
+        Object.assign(existente, campos);
+        if (existente._synced) existente._pendingUpdate = true;
+      } else {
+        // horarioReal só é gravado na CRIAÇÃO - é o carimbo de quando a
+        // conferência realmente aconteceu, e não deve mudar numa correção.
+        rondaRecords.push(Object.assign({ id: uid(), horarioReal: agora, _synced: false, _pendingDelete: false }, campos));
+      }
+    }
+    if (!saveRondaRecords()) return;
+    fecharModalRonda();
+    renderBombeamento();
+    showToast(houveParada ? "⚠ Ronda salva COM bomba parada." : "Ronda registrada.");
+    trySync();
   }
 
   function updateBombConsumoPreview() {
@@ -1874,6 +2238,8 @@
     var toDelete = records.filter(function (r) { return r._pendingDelete; });
     var toCreateManut = manutRecords.filter(function (r) { return !r._synced; });
     var toCreateBomb = bombRecords.filter(function (r) { return !r._synced; });
+    var toCreateRonda = rondaRecords.filter(function (r) { return !r._synced; });
+    var toUpdateRonda = rondaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toUpdateBomb = bombRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var syncErrors = [];
 
@@ -1948,7 +2314,8 @@
           horarioInicio: r.horarioInicio || "", horarioFim: r.horarioFim || "",
           leituraInicial: r.leituraInicial !== undefined ? r.leituraInicial : "",
           leituraFinal: r.leituraFinal !== undefined ? r.leituraFinal : "",
-          fotoInicio: r.fotoInicio || "", fotoFim: r.fotoFim || "", observacao: r.observacao || ""
+          fotoInicio: r.fotoInicio || "", fotoFim: r.fotoFim || "", observacao: r.observacao || "",
+          responsavel: r.responsavel || ""
         }).then(function (res) {
           if (res && res.ok) {
             r._synced = true;
@@ -1957,6 +2324,50 @@
             saveBombRecords();
           } else {
             syncErrors.push((res && res.error) ? res.error : "erro ao criar bombeamento");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toCreateRonda.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "create_ronda", id: r.id, data: r.data,
+          horarioPrevisto: r.horarioPrevisto, horarioReal: r.horarioReal, plantonista: r.plantonista,
+          bomba: r.bomba, bombaLigada: !!r.bombaLigada, nivelReservatorio: r.nivelReservatorio || "",
+          painelTipo: r.painelTipo || "", painelStatus: r.painelStatus || "",
+          corrente: r.corrente || "", tensao: r.tensao || "", horimetro: r.horimetro || "",
+          fotoPainel: r.fotoPainel || "", motivoParada: r.motivoParada || "", observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._synced = true;
+            if (res.fotoPainelUrl !== undefined) r.fotoPainel = res.fotoPainelUrl;
+            saveRondaRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao criar ronda");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toUpdateRonda.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "update_ronda", id: r.id, data: r.data,
+          horarioPrevisto: r.horarioPrevisto, horarioReal: r.horarioReal, plantonista: r.plantonista,
+          bomba: r.bomba, bombaLigada: !!r.bombaLigada, nivelReservatorio: r.nivelReservatorio || "",
+          painelTipo: r.painelTipo || "", painelStatus: r.painelStatus || "",
+          corrente: r.corrente || "", tensao: r.tensao || "", horimetro: r.horimetro || "",
+          fotoPainel: r.fotoPainel || "", motivoParada: r.motivoParada || "", observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._pendingUpdate = false;
+            if (res.fotoPainelUrl !== undefined) r.fotoPainel = res.fotoPainelUrl;
+            saveRondaRecords();
+          } else if (res && res.notFound) {
+            r._synced = false; r._pendingUpdate = false; saveRondaRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao atualizar ronda");
           }
         }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
       });
@@ -2025,6 +2436,43 @@
             });
           });
           saveManutRecords();
+        }
+        if (res.rondasHorarios && res.rondasHorarios.length) {
+          currentRondasHorarios = res.rondasHorarios;
+          localStorage.setItem(RONDAS_HORARIOS_CACHE_KEY, JSON.stringify(currentRondasHorarios));
+        }
+        if (res.paineisBombas && res.paineisBombas.length) {
+          currentPaineisBombas = res.paineisBombas;
+          localStorage.setItem(PAINEIS_BOMBAS_CACHE_KEY, JSON.stringify(currentPaineisBombas));
+        }
+        if (res.plantonistas && res.plantonistas.length) {
+          currentPlantonistas = res.plantonistas;
+          localStorage.setItem(PLANTONISTAS_CACHE_KEY, JSON.stringify(currentPlantonistas));
+        }
+        if (res.rondasNoturnas) {
+          var localRondaById = {};
+          rondaRecords.forEach(function (r) { localRondaById[r.id] = r; });
+          res.rondasNoturnas.forEach(function (row) {
+            if (!row.id) return;
+            var camposR = {
+              data: row.data, horarioPrevisto: row.horario_previsto || "", horarioReal: row.horario_real || "",
+              plantonista: row.plantonista || "", bomba: row.bomba,
+              bombaLigada: !!row.bomba_ligada, nivelReservatorio: row.nivel_reservatorio || "",
+              painelTipo: row.painel_tipo || "", painelStatus: row.painel_status || "",
+              corrente: row.corrente || "", tensao: row.tensao || "", horimetro: row.horimetro || "",
+              fotoPainel: row.foto_painel_url || "", motivoParada: row.motivo_parada || "",
+              observacao: row.observacao || ""
+            };
+            var exR = localRondaById[row.id];
+            if (exR) {
+              if (!exR._pendingUpdate && !exR._pendingDelete) Object.assign(exR, camposR, { _synced: true });
+            } else {
+              var novoR = Object.assign({ id: row.id, _synced: true, _pendingDelete: false }, camposR);
+              rondaRecords.push(novoR);
+              localRondaById[row.id] = novoR;
+            }
+          });
+          saveRondaRecords();
         }
         if (res.bombeamentos) {
           // Igual à Irrigação: reconcilia (atualiza quem já existe, não só
@@ -2165,6 +2613,20 @@
       loadRecords();
       loadManutRecords();
       loadBombRecords();
+      loadRondaRecords();
+      loadOperador();
+      try {
+        var cH = localStorage.getItem(RONDAS_HORARIOS_CACHE_KEY);
+        if (cH) currentRondasHorarios = JSON.parse(cH);
+      } catch (e) {}
+      try {
+        var cP = localStorage.getItem(PAINEIS_BOMBAS_CACHE_KEY);
+        if (cP) currentPaineisBombas = JSON.parse(cP);
+      } catch (e) {}
+      try {
+        var cL = localStorage.getItem(PLANTONISTAS_CACHE_KEY);
+        if (cL) currentPlantonistas = JSON.parse(cL);
+      } catch (e) {}
       loadConfig();
       document.getElementById("cfg-url").value = config.url || "";
       document.getElementById("cfg-token").value = config.token || "";
@@ -2213,6 +2675,11 @@
     });
 
     document.getElementById("btn-save-bomb").addEventListener("click", handleSaveBomb);
+    document.getElementById("btn-save-ronda").addEventListener("click", salvarRonda);
+    document.getElementById("btn-close-ronda-modal").addEventListener("click", fecharModalRonda);
+    document.getElementById("modal-ronda-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-ronda-overlay") fecharModalRonda();
+    });
     document.getElementById("btn-close-bomb-modal").addEventListener("click", closeBombModal);
     document.getElementById("modal-bomb-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-bomb-overlay") closeBombModal();
@@ -2478,7 +2945,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v11';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v12';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
