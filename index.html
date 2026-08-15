@@ -81,6 +81,13 @@
     border:none; border-radius:3px; padding:4px 8px; font-size:11px; cursor:pointer;
   }
 
+  .nivel-btn {
+    padding:14px 8px; border:2px solid #D2C7AB; background:#FBF8F1; border-radius:6px;
+    font-size:14.5px; font-weight:700; color:#4A4136; cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  .nivel-btn.sel { background:#2F7DB0; border-color:#2F7DB0; color:#fff; }
+  .nivel-btn.sel[data-nivel="Baixo"] { background:#B8862B; border-color:#B8862B; }
+  .nivel-btn.sel[data-nivel="Vazio"] { background:#B4442E; border-color:#B4442E; }
   .save-btn {
     width:100%; margin-top:6px; background:#C1501F; color:#fff; border:none; border-radius:3px;
     padding:13px; font-size:15px; font-weight:700; letter-spacing:.02em; cursor:pointer;
@@ -316,13 +323,25 @@
 
       <div class="field">
         <span class="field-label">Nível do reservatório</span>
-        <select id="ronda-nivel">
-          <option value="">Selecione...</option>
-          <option>Cheio</option>
-          <option>Médio</option>
-          <option>Baixo</option>
-          <option>Vazio</option>
-        </select>
+        <input type="hidden" id="ronda-nivel" value="">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <button type="button" class="nivel-btn" data-nivel="Cheio">Cheio</button>
+          <button type="button" class="nivel-btn" data-nivel="Médio">Médio</button>
+          <button type="button" class="nivel-btn" data-nivel="Baixo">Baixo</button>
+          <button type="button" class="nivel-btn" data-nivel="Vazio">Vazio</button>
+        </div>
+      </div>
+
+      <button type="button" id="btn-tudo-ok" style="width:100%;background:#4C7C59;color:#fff;border:none;border-radius:6px;padding:13px;font-size:14.5px;font-weight:700;cursor:pointer;margin-bottom:6px;">✅ Tudo OK nas 4 bombas</button>
+      <div style="font-size:11px;color:#6B6153;margin-bottom:12px;text-align:center;">Marca as 4 como ligadas e painéis sem alarme. Depois é só ajustar o que estiver diferente.</div>
+
+      <div id="ronda-nav" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+        <button type="button" id="btn-bomba-ant" style="background:#EFE7D3;border:1px solid #D2C7AB;border-radius:6px;padding:9px 14px;font-size:15px;cursor:pointer;">◀</button>
+        <div style="flex:1;text-align:center;">
+          <div id="ronda-nav-label" style="font-weight:700;font-size:13.5px;">Bomba 1 de 4</div>
+          <div id="ronda-nav-dots" style="display:flex;gap:5px;justify-content:center;margin-top:4px;"></div>
+        </div>
+        <button type="button" id="btn-bomba-prox" style="background:#EFE7D3;border:1px solid #D2C7AB;border-radius:6px;padding:9px 14px;font-size:15px;cursor:pointer;">▶</button>
       </div>
 
       <div id="ronda-bombas-container"></div>
@@ -590,6 +609,7 @@
   ];
   var currentPlantonistas = ["Alex", "Elivelto", "André", "Ivonaldo"];
   var rondaAberta = null;      // horário previsto da ronda sendo preenchida
+  var rondaBombaAtual = 1;     // qual bomba está aparecendo na tela (1 a 4)
   var pendingFotosPainel = {}; // { bomba: dataUrl }
 
   var currentCulturas = CULTURAS_PADRAO.slice();
@@ -2029,6 +2049,56 @@
     return h;
   }
 
+  // Mostra uma bomba por vez, pra tela não ficar quilométrica de madrugada.
+  // Os campos das outras continuam no DOM (só escondidos), então o salvar
+  // continua lendo todas as 4 normalmente.
+  function mostrarBombaPasso_(n) {
+    rondaBombaAtual = Math.min(4, Math.max(1, n));
+    var cont = document.getElementById("ronda-bombas-container");
+    if (!cont) return;
+    cont.querySelectorAll("[data-bomba-step]").forEach(function (bloco) {
+      bloco.style.display = (bloco.getAttribute("data-bomba-step") === String(rondaBombaAtual)) ? "" : "none";
+    });
+    document.getElementById("ronda-nav-label").textContent = "Bomba " + rondaBombaAtual + " de 4";
+    var dots = "";
+    for (var i = 1; i <= 4; i++) {
+      var bloco = cont.querySelector('[data-bomba-step="' + i + '"]');
+      var selLig = bloco ? bloco.querySelector('[data-ronda-ligada="' + i + '"]') : null;
+      var selPain = bloco ? bloco.querySelector('[data-ronda-painel="' + i + '"]') : null;
+      var problema = (selLig && selLig.value === "nao") || (selPain && selPain.value === "Com problema");
+      var cor = (i === rondaBombaAtual) ? "#2F7DB0" : (problema ? "#B4442E" : "#D2C7AB");
+      dots += '<span style="width:9px;height:9px;border-radius:50%;background:' + cor + ';display:inline-block;"></span>';
+    }
+    document.getElementById("ronda-nav-dots").innerHTML = dots;
+    document.getElementById("btn-bomba-ant").style.visibility = (rondaBombaAtual === 1) ? "hidden" : "visible";
+    document.getElementById("btn-bomba-prox").style.visibility = (rondaBombaAtual === 4) ? "hidden" : "visible";
+  }
+
+  function selecionarNivel_(valor) {
+    document.getElementById("ronda-nivel").value = valor || "";
+    document.querySelectorAll(".nivel-btn").forEach(function (b) {
+      b.classList.toggle("sel", b.getAttribute("data-nivel") === valor);
+    });
+  }
+
+  // Numa noite normal está tudo certo - esse botão preenche as 4 bombas de
+  // uma vez, e o plantonista só mexe no que estiver diferente.
+  function marcarTudoOk_() {
+    var cont = document.getElementById("ronda-bombas-container");
+    for (var n = 1; n <= 4; n++) {
+      var selLig = cont.querySelector('[data-ronda-ligada="' + n + '"]');
+      var selPain = cont.querySelector('[data-ronda-painel="' + n + '"]');
+      if (selLig) selLig.value = "sim";
+      if (selPain) selPain.value = "OK";
+      var wrap = cont.querySelector('[data-motivo-wrap="' + n + '"]');
+      if (wrap) wrap.style.display = "none";
+      var mot = cont.querySelector('[data-ronda-motivo="' + n + '"]');
+      if (mot) mot.value = "";
+    }
+    mostrarBombaPasso_(rondaBombaAtual);
+    showToast("4 bombas marcadas como OK. Ajuste o que estiver diferente.");
+  }
+
   function abrirModalRonda(horarioPrevisto) {
     rondaAberta = horarioPrevisto;
     pendingFotosPainel = {};
@@ -2045,7 +2115,9 @@
       return r.data === bombData && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete;
     });
     document.getElementById("ronda-plantonista").value = primeiro ? (primeiro.plantonista || "") : nomeSugerido_();
-    document.getElementById("ronda-nivel").value = primeiro ? (primeiro.nivelReservatorio || "") : "";
+    var nivelInicial = primeiro ? (primeiro.nivelReservatorio || "") : "";
+    document.getElementById("ronda-nivel").value = nivelInicial;
+    selecionarNivel_(nivelInicial);
     document.getElementById("ronda-observacao").value = primeiro ? (primeiro.observacao || "") : "";
 
     var cont = document.getElementById("ronda-bombas-container");
@@ -2055,7 +2127,7 @@
       var reg = getRondaBomba_(bombData, horarioPrevisto, n);
       var ligada = reg ? !!reg.bombaLigada : true;
       if (reg && reg.fotoPainel) pendingFotosPainel[n] = reg.fotoPainel;
-      html += '<div style="background:#FBF8F1;border:1px solid #DCD3BC;border-radius:5px;padding:10px 12px;margin-bottom:10px;">' +
+      html += '<div data-bomba-step="' + n + '" style="background:#FBF8F1;border:1px solid #DCD3BC;border-radius:5px;padding:10px 12px;margin-bottom:10px;' + (n === 1 ? "" : "display:none;") + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
           '<span style="font-weight:700;font-size:13.5px;">🚰 Bomba ' + n + '</span>' +
           '<span style="font-size:10px;background:' + (tipo === "soft" ? "#2F7DB0" : "#8A5A44") + ';color:#fff;padding:2px 7px;border-radius:8px;font-weight:700;">' +
@@ -2102,7 +2174,11 @@
         var n = sel.getAttribute("data-ronda-ligada");
         var wrap = cont.querySelector('[data-motivo-wrap="' + n + '"]');
         wrap.style.display = (sel.value === "nao") ? "" : "none";
+        mostrarBombaPasso_(rondaBombaAtual);
       });
+    });
+    cont.querySelectorAll("[data-ronda-painel]").forEach(function (sel) {
+      sel.addEventListener("change", function () { mostrarBombaPasso_(rondaBombaAtual); });
     });
     cont.querySelectorAll("[data-ronda-foto-btn]").forEach(function (btn) {
       var n = btn.getAttribute("data-ronda-foto-btn");
@@ -2123,6 +2199,8 @@
       });
     });
     for (var k = 1; k <= 4; k++) renderFotoPainelPreview_(k);
+    rondaBombaAtual = 1;
+    mostrarBombaPasso_(1);
 
     document.getElementById("modal-ronda-overlay").classList.add("active");
   }
@@ -2348,7 +2426,13 @@
   function pendingCount() {
     var oc = records.filter(function (r) { return !r._synced || r._pendingStatus || r._pendingUpdate || r._pendingDelete; }).length;
     var mn = manutRecords.filter(function (r) { return !r._synced || r._pendingDelete; }).length;
-    return oc + mn;
+    // Bombeamento e rondas TAMBÉM contam aqui. Sem isso, quando o envio
+    // falhava (ex.: "Failed to fetch" por internet ruim de madrugada), o app
+    // seguia mostrando "Sincronizado" e o registro ficava preso no celular
+    // sem ninguém perceber.
+    var bb = bombRecords.filter(function (r) { return !r._synced || r._pendingUpdate || r._pendingDelete; }).length;
+    var rd = rondaRecords.filter(function (r) { return !r._synced || r._pendingUpdate || r._pendingDelete; }).length;
+    return oc + mn + bb + rd;
   }
 
   function refreshSyncPill() {
@@ -2837,6 +2921,12 @@
 
     document.getElementById("btn-save-bomb").addEventListener("click", handleSaveBomb);
     document.getElementById("btn-save-ronda").addEventListener("click", salvarRonda);
+    document.getElementById("btn-tudo-ok").addEventListener("click", marcarTudoOk_);
+    document.getElementById("btn-bomba-ant").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual - 1); });
+    document.getElementById("btn-bomba-prox").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual + 1); });
+    document.querySelectorAll(".nivel-btn").forEach(function (b) {
+      b.addEventListener("click", function () { selecionarNivel_(b.getAttribute("data-nivel")); });
+    });
     document.getElementById("btn-close-ronda-modal").addEventListener("click", fecharModalRonda);
     document.getElementById("modal-ronda-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-ronda-overlay") fecharModalRonda();
@@ -3194,7 +3284,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v14';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v15';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
