@@ -1786,6 +1786,28 @@
     return bombRecords.filter(function (r) { return r.data === data && !r._pendingDelete; })
       .sort(function (a, b) { return (parseInt(a.bomba, 10) || 0) - (parseInt(b.bomba, 10) || 0); });
   }
+  // Todas as RODADAS de uma bomba num dia. A bomba pode ligar, desligar e
+  // ligar de novo no mesmo dia (falta de energia, manutenção, ajuste de
+  // operação), então guardamos um registro por rodada, em ordem de horário.
+  function getRodadasBomba(data, n) {
+    return bombRecords.filter(function (r) {
+      return r.data === data && String(r.bomba) === String(n) && !r._pendingDelete;
+    }).sort(function (a, b) {
+      // O turno atravessa a meia-noite: uma rodada que começa 21:30 vem ANTES
+      // de uma que começa 03:00 do dia seguinte. Ordenar por texto puro
+      // inverteria as duas, então horários de madrugada entram no fim.
+      function ordem(h) {
+        var m = minutosDeHora_(h || "00:00");
+        return m < 720 ? m + 1440 : m;   // antes do meio-dia = madrugada
+      }
+      return ordem(a.horarioInicio) - ordem(b.horarioInicio);
+    });
+  }
+  function consumoRodada_(r) {
+    if (r.leituraInicial === "" || r.leituraInicial === undefined || r.leituraInicial === null) return null;
+    if (r.leituraFinal === "" || r.leituraFinal === undefined || r.leituraFinal === null) return null;
+    return round2Bomb_((parseFloat(r.leituraFinal) - parseFloat(r.leituraInicial)) * 10);
+  }
 
   function round2Bomb_(n) { return Math.round(n * 100) / 100; }
 
@@ -1795,40 +1817,70 @@
     var html = '<div class="field"><span class="field-label">Data</span>' +
       '<input type="date" id="bomb-data-picker" value="' + bombData + '"></div>';
     html += '<div class="list">';
+    var totalDia = 0, temConsumoDia = false;
     for (var n = 1; n <= 4; n++) {
-      var rec = sessoes.find(function (r) { return String(r.bomba) === String(n); });
+      var rodadas = getRodadasBomba(bombData, n);
+      var aberta = rodadas.find(function (r) { return !r.horarioFim; });
+      var somaBomba = 0, temSoma = false;
+      rodadas.forEach(function (r) {
+        var c = consumoRodada_(r);
+        if (c !== null) { somaBomba += c; temSoma = true; }
+      });
+      if (temSoma) { totalDia += somaBomba; temConsumoDia = true; }
+
       html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:4px;padding:10px 12px;margin-bottom:8px;">';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-        '<span style="font-family:\'Oswald\',sans-serif;font-size:14.5px;font-weight:600;">🚰 Bomba ' + n + '</span>';
-      if (rec) {
-        html += '<span style="display:flex;gap:10px;">' +
-          '<button class="del-btn" data-edit-bomb="' + n + '" title="Editar">✏️</button>' +
-          '<button class="del-btn" data-del-bomb="' + rec.id + '" title="Excluir (admin)">🗑</button>' +
-        '</span>';
-      }
-      html += '</div>';
-      if (!rec) {
+        '<span style="font-family:\'Oswald\',sans-serif;font-size:14.5px;font-weight:600;">🚰 Bomba ' + n + '</span>' +
+        (rodadas.length > 1 && temSoma
+          ? '<span style="font-size:11.5px;color:#2F6B1F;font-weight:700;">' + rodadas.length + ' rodadas · ' + somaBomba + ' m³</span>'
+          : '') +
+      '</div>';
+
+      if (!rodadas.length) {
         html += '<div style="font-size:12px;color:#6B6153;margin:4px 0 8px;">Não iniciada hoje</div>' +
-          '<button class="photo-btn" data-start-bomb="' + n + '" style="background:#4C7C59;padding:8px;font-size:12.5px;">▶️ Iniciar Bomba</button>';
+          '<button class="photo-btn" data-nova-rodada="' + n + '" style="background:#4C7C59;padding:8px;font-size:12.5px;">▶️ Iniciar Bomba</button>';
       } else {
-        var consumoTxt = (rec.leituraInicial !== "" && rec.leituraInicial !== undefined && rec.leituraFinal !== "" && rec.leituraFinal !== undefined)
-          ? round2Bomb_((parseFloat(rec.leituraFinal) - parseFloat(rec.leituraInicial)) * 10) + " m³" : "—";
-        html += '<div style="font-size:12.5px;color:#4A4136;margin-top:4px;">' +
-          '⏱ ' + escapeHtml(rec.horarioInicio || "—") + ' → ' + escapeHtml(rec.horarioFim || (rec.horarioInicio ? "rodando" : "—")) +
-          '<br>💧 Consumo: <b>' + consumoTxt + '</b>' +
-          (rec.observacao ? '<br>📝 ' + escapeHtml(rec.observacao) : "") +
-        '</div>';
-        if (rec.fotoInicio || rec.fotoFim) {
-          html += '<div style="display:flex;gap:6px;margin-top:6px;">';
-          if (rec.fotoInicio) html += '<img src="' + rec.fotoInicio + '" title="Início" style="width:52px;height:52px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
-          if (rec.fotoFim) html += '<img src="' + rec.fotoFim + '" title="Fim" style="width:52px;height:52px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
+        rodadas.forEach(function (rec, idx) {
+          var c = consumoRodada_(rec);
+          var consumoTxt = (c !== null) ? c + " m³" : "—";
+          html += '<div style="background:#FBF8F1;border:1px solid #E5DFC9;border-radius:4px;padding:8px 10px;margin-top:7px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+              '<span style="font-size:11px;font-family:\'IBM Plex Mono\',monospace;color:#6B6153;font-weight:700;">' +
+                (rodadas.length > 1 ? 'RODADA ' + (idx + 1) : 'REGISTRO') +
+                (!rec.horarioFim ? ' · <span style="color:#2F6B1F;">EM ANDAMENTO</span>' : '') +
+              '</span>' +
+              '<span style="display:flex;gap:10px;">' +
+                '<button class="del-btn" data-edit-rodada="' + rec.id + '" title="Editar">✏️</button>' +
+                '<button class="del-btn" data-del-bomb="' + rec.id + '" title="Excluir (admin)">🗑</button>' +
+              '</span>' +
+            '</div>' +
+            '<div style="font-size:12.5px;color:#4A4136;margin-top:3px;">' +
+              '⏱ ' + escapeHtml(rec.horarioInicio || "—") + ' → ' + escapeHtml(rec.horarioFim || "rodando") +
+              '<br>💧 Consumo: <b>' + consumoTxt + '</b>' +
+              (rec.responsavel ? '<br>👤 ' + escapeHtml(rec.responsavel) : "") +
+              (rec.observacao ? '<br>📝 ' + escapeHtml(rec.observacao) : "") +
+            '</div>';
+          if (rec.fotoInicio || rec.fotoFim) {
+            html += '<div style="display:flex;gap:6px;margin-top:6px;">';
+            if (rec.fotoInicio) html += '<img src="' + rec.fotoInicio + '" title="Início" style="width:46px;height:46px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
+            if (rec.fotoFim) html += '<img src="' + rec.fotoFim + '" title="Fim" style="width:46px;height:46px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
+            html += '</div>';
+          }
+          if (!rec.horarioFim) {
+            html += '<button class="photo-btn" data-edit-rodada="' + rec.id + '" style="background:#C1501F;padding:7px;font-size:12px;margin-top:7px;">⏹ Registrar Desligamento</button>';
+          }
           html += '</div>';
-        }
-        if (!rec.horarioFim) {
-          html += '<button class="photo-btn" data-start-bomb="' + n + '" style="background:#C1501F;padding:8px;font-size:12.5px;margin-top:8px;">⏹ Registrar Desligamento</button>';
+        });
+        // só deixa abrir rodada nova quando a anterior já foi fechada
+        if (!aberta) {
+          html += '<button class="photo-btn" data-nova-rodada="' + n + '" style="background:#2F7DB0;padding:7px;font-size:12px;margin-top:8px;">➕ Nova rodada desta bomba</button>';
         }
       }
       html += '</div>';
+    }
+    if (temConsumoDia) {
+      html += '<div style="background:#EFE7D3;border-radius:4px;padding:9px 12px;margin-bottom:8px;font-size:13px;">' +
+        'Total bombeado no dia: <b>' + round2Bomb_(totalDia) + ' m³</b></div>';
     }
     html += '</div>';
 
@@ -1906,18 +1958,17 @@
       bombData = e.target.value;
       renderBombeamento();
     });
-    el.querySelectorAll("[data-start-bomb]").forEach(function (b) {
+    el.querySelectorAll("[data-nova-rodada]").forEach(function (b) {
       b.addEventListener("click", function () {
-        var n = b.getAttribute("data-start-bomb");
-        var existente = getBombDia(bombData).find(function (r) { return String(r.bomba) === String(n); });
-        openBombModal(n, existente);
+        // rodada NOVA: sempre abre em branco, mesmo já tendo rodadas no dia
+        openBombModal(b.getAttribute("data-nova-rodada"), null);
       });
     });
-    el.querySelectorAll("[data-edit-bomb]").forEach(function (b) {
+    el.querySelectorAll("[data-edit-rodada]").forEach(function (b) {
       b.addEventListener("click", function () {
-        var n = b.getAttribute("data-edit-bomb");
-        var existente = getBombDia(bombData).find(function (r) { return String(r.bomba) === String(n); });
-        openBombModal(n, existente);
+        var id = b.getAttribute("data-edit-rodada");
+        var existente = bombRecords.find(function (r) { return r.id === id; });
+        if (existente) openBombModal(existente.bomba, existente);
       });
     });
     el.querySelectorAll("[data-del-bomb]").forEach(function (b) {
@@ -2307,7 +2358,15 @@
   function openBombModal(bomba, existente) {
     editingBombId = existente ? existente.id : null;
     editingBombBomba = bomba;
-    document.getElementById("bomb-modal-title").textContent = "Bomba " + bomba;
+    var rodadasHoje = getRodadasBomba(bombData, bomba);
+    if (existente) {
+      var pos = rodadasHoje.findIndex(function (r) { return r.id === existente.id; });
+      document.getElementById("bomb-modal-title").textContent =
+        "Bomba " + bomba + (rodadasHoje.length > 1 ? " · Rodada " + (pos + 1) : "");
+    } else {
+      document.getElementById("bomb-modal-title").textContent =
+        "Bomba " + bomba + (rodadasHoje.length ? " · Rodada " + (rodadasHoje.length + 1) : "");
+    }
     document.getElementById("bomb-horario-inicio").value = existente ? (existente.horarioInicio || "") : new Date().toTimeString().slice(0, 5);
     document.getElementById("bomb-horario-fim").value = existente ? (existente.horarioFim || "") : "";
     document.getElementById("bomb-leitura-inicio").value = existente && existente.leituraInicial !== undefined ? existente.leituraInicial : "";
@@ -3284,7 +3343,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v15';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v16';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
