@@ -278,6 +278,11 @@
     <section id="tab-bombeamento" class="tab-panel">
       <div id="bombeamento-content"></div>
     </section>
+
+    <!-- RELATÓRIOS (somente administrador) -->
+    <section id="tab-relatorios" class="tab-panel">
+      <div id="relatorios-content"></div>
+    </section>
   </main>
 
   <div id="toast" class="toast" style="display:none"></div>
@@ -302,6 +307,10 @@
     <button class="nav-btn" data-tab="bombeamento">
       <span>🚰</span>
       <span class="nav-label">Bombeamento</span>
+    </button>
+    <button class="nav-btn" data-tab="relatorios">
+      <span>📄</span>
+      <span class="nav-label">Relatórios</span>
     </button>
   </nav>
 </div>
@@ -896,6 +905,12 @@
           '<div class="empty-state">Não consegui carregar a Manutenção agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
       }
     }
+    if (tab === "relatorios") {
+      try { renderRelatorios(); } catch (err) {
+        document.getElementById("relatorios-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar os Relatórios agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
     if (tab === "bombeamento") {
       try { renderBombeamento(); } catch (err) {
         document.getElementById("bombeamento-content").innerHTML =
@@ -1047,7 +1062,7 @@
           '<p class="tag-desc">' + escapeHtml(r.descricao) + '</p>' +
           (r.acao ? '<p class="tag-acao"><b>Ação:</b> ' + escapeHtml(r.acao) + '</p>' : '') +
           ((r.fotos && r.fotos.length) ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">' +
-            r.fotos.map(function (f) { return '<img class="tag-photo" style="width:calc(50% - 3px);margin-top:0;" src="' + f + '" alt="Foto da ocorrência">'; }).join('') +
+            r.fotos.map(function (f) { return '<a href="' + urlFoto_(f) + '" target="_blank" rel="noopener"><img class="tag-photo" style="width:calc(50% - 3px);margin-top:0;" src="' + urlFoto_(f) + '" alt="Foto da ocorrência"></a>'; }).join('') +
             '</div>' : '') +
           '<div class="tag-footer">' +
             '<span class="tag-enc">' + escapeHtml(r.encarregado) + (pendente ? ' <span class="pending-badge">pendente</span>' : '') + '</span>' +
@@ -1803,6 +1818,25 @@
       return ordem(a.horarioInicio) - ordem(b.horarioInicio);
     });
   }
+  // Fotos antigas foram salvas com "drive.google.com/uc?id=", endereço que
+  // o Google deixou de servir como imagem - por isso sumiam da tela. Aqui a
+  // conversão é feita na hora de exibir, então as fotos que já estão na
+  // planilha voltam a aparecer sem precisar reenviar nada.
+  function urlFoto_(url) {
+    if (!url) return "";
+    var m = String(url).match(/drive\.google\.com\/uc\?id=([^&]+)/);
+    if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w1200";
+    return url;
+  }
+  function legendaFoto_(rec, quando) {
+    var quem = rec.responsavel || rec.plantonista || "";
+    var hora = (quando === "inicio") ? rec.horarioInicio : rec.horarioFim;
+    var partes = [];
+    if (quem) partes.push("👤 " + quem);
+    if (hora) partes.push("🕐 " + hora);
+    return partes.join(" · ");
+  }
+
   function consumoRodada_(r) {
     if (r.leituraInicial === "" || r.leituraInicial === undefined || r.leituraInicial === null) return null;
     if (r.leituraFinal === "" || r.leituraFinal === undefined || r.leituraFinal === null) return null;
@@ -1861,9 +1895,25 @@
               (rec.observacao ? '<br>📝 ' + escapeHtml(rec.observacao) : "") +
             '</div>';
           if (rec.fotoInicio || rec.fotoFim) {
-            html += '<div style="display:flex;gap:6px;margin-top:6px;">';
-            if (rec.fotoInicio) html += '<img src="' + rec.fotoInicio + '" title="Início" style="width:46px;height:46px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
-            if (rec.fotoFim) html += '<img src="' + rec.fotoFim + '" title="Fim" style="width:46px;height:46px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
+            html += '<div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">';
+            if (rec.fotoInicio) {
+              html += '<div style="text-align:center;">' +
+                '<a href="' + urlFoto_(rec.fotoInicio) + '" target="_blank" rel="noopener">' +
+                  '<img src="' + urlFoto_(rec.fotoInicio) + '" alt="Foto do início" style="width:78px;height:78px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;display:block;">' +
+                '</a>' +
+                '<div style="font-size:9px;color:#6B6153;margin-top:2px;font-weight:700;">INÍCIO</div>' +
+                '<div style="font-size:8.5px;color:#8A8072;">' + escapeHtml(legendaFoto_(rec, "inicio")) + '</div>' +
+              '</div>';
+            }
+            if (rec.fotoFim) {
+              html += '<div style="text-align:center;">' +
+                '<a href="' + urlFoto_(rec.fotoFim) + '" target="_blank" rel="noopener">' +
+                  '<img src="' + urlFoto_(rec.fotoFim) + '" alt="Foto do fim" style="width:78px;height:78px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;display:block;">' +
+                '</a>' +
+                '<div style="font-size:9px;color:#6B6153;margin-top:2px;font-weight:700;">FIM</div>' +
+                '<div style="font-size:8.5px;color:#8A8072;">' + escapeHtml(legendaFoto_(rec, "fim")) + '</div>' +
+              '</div>';
+            }
             html += '</div>';
           }
           if (!rec.horarioFim) {
@@ -1976,6 +2026,138 @@
         openDeleteManutModal(b.getAttribute("data-del-bomb"), "bombeamento");
       });
     });
+  }
+
+
+  // ================= ABA RELATÓRIOS (somente administrador) =================
+  var relatorioLiberado = false;   // vale só enquanto o app estiver aberto
+  var relDataInicio = "", relDataFim = "";
+
+  function renderRelatorios() {
+    var el = document.getElementById("relatorios-content");
+    if (!relatorioLiberado) {
+      el.innerHTML =
+        '<div class="card" style="margin-top:20px;">' +
+          '<div style="text-align:center;font-size:34px;margin-bottom:6px;">🔒</div>' +
+          '<div class="modal-title" style="text-align:center;">Área do Administrador</div>' +
+          '<div class="modal-sub" style="text-align:center;">Os relatórios gerenciais são de uso exclusivo seu. Digite a senha de administrador para liberar nesta sessão.</div>' +
+          '<div class="field"><span class="field-label">Senha de administrador</span><input id="rel-senha" type="password"></div>' +
+          '<button class="save-btn" id="btn-liberar-rel" style="background:#4C6B2F;">Liberar</button>' +
+          '<div id="rel-senha-result" class="test-result"></div>' +
+        '</div>';
+      document.getElementById("btn-liberar-rel").addEventListener("click", liberarRelatorios);
+      document.getElementById("rel-senha").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") liberarRelatorios();
+      });
+      return;
+    }
+
+    if (!relDataInicio && !relDataFim) {
+      // padrão: últimos 30 dias
+      var hoje = todayUTC();
+      relDataFim = fmtDateUTC(hoje);
+      relDataInicio = fmtDateUTC(addDiasUTC(hoje, -30));
+    }
+
+    var dados = dadosRelatorio_();
+    var html =
+      '<div class="card">' +
+        '<h3 class="panel-title">📄 Gerar Relatório</h3>' +
+        '<div class="modal-sub">Escolha o período. O relatório sai em PDF com gráficos, pronto para arquivar ou apresentar.</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<div class="field" style="flex:1;"><span class="field-label">De</span><input type="date" id="rel-ini" value="' + relDataInicio + '"></div>' +
+          '<div class="field" style="flex:1;"><span class="field-label">Até</span><input type="date" id="rel-fim" value="' + relDataFim + '"></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">' +
+          '<button class="del-btn" data-rel-atalho="7" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">7 dias</button>' +
+          '<button class="del-btn" data-rel-atalho="30" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">30 dias</button>' +
+          '<button class="del-btn" data-rel-atalho="90" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">90 dias</button>' +
+        '</div>' +
+      '</div>';
+
+    // prévia dos números do período
+    html += '<div class="card"><h3 class="panel-title">Prévia do período</h3>';
+    if (!dados.dias.length) {
+      html += '<div class="empty-state" style="padding:18px;">Nenhum bombeamento registrado nesse período.</div>';
+    } else {
+      html += '<div class="kpi-row">' +
+        '<div class="kpi-tile"><div class="kpi-num">' + dados.dias.length + '</div><div class="kpi-label">dias com registro</div></div>' +
+        '<div class="kpi-tile"><div class="kpi-num">' + Math.round(dados.totalGeral).toLocaleString("pt-BR") + '</div><div class="kpi-label">m³ bombeados</div></div>' +
+        '<div class="kpi-tile"><div class="kpi-num">' + dados.horasTotais.toFixed(1).replace(".", ",") + '</div><div class="kpi-label">horas de bomba</div></div>' +
+      '</div>';
+      html += '<div style="margin-top:6px;">';
+      [1, 2, 3, 4].forEach(function (n, i) {
+        var v = dados.porBomba[n] || 0;
+        html += barRowHtml("Bomba " + n, Math.round(v), Math.round(dados.totalGeral) || 1, PALETTE[i % PALETTE.length]);
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="card">' +
+      '<button class="save-btn" id="btn-gerar-rel-pdf" style="background:#2F7DB0;margin-top:0;">📄 Gerar PDF do período</button>' +
+      '<button class="photo-btn" id="btn-bloquear-rel" style="background:#8A8072;margin-top:8px;">🔒 Bloquear novamente</button>' +
+    '</div>';
+
+    el.innerHTML = html;
+    document.getElementById("rel-ini").addEventListener("change", function (e) { relDataInicio = e.target.value; renderRelatorios(); });
+    document.getElementById("rel-fim").addEventListener("change", function (e) { relDataFim = e.target.value; renderRelatorios(); });
+    el.querySelectorAll("[data-rel-atalho]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var d = parseInt(b.getAttribute("data-rel-atalho"), 10);
+        var hoje = todayUTC();
+        relDataFim = fmtDateUTC(hoje);
+        relDataInicio = fmtDateUTC(addDiasUTC(hoje, -d));
+        renderRelatorios();
+      });
+    });
+    document.getElementById("btn-gerar-rel-pdf").addEventListener("click", gerarRelatorioBombeamentoPDF);
+    document.getElementById("btn-bloquear-rel").addEventListener("click", function () {
+      relatorioLiberado = false; renderRelatorios();
+    });
+  }
+
+  function liberarRelatorios() {
+    var pass = document.getElementById("rel-senha").value.trim();
+    var resultEl = document.getElementById("rel-senha-result");
+    resultEl.className = "test-result"; resultEl.style.display = "block";
+    if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a sincronização primeiro."; return; }
+    if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha."; return; }
+    if (!navigator.onLine) { resultEl.className = "test-result fail"; resultEl.textContent = "Precisa de internet para validar a senha."; return; }
+    resultEl.textContent = "Verificando...";
+    postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
+      if (res && res.ok) { relatorioLiberado = true; renderRelatorios(); }
+      else { resultEl.className = "test-result fail"; resultEl.textContent = (res && res.error) || "Senha incorreta."; }
+    }).catch(function () {
+      resultEl.className = "test-result fail"; resultEl.textContent = "Erro de conexão.";
+    });
+  }
+
+  // Junta os registros de bombeamento do período, somando as rodadas de cada
+  // bomba por dia (uma bomba pode ligar mais de uma vez no mesmo dia).
+  function dadosRelatorio_() {
+    var ini = relDataInicio ? parseISODate(relDataInicio) : null;
+    var fim = relDataFim ? parseISODate(relDataFim) : null;
+    var porDia = {}, porBomba = {}, horasTotais = 0, totalGeral = 0;
+    bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
+      var d = parseISODate(r.data);
+      if (!d) return;
+      if (ini && d < ini) return;
+      if (fim && d > fim) return;
+      var c = consumoRodada_(r);
+      if (c === null) return;
+      var b = parseInt(r.bomba, 10) || 0;
+      if (!porDia[r.data]) porDia[r.data] = { 1: 0, 2: 0, 3: 0, 4: 0, total: 0 };
+      porDia[r.data][b] = (porDia[r.data][b] || 0) + c;
+      porDia[r.data].total += c;
+      porBomba[b] = (porBomba[b] || 0) + c;
+      totalGeral += c;
+      var hi = minutosDeHora_(r.horarioInicio), hf = minutosDeHora_(r.horarioFim);
+      var dur = hf - hi; if (dur < 0) dur += 1440;
+      horasTotais += dur / 60;
+    });
+    var dias = Object.keys(porDia).sort();
+    return { porDia: porDia, porBomba: porBomba, dias: dias, totalGeral: totalGeral, horasTotais: horasTotais };
   }
 
   function rotuloOperador_() {
@@ -2263,7 +2445,7 @@
     var url = pendingFotosPainel[n];
     if (!url) { el.innerHTML = ""; return; }
     el.innerHTML = '<div style="position:relative;display:inline-block;">' +
-      '<img src="' + url + '" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">' +
+      '<img src="' + urlFoto_(url) + '" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">' +
       '<button type="button" data-remove-painel="' + n + '" style="position:absolute;top:-6px;right:-6px;background:#C1501F;color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;line-height:1;">✕</button>' +
     '</div>';
     el.querySelector("[data-remove-painel]").addEventListener("click", function () {
@@ -3343,7 +3525,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v16';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v17';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
