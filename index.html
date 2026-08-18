@@ -571,6 +571,11 @@
       <div class="modal-sub" style="margin-bottom:6px;">Um nome por linha — os plantonistas e quem mais fizer leitura de hidrômetro.</div>
       <textarea id="admin-plantonistas" style="min-height:96px;" placeholder="Alex&#10;Elivelto&#10;André&#10;Ivonaldo"></textarea>
     </div>
+    <div class="field">
+      <span class="field-label">Vazão nominal de cada bomba (m³/h)</span>
+      <input id="admin-vazao-nominal" type="number" step="1" min="1" placeholder="325">
+      <div class="modal-sub" style="margin-top:4px;">É o que cada bomba deveria entregar por hora. O app usa isso pra estimar, pelo volume medido, quanto tempo a bomba realmente rodou — e avisar quando ela parou sem ninguém perceber.</div>
+    </div>
     <button class="photo-btn" id="btn-save-rondas-config" style="background:#8A5A44">Salvar Configuração das Rondas</button>
     <div id="admin-rondas-result" class="test-result"></div>
   </div>
@@ -624,6 +629,8 @@
     { bomba: 3, tipo: "inversor" }, { bomba: 4, tipo: "soft" }
   ];
   var currentPlantonistas = ["Alex", "Elivelto", "André", "Ivonaldo"];
+  var VAZAO_NOMINAL_CACHE_KEY = "vazao_nominal_cache_v1";
+  var vazaoNominalBomba = 325;   // m³/h que cada bomba deveria entregar
   var rondaAberta = null;      // horário previsto da ronda sendo preenchida
   var rondaBombaAtual = 1;     // qual bomba está aparecendo na tela (1 a 4)
   var pendingFotosPainel = {}; // { bomba: dataUrl }
@@ -1844,6 +1851,35 @@
     return partes.join(" · ");
   }
 
+  // A partir do volume medido e da vazão nominal, estima quanto tempo a
+  // bomba REALMENTE rodou. Se o registrado for bem maior que o efetivo, a
+  // bomba parou em algum momento sem ninguém perceber - que é justamente o
+  // problema que motivou isso.
+  function analiseRodada_(r) {
+    var c = consumoRodada_(r);
+    if (c === null || !r.horarioInicio || !r.horarioFim) return null;
+    var reg = minutosDeHora_(r.horarioFim) - minutosDeHora_(r.horarioInicio);
+    if (reg < 0) reg += 1440;
+    var efetivoMin = (c / vazaoNominalBomba) * 60;
+    var paradaMin = reg - efetivoMin;
+    var fimEstimado = minToTimeBomb_(minutosDeHora_(r.horarioInicio) + efetivoMin);
+    var vazaoReal = reg > 0 ? (c / (reg / 60)) : 0;
+    return {
+      consumo: c, registradoMin: reg, efetivoMin: efetivoMin, paradaMin: paradaMin,
+      fimEstimado: fimEstimado, vazaoReal: vazaoReal,
+      pctNominal: vazaoNominalBomba ? (vazaoReal / vazaoNominalBomba * 100) : 0
+    };
+  }
+  function minToTimeBomb_(min) {
+    min = Math.round(min); min = ((min % 1440) + 1440) % 1440;
+    return String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
+  }
+  function formatHoras_(min) {
+    var neg = min < 0; min = Math.abs(Math.round(min));
+    var h = Math.floor(min / 60), m = min % 60;
+    return (neg ? "-" : "") + (h ? h + "h" : "") + (m ? String(m).padStart(2, "0") + "min" : (h ? "" : "0min"));
+  }
+
   function consumoRodada_(r) {
     if (r.leituraInicial === "" || r.leituraInicial === undefined || r.leituraInicial === null) return null;
     if (r.leituraFinal === "" || r.leituraFinal === undefined || r.leituraFinal === null) return null;
@@ -1901,6 +1937,23 @@
               (rec.responsavel ? '<br>👤 ' + escapeHtml(rec.responsavel) : "") +
               (rec.observacao ? '<br>📝 ' + escapeHtml(rec.observacao) : "") +
             '</div>';
+          var an = analiseRodada_(rec);
+          if (an) {
+            var corA = an.paradaMin > 90 ? "#B4442E" : (an.paradaMin > 30 ? "#B8862B" : "#2F6B1F");
+            var fundoA = an.paradaMin > 90 ? "#FBEDE8" : (an.paradaMin > 30 ? "#FBF4E4" : "#F2F8ED");
+            html += '<div style="background:' + fundoA + ';border-radius:4px;padding:7px 9px;margin-top:6px;font-size:11.5px;color:#4A4136;">' +
+              '<div style="font-size:9.5px;font-family:\'IBM Plex Mono\',monospace;color:#6B6153;letter-spacing:.05em;">CONFERÊNCIA PELO VOLUME</div>' +
+              'Vazão real: <b>' + Math.round(an.vazaoReal) + ' m³/h</b> (' + Math.round(an.pctNominal) + '% do esperado)' +
+              '<br>Rodou de fato: <b>' + formatHoras_(an.efetivoMin) + '</b> de ' + formatHoras_(an.registradoMin) + ' registrados';
+            if (an.paradaMin > 30) {
+              html += '<div style="color:' + corA + ';font-weight:700;margin-top:3px;">' +
+                (an.paradaMin > 90 ? '🚨' : '⚠') + ' Provavelmente parou às <b>' + an.fimEstimado + '</b> — ' +
+                formatHoras_(an.paradaMin) + ' sem bombear.</div>';
+            } else if (an.paradaMin < -30) {
+              html += '<div style="color:#B4442E;font-weight:700;margin-top:3px;">⚠ Volume alto demais para o tempo registrado. Confira a leitura ou o horário.</div>';
+            }
+            html += '</div>';
+          }
           if (rec.fotoInicio || rec.fotoFim) {
             html += '<div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">';
             if (rec.fotoInicio) {
@@ -2078,24 +2131,98 @@
         '</div>' +
       '</div>';
 
-    // prévia dos números do período
-    html += '<div class="card"><h3 class="panel-title">Prévia do período</h3>';
+    // ================= RELATÓRIO NA TELA =================
     if (!dados.dias.length) {
-      html += '<div class="empty-state" style="padding:18px;">Nenhum bombeamento registrado nesse período.</div>';
+      html += '<div class="card"><div class="empty-state" style="padding:18px;">Nenhum bombeamento registrado nesse período.</div></div>';
     } else {
-      html += '<div class="kpi-row">' +
-        '<div class="kpi-tile"><div class="kpi-num">' + dados.dias.length + '</div><div class="kpi-label">dias com registro</div></div>' +
-        '<div class="kpi-tile"><div class="kpi-num">' + Math.round(dados.totalGeral).toLocaleString("pt-BR") + '</div><div class="kpi-label">m³ bombeados</div></div>' +
-        '<div class="kpi-tile"><div class="kpi-num">' + dados.horasTotais.toFixed(1).replace(".", ",") + '</div><div class="kpi-label">horas de bomba</div></div>' +
-      '</div>';
-      html += '<div style="margin-top:6px;">';
-      [1, 2, 3, 4].forEach(function (n, i) {
-        var v = dados.porBomba[n] || 0;
-        html += barRowHtml("Bomba " + n, Math.round(v), Math.round(dados.totalGeral) || 1, PALETTE[i % PALETTE.length]);
-      });
+      var paradas = paradasDetectadas_();
+      var vazMedia = dados.horasTotais > 0 ? dados.totalGeral / dados.horasTotais : 0;
+      var pctNom = vazaoNominalBomba ? (vazMedia / (vazaoNominalBomba * 4) * 100) : 0;
+
+      html += '<div class="card">' +
+        '<h3 class="panel-title">Resumo do período</h3>' +
+        '<div class="kpi-row">' +
+          '<div class="kpi-tile"><div class="kpi-num">' + Math.round(dados.totalGeral).toLocaleString("pt-BR") + '</div><div class="kpi-label">m³ bombeados</div></div>' +
+          '<div class="kpi-tile"><div class="kpi-num">' + dados.horasTotais.toFixed(1).replace(".", ",") + '</div><div class="kpi-label">horas de bomba</div></div>' +
+          '<div class="kpi-tile"><div class="kpi-num">' + dados.dias.length + '</div><div class="kpi-label">dias com registro</div></div>' +
+        '</div>';
+      if (paradas.length) {
+        var totalParado = paradas.reduce(function (a, p) { return a + p.paradaMin; }, 0);
+        html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:9px 12px;margin-top:4px;">' +
+          '<div style="font-size:11px;font-weight:700;color:#8A2E2E;">🚨 ' + paradas.length + ' parada(s) que passaram despercebidas</div>' +
+          '<div style="font-size:12px;color:#8A2E2E;margin-top:2px;">Somando <b>' + formatHoras_(totalParado) + '</b> de bomba desligada sem registro — cerca de <b>' +
+          Math.round(totalParado / 60 * vazaoNominalBomba).toLocaleString("pt-BR") + ' m³</b> que deixaram de ser bombeados.</div>' +
+        '</div>';
+      }
       html += '</div>';
+
+      // --- gráficos na tela ---
+      html += '<div class="card"><h3 class="panel-title">Volume por bomba, dia a dia</h3>' +
+        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c1" style="display:block;"></canvas></div></div>';
+      html += '<div class="card"><h3 class="panel-title">Total bombeado por dia</h3>' +
+        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c2" style="display:block;"></canvas></div></div>';
+      html += '<div class="card"><h3 class="panel-title">Vazão real x esperada</h3>' +
+        '<div class="modal-sub" style="margin-bottom:6px;">A linha vermelha tracejada é o que cada bomba deveria entregar (' + vazaoNominalBomba + ' m³/h).</div>' +
+        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c3" style="display:block;"></canvas></div></div>';
+
+      var eletrTela = dadosEletricos_();
+      if (eletrTela.length > 1) {
+        html += '<div class="card"><h3 class="panel-title">Corrente nas rondas</h3>' +
+          '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c4" style="display:block;"></canvas></div></div>';
+        html += '<div class="card"><h3 class="panel-title">Tensão nas rondas</h3>' +
+          '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c5" style="display:block;"></canvas></div></div>';
+      }
+
+      // --- paradas detectadas ---
+      if (paradas.length) {
+        html += '<div class="card"><h3 class="panel-title">🚨 Paradas detectadas pelo volume</h3>' +
+          '<div class="modal-sub" style="margin-bottom:8px;">Comparando o volume medido com a vazão esperada, dá pra saber quanto tempo a bomba realmente rodou — e quando ela provavelmente parou.</div>';
+        paradas.forEach(function (p) {
+          html += '<div style="background:#FBEDE8;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
+            '<b>' + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b>' +
+            '<br>Ligou ' + escapeHtml(p.inicio) + ', registrado até ' + escapeHtml(p.fim) +
+            '<br>Rodou de fato <b>' + formatHoras_(p.efetivoMin) + '</b> — provavelmente parou às <b>' + p.fimEstimado + '</b>' +
+            '<br><span style="color:#8A2E2E;font-weight:700;">' + formatHoras_(p.paradaMin) + ' sem bombear</span>' +
+          '</div>';
+        });
+        html += '</div>';
+      }
+
+      // --- inconsistências ---
+      var incons = inconsistenciasDetectadas_();
+      if (incons.length) {
+        html += '<div class="card"><h3 class="panel-title">⚠ Leituras que não fecham</h3>' +
+          '<div class="modal-sub" style="margin-bottom:8px;">Nestas rodadas o volume é alto demais para o tempo registrado — a bomba teria que ter rodado além do horário anotado. Normalmente é leitura ou horário digitado errado. <b>Os valores continuam somados nos totais</b>, então vale conferir antes de usar o número.</div>';
+        incons.forEach(function (p) {
+          html += '<div style="background:#FBF4E4;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
+            '<b>' + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b>' +
+            '<br>' + Math.round(p.consumo).toLocaleString("pt-BR") + ' m³ em ' + escapeHtml(p.inicio) + '–' + escapeHtml(p.fim) +
+            '<br>Daria <b>' + Math.round(p.vazaoReal) + ' m³/h</b> (' + Math.round(p.pctNominal) + '% do esperado)' +
+            '<br><span style="color:#7A5A18;font-weight:700;">Precisaria de mais ' + formatHoras_(p.excedenteMin) + ' de bomba para esse volume.</span>' +
+          '</div>';
+        });
+        html += '</div>';
+      }
+
+      // --- tabela dia a dia ---
+      html += '<div class="card"><h3 class="panel-title">Detalhe por dia</h3>' +
+        '<div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;min-width:460px;font-size:12px;">' +
+        '<tr style="background:#4C6B2F;color:#fff;"><th style="padding:6px;">Data</th><th style="padding:6px;">B1</th><th style="padding:6px;">B2</th><th style="padding:6px;">B3</th><th style="padding:6px;">B4</th><th style="padding:6px;">Total</th></tr>';
+      dados.dias.forEach(function (dia, i) {
+        html += '<tr style="background:' + (i % 2 ? "#F7F3E8" : "#FFFDF8") + ';">' +
+          '<td style="padding:6px;text-align:center;">' + fmtDate(dia) + '</td>';
+        [1, 2, 3, 4].forEach(function (n) {
+          html += '<td style="padding:6px;text-align:center;">' + Math.round(dados.porDia[dia][n] || 0).toLocaleString("pt-BR") + '</td>';
+        });
+        html += '<td style="padding:6px;text-align:center;font-weight:700;">' + Math.round(dados.porDia[dia].total).toLocaleString("pt-BR") + '</td></tr>';
+      });
+      html += '<tr style="background:#EFE7D3;font-weight:700;"><td style="padding:6px;text-align:center;">TOTAL</td>';
+      [1, 2, 3, 4].forEach(function (n) {
+        html += '<td style="padding:6px;text-align:center;">' + Math.round(dados.porBomba[n] || 0).toLocaleString("pt-BR") + '</td>';
+      });
+      html += '<td style="padding:6px;text-align:center;">' + Math.round(dados.totalGeral).toLocaleString("pt-BR") + '</td></tr>';
+      html += '</table></div></div>';
     }
-    html += '</div>';
 
     html += '<div class="card">' +
       '<button class="save-btn" id="btn-gerar-rel-pdf" style="background:#2F7DB0;margin-top:0;">📄 Gerar PDF do período</button>' +
@@ -2115,6 +2242,7 @@
         renderRelatorios();
       });
     });
+    desenharGraficosNaTela_(dados);
     document.getElementById("btn-gerar-rel-pdf").addEventListener("click", gerarRelatorioBombeamentoPDF);
     document.getElementById("btn-compartilhar-rel").addEventListener("click", compartilharRelatorioImagem);
     document.getElementById("btn-bloquear-rel").addEventListener("click", function () {
@@ -2144,6 +2272,7 @@
     var ini = relDataInicio ? parseISODate(relDataInicio) : null;
     var fim = relDataFim ? parseISODate(relDataFim) : null;
     var porDia = {}, porBomba = {}, horasTotais = 0, totalGeral = 0;
+    var horasPorDiaBomba = {};
     bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
       var d = parseISODate(r.data);
       if (!d) return;
@@ -2160,9 +2289,12 @@
       var hi = minutosDeHora_(r.horarioInicio), hf = minutosDeHora_(r.horarioFim);
       var dur = hf - hi; if (dur < 0) dur += 1440;
       horasTotais += dur / 60;
+      if (!horasPorDiaBomba[r.data]) horasPorDiaBomba[r.data] = {};
+      horasPorDiaBomba[r.data][b] = (horasPorDiaBomba[r.data][b] || 0) + dur / 60;
     });
     var dias = Object.keys(porDia).sort();
-    return { porDia: porDia, porBomba: porBomba, dias: dias, totalGeral: totalGeral, horasTotais: horasTotais };
+    return { porDia: porDia, porBomba: porBomba, dias: dias, totalGeral: totalGeral,
+             horasTotais: horasTotais, horasPorDiaBomba: horasPorDiaBomba };
   }
 
 
@@ -2178,7 +2310,7 @@
     var gx = x + padL, gy = y + padT, gw = w - padL - padR, gh = h - padT - padB;
 
     var maxV = 0;
-    series.forEach(function (s2) { s2.valores.forEach(function (v) { if (v > maxV) maxV = v; }); });
+    series.forEach(function (s2) { s2.valores.forEach(function (v) { if (v !== null && v > maxV) maxV = v; }); });
     if (maxV <= 0) maxV = 1;
     maxV = maxV * 1.15;
 
@@ -2197,24 +2329,33 @@
       ctx.fillText(lb, xx, gy + gh + 16);
     });
     series.forEach(function (s2) {
-      ctx.strokeStyle = s2.cor; ctx.lineWidth = 2.6; ctx.beginPath();
+      ctx.strokeStyle = s2.cor; ctx.lineWidth = s2.tracejada ? 2.2 : 2.6;
+      if (s2.tracejada) ctx.setLineDash([7, 5]); else ctx.setLineDash([]);
+      ctx.beginPath();
+      var iniciou = false;
       s2.valores.forEach(function (v, i) {
+        if (v === null || v === undefined) { iniciou = false; return; }  // buraco na linha
         var xx = labels.length === 1 ? gx + gw / 2 : gx + (gw * i / (labels.length - 1));
         var yy = gy + gh - (gh * v / maxV);
-        if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+        if (!iniciou) { ctx.moveTo(xx, yy); iniciou = true; } else ctx.lineTo(xx, yy);
       });
-      ctx.stroke();
-      ctx.fillStyle = s2.cor;
-      s2.valores.forEach(function (v, i) {
-        var xx = labels.length === 1 ? gx + gw / 2 : gx + (gw * i / (labels.length - 1));
-        var yy = gy + gh - (gh * v / maxV);
-        ctx.beginPath(); ctx.arc(xx, yy, 3.6, 0, Math.PI * 2); ctx.fill();
-      });
+      ctx.stroke(); ctx.setLineDash([]);
+      if (!s2.tracejada) {
+        ctx.fillStyle = s2.cor;
+        s2.valores.forEach(function (v, i) {
+          if (v === null || v === undefined) return;
+          var xx = labels.length === 1 ? gx + gw / 2 : gx + (gw * i / (labels.length - 1));
+          var yy = gy + gh - (gh * v / maxV);
+          ctx.beginPath(); ctx.arc(xx, yy, 3.6, 0, Math.PI * 2); ctx.fill();
+        });
+      }
     });
     var lx = gx, ly = y + h - 12;
     ctx.font = "10.5px Arial"; ctx.textAlign = "left";
     series.forEach(function (s2) {
-      ctx.fillStyle = s2.cor; ctx.fillRect(lx, ly - 7, 14, 3.5);
+      ctx.fillStyle = s2.cor;
+      if (s2.tracejada) { ctx.fillRect(lx, ly - 7, 5, 3.5); ctx.fillRect(lx + 8, ly - 7, 5, 3.5); }
+      else ctx.fillRect(lx, ly - 7, 14, 3.5);
       ctx.fillStyle = CINZA; ctx.fillText(s2.nome, lx + 19, ly - 3);
       lx += ctx.measureText(s2.nome).width + 46;
     });
@@ -2225,12 +2366,134 @@
     }
   }
 
+  // Corrente e tensão das rondas no período (só bombas soft starter têm)
+  function dadosEletricos_() {
+    var ini = relDataInicio ? parseISODate(relDataInicio) : null;
+    var fim = relDataFim ? parseISODate(relDataFim) : null;
+    var pontos = [];
+    rondaRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
+      var d = parseISODate(r.data);
+      if (!d) return;
+      if (ini && d < ini) return;
+      if (fim && d > fim) return;
+      var c = parseFloat(r.corrente), t = parseFloat(r.tensao);
+      if (!isFinite(c) && !isFinite(t)) return;
+      pontos.push({ data: r.data, hora: r.horarioReal || r.horarioPrevisto || "", bomba: parseInt(r.bomba, 10) || 0,
+                    corrente: isFinite(c) ? c : null, tensao: isFinite(t) ? t : null });
+    });
+    pontos.sort(function (a, b) {
+      if (a.data !== b.data) return a.data < b.data ? -1 : 1;
+      return minutosDeHora_(a.hora) - minutosDeHora_(b.hora);
+    });
+    return pontos;
+  }
+
+
+  // Lista as rodadas do período em que a bomba claramente parou antes do
+  // horário registrado (mais de 1h de diferença entre o tempo que ela
+  // deveria ter levado pra bombear aquele volume e o tempo anotado).
+  function paradasDetectadas_() {
+    var ini = relDataInicio ? parseISODate(relDataInicio) : null;
+    var fim = relDataFim ? parseISODate(relDataFim) : null;
+    var out = [];
+    bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
+      var d = parseISODate(r.data);
+      if (!d) return;
+      if (ini && d < ini) return;
+      if (fim && d > fim) return;
+      var a = analiseRodada_(r);
+      if (!a || a.paradaMin <= 60) return;
+      out.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
+                 efetivoMin: a.efetivoMin, paradaMin: a.paradaMin, fimEstimado: a.fimEstimado });
+    });
+    out.sort(function (a, b) { return b.paradaMin - a.paradaMin; });
+    return out;
+  }
+
+  // O oposto da parada: volume alto demais para o tempo registrado. Não é
+  // bomba parando - é leitura ou horário digitado errado. Precisa aparecer
+  // no relatório, senão o número entra na conta sem ninguém questionar.
+  function inconsistenciasDetectadas_() {
+    var ini = relDataInicio ? parseISODate(relDataInicio) : null;
+    var fim = relDataFim ? parseISODate(relDataFim) : null;
+    var out = [];
+    bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
+      var d = parseISODate(r.data);
+      if (!d) return;
+      if (ini && d < ini) return;
+      if (fim && d > fim) return;
+      var a = analiseRodada_(r);
+      if (!a || a.paradaMin >= -30) return;
+      out.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
+                 consumo: a.consumo, vazaoReal: a.vazaoReal, pctNominal: a.pctNominal,
+                 excedenteMin: -a.paradaMin });
+    });
+    out.sort(function (a, b) { return b.pctNominal - a.pctNominal; });
+    return out;
+  }
+
+  // Desenha os mesmos gráficos do PDF direto na tela. Largura fixa maior que
+  // a do celular de propósito: o card rola na horizontal, o que deixa os
+  // rótulos legíveis em vez de espremidos.
+  function desenharGraficosNaTela_(d) {
+    if (!d || !d.dias.length) return;
+    var LARG = 680, ALT = 250;
+    function pinta(id, series, labels, titulo, unidade) {
+      var cv = document.getElementById(id);
+      if (!cv) return;
+      var dpr = window.devicePixelRatio || 1;
+      cv.width = LARG * dpr; cv.height = ALT * dpr;
+      cv.style.width = LARG + "px"; cv.style.height = ALT + "px";
+      var ctx = cv.getContext("2d");
+      ctx.scale(dpr, dpr);
+      desenharGraficoLinha_(ctx, 0, 0, LARG, ALT, series, labels, titulo, unidade);
+    }
+    var labels = d.dias.map(function (dia) { return fmtDate(dia).slice(0, 5); });
+    var cores = ["#2F7DB0", "#4C6B2F", "#C1501F", "#8A5A44"];
+
+    pinta("rel-c1", [1, 2, 3, 4].map(function (n, i) {
+      return { nome: "Bomba " + n, cor: cores[i], valores: d.dias.map(function (dia) { return d.porDia[dia][n] || 0; }) };
+    }), labels, "", "m³");
+
+    pinta("rel-c2", [{ nome: "Total", cor: "#B4442E", valores: d.dias.map(function (dia) { return d.porDia[dia].total; }) }],
+          labels, "", "m³");
+
+    var sVaz = [1, 2, 3, 4].map(function (n, i) {
+      return { nome: "B" + n, cor: cores[i], valores: d.dias.map(function (dia) {
+        var h = d.horasPorDiaBomba[dia] && d.horasPorDiaBomba[dia][n];
+        return (h && h > 0) ? Math.round((d.porDia[dia][n] || 0) / h) : null;
+      }) };
+    });
+    sVaz.push({ nome: "Esperado", cor: "#B4442E", tracejada: true,
+                valores: d.dias.map(function () { return vazaoNominalBomba; }) });
+    pinta("rel-c3", sVaz, labels, "", "m³/h");
+
+    var el = dadosEletricos_();
+    if (el.length > 1) {
+      var labE = el.map(function (p) { return fmtDate(p.data).slice(0, 5) + " " + p.hora; });
+      var bombasE = [];
+      el.forEach(function (p) { if (bombasE.indexOf(p.bomba) === -1) bombasE.push(p.bomba); });
+      bombasE.sort();
+      pinta("rel-c4", bombasE.map(function (b) {
+        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
+                 valores: el.map(function (p) { return p.bomba === b && p.corrente !== null ? p.corrente : null; }) };
+      }), labE, "", "Ampère");
+      pinta("rel-c5", bombasE.map(function (b) {
+        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
+                 valores: el.map(function (p) { return p.bomba === b && p.tensao !== null ? p.tensao : null; }) };
+      }), labE, "", "Volts");
+    }
+  }
+
   function construirCanvasRelatorio_() {
     var d = dadosRelatorio_();
     if (!d.dias.length) return null;
 
+    var eletr = dadosEletricos_();
+    var temEletr = eletr.length > 1;
     var W = 1000, alturaGraf = 300;
-    var H = 112 + alturaGraf * 2 + 60 + (d.dias.length + 2) * 26 + 70;
+    var nGraf = 3 + (temEletr ? 2 : 0);
+    var H = 112 + alturaGraf * nGraf + (nGraf - 1) * 16 + 44 + (d.dias.length + 2) * 26 + 70;
     var canvas = document.createElement("canvas");
     var SC = 2;
     canvas.width = W * SC; canvas.height = H * SC;
@@ -2262,7 +2525,42 @@
     desenharGraficoLinha_(ctx, 20, 108 + alturaGraf + 16, W - 40, alturaGraf, serieTotal, labels,
                           "Total bombeado por dia", "m³");
 
-    var ty = 108 + alturaGraf * 2 + 44;
+    // ---- vazão real x esperada ----
+    var serieVaz = [1, 2, 3, 4].map(function (n, i) {
+      return { nome: "Bomba " + n, cor: cores[i],
+               valores: d.dias.map(function (dia) {
+                 var h = d.horasPorDiaBomba[dia] && d.horasPorDiaBomba[dia][n];
+                 var v = d.porDia[dia][n] || 0;
+                 return (h && h > 0) ? Math.round(v / h) : 0;
+               }) };
+    });
+    serieVaz.push({ nome: "Esperado (" + vazaoNominalBomba + " m³/h)", cor: "#B4442E", tracejada: true,
+                    valores: d.dias.map(function () { return vazaoNominalBomba; }) });
+    desenharGraficoLinha_(ctx, 20, 108 + alturaGraf * 2 + 32, W - 40, alturaGraf, serieVaz, labels,
+                          "Vazão de cada bomba x o que era esperado", "m³/h");
+
+    var yBase = 108 + alturaGraf * 3 + 48;
+    if (temEletr) {
+      var labE = eletr.map(function (p) { return fmtDate(p.data).slice(0, 5) + " " + p.hora; });
+      var bombasE = [];
+      eletr.forEach(function (p) { if (bombasE.indexOf(p.bomba) === -1) bombasE.push(p.bomba); });
+      bombasE.sort();
+      var sC = bombasE.map(function (b, i) {
+        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
+                 valores: eletr.map(function (p) { return p.bomba === b && p.corrente !== null ? p.corrente : null; }) };
+      });
+      desenharGraficoLinha_(ctx, 20, yBase, W - 40, alturaGraf, sC, labE,
+                            "Corrente das bombas (soft starter) ao longo das rondas", "Ampère");
+      var sT = bombasE.map(function (b) {
+        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
+                 valores: eletr.map(function (p) { return p.bomba === b && p.tensao !== null ? p.tensao : null; }) };
+      });
+      desenharGraficoLinha_(ctx, 20, yBase + alturaGraf + 16, W - 40, alturaGraf, sT, labE,
+                            "Tensão das bombas (soft starter) ao longo das rondas", "Volts");
+      yBase += alturaGraf * 2 + 32;
+    }
+
+    var ty = yBase + 12;
     ctx.fillStyle = "#4C6B2F"; ctx.fillRect(20, ty, W - 40, 26);
     ctx.fillStyle = "#fff"; ctx.font = "bold 11.5px Arial"; ctx.textAlign = "center";
     var colsX = [95, 265, 405, 545, 685, 855];
@@ -3139,6 +3437,10 @@
           currentPlantonistas = res.plantonistas;
           localStorage.setItem(PLANTONISTAS_CACHE_KEY, JSON.stringify(currentPlantonistas));
         }
+        if (res.vazaoNominal) {
+          vazaoNominalBomba = parseFloat(res.vazaoNominal) || 325;
+          localStorage.setItem(VAZAO_NOMINAL_CACHE_KEY, String(vazaoNominalBomba));
+        }
         if (res.rondasNoturnas) {
           var localRondaById = {};
           rondaRecords.forEach(function (r) { localRondaById[r.id] = r; });
@@ -3317,6 +3619,10 @@
         var cL = localStorage.getItem(PLANTONISTAS_CACHE_KEY);
         if (cL) currentPlantonistas = JSON.parse(cL);
       } catch (e) {}
+      try {
+        var cV = localStorage.getItem(VAZAO_NOMINAL_CACHE_KEY);
+        if (cV) vazaoNominalBomba = parseFloat(cV) || 325;
+      } catch (e) {}
       loadConfig();
       document.getElementById("cfg-url").value = config.url || "";
       document.getElementById("cfg-token").value = config.token || "";
@@ -3435,6 +3741,7 @@
         return p.bomba + ", " + p.tipo;
       }).join("\n");
       document.getElementById("admin-plantonistas").value = currentPlantonistas.join("\n");
+      document.getElementById("admin-vazao-nominal").value = vazaoNominalBomba;
       document.getElementById("admin-rondas-result").style.display = "none";
       // --- quem usa este celular (local, sem senha) ---
       document.getElementById("cfg-operador-modo").value = operadorDispositivo.modo || "compartilhado";
@@ -3608,12 +3915,17 @@
       if (invalidos.length) { resultEl.className = "test-result fail"; resultEl.textContent = "Horário inválido: " + invalidos.join(", ") + ". Use o formato HH:MM."; return; }
 
       resultEl.textContent = "Salvando...";
-      postToBackend({ action: "update_rondas_config", adminToken: pass, horarios: horarios, paineis: paineis, plantonistas: plantonistas })
+      var vazNom = parseFloat(document.getElementById("admin-vazao-nominal").value) || vazaoNominalBomba;
+      postToBackend({ action: "update_rondas_config", adminToken: pass, horarios: horarios, paineis: paineis, plantonistas: plantonistas, vazaoNominal: vazNom })
         .then(function (res) {
           if (res && res.ok) {
             currentRondasHorarios = res.horarios || horarios;
             if (res.paineis) currentPaineisBombas = res.paineis;
             if (res.plantonistas) currentPlantonistas = res.plantonistas;
+            if (res.vazaoNominal) {
+              vazaoNominalBomba = parseFloat(res.vazaoNominal) || 325;
+              localStorage.setItem(VAZAO_NOMINAL_CACHE_KEY, String(vazaoNominalBomba));
+            }
             localStorage.setItem(RONDAS_HORARIOS_CACHE_KEY, JSON.stringify(currentRondasHorarios));
             localStorage.setItem(PAINEIS_BOMBAS_CACHE_KEY, JSON.stringify(currentPaineisBombas));
             localStorage.setItem(PLANTONISTAS_CACHE_KEY, JSON.stringify(currentPlantonistas));
@@ -3740,7 +4052,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v18';
+    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v21';
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
