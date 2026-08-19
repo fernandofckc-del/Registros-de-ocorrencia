@@ -618,6 +618,16 @@
   var CULTURAS_CACHE_KEY = "manut_culturas_cache_v1";
   var TALHOES_CACHE_KEY = "manut_talhoes_cache_v1";
   var MANUT_KEY = "manut_records_v1";
+  // Versão do app. É a MESMA string usada no cache offline e a que aparece
+  // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
+  // aconteceu com o antigo "v6", que era texto fixo no HTML).
+  var APP_CACHE_NAME = 'registro-irrigacao-v26';
+  (function () {
+    var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
+    var el = document.getElementById("app-versao");
+    if (el && m) el.textContent = m[1];
+  })();
+
   var BOMB_KEY = "bomb_records_v1";
   // ---- Rondas noturnas ----
   var RONDA_KEY = "ronda_records_v1";
@@ -4167,15 +4177,7 @@
     // os arquivos) quando o CONTEÚDO do service-worker.js mudou no servidor.
     // Se o app já estava registrado, clicar aqui não fazia nada - por isso o
     // botão nunca "terminava" quando o cache estava incompleto.
-    var OFFLINE_CACHE_NAME = 'registro-irrigacao-v25';
-    // O número que aparece no cabeçalho sai daqui - assim ele acompanha
-    // sozinho a versão do cache e não fica desencontrado como ficou o "v6",
-    // que era texto fixo e nunca era atualizado junto.
-    (function () {
-      var m = /-(v\d+)$/.exec(OFFLINE_CACHE_NAME);
-      var el = document.getElementById("app-versao");
-      if (el && m) el.textContent = m[1];
-    })();
+    var OFFLINE_CACHE_NAME = APP_CACHE_NAME;
     var OFFLINE_ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
     caches.open(OFFLINE_CACHE_NAME).then(function (cache) {
       return Promise.all(
