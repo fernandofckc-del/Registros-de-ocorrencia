@@ -204,7 +204,10 @@
 
   <main>
     <!-- REGISTRAR -->
-    <section id="tab-registrar" class="tab-panel active">
+    <section id="tab-resumo" class="tab-panel active">
+      <div id="resumo-content"></div>
+    </section>
+    <section id="tab-registrar" class="tab-panel">
       <div class="card">
         <div class="card-tag"></div>
         <div id="edit-banner" style="display:none; background:#EFE7D3; border-radius:4px; padding:8px 10px; margin-bottom:14px; font-size:12.5px; justify-content:space-between; align-items:center; gap:8px;">
@@ -295,7 +298,11 @@
 </div>
 
   <nav class="tabbar">
-    <button class="nav-btn active" data-tab="registrar">
+    <button class="nav-btn active" data-tab="resumo">
+      <span style="position:relative">🌅<span id="nav-badge-resumo" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
+      <span class="nav-label">Resumo</span>
+    </button>
+    <button class="nav-btn" data-tab="registrar">
       <span>➕</span>
       <span class="nav-label">Registrar</span>
     </button>
@@ -621,7 +628,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v27';
+  var APP_CACHE_NAME = 'registro-irrigacao-v28';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -929,6 +936,12 @@
     if (plateTitle) {
       plateTitle.textContent = "REGISTRO DE OCORRÊNCIAS · IRRIGAÇÃO";
     }
+    if (tab === "resumo") {
+      try { renderResumo(); } catch (err) {
+        document.getElementById("resumo-content").innerHTML =
+          '<div class="empty-state">Não consegui montar o Resumo agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
     if (tab === "historico") renderHistorico();
     if (tab === "painel") renderPainel();
     if (tab === "manutencao") {
@@ -962,6 +975,14 @@
     var bm = document.getElementById("nav-badge-manut");
     if (overdue > 0) { bm.style.display = "flex"; bm.textContent = overdue; }
     else { bm.style.display = "none"; }
+
+    var abertasCount = records.filter(function (r) { return !r._pendingDelete && r.status !== "Resolvido"; }).length;
+    var br = document.getElementById("nav-badge-resumo");
+    if (br) {
+      var totalAlerta = abertasCount + overdue;
+      if (totalAlerta > 0) { br.style.display = "flex"; br.textContent = totalAlerta; }
+      else { br.style.display = "none"; }
+    }
   }
 
   // ---------- status / exclusão (local, fila de sync) ----------
@@ -1011,6 +1032,97 @@
     var d = parseISODate(r.data);
     if (!d) return null;
     return diffDaysUTC(d, todayUTC());
+  }
+
+  // ================= RESUMO DO DIA (tudo que precisa de atenção) =================
+  // Junta em uma tela só o que hoje exige abrir 3 abas diferentes pra montar
+  // o quadro: rondas da noite, ocorrências mais antigas em aberto, e
+  // manutenção atrasada. Pensado pra ser a primeira coisa que se vê ao
+  // abrir o app de manhã.
+  function renderResumo() {
+    var el = document.getElementById("resumo-content");
+    var hoje = todayStr();
+    var html = '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;letter-spacing:.06em;color:#6B6153;text-transform:uppercase;margin-bottom:10px;">' +
+      escapeHtml(fmtDate(hoje)) + ' · atualizado ao abrir o app</div>';
+
+    // ---- Ocorrências em aberto: as mais velhas primeiro ----
+    var abertas = records.filter(function (r) { return !r._pendingDelete && r.status !== "Resolvido"; })
+      .map(function (r) { return { r: r, dias: diasEmAberto_(r) }; })
+      .sort(function (a, b) { return (b.dias || 0) - (a.dias || 0); });
+
+    // ---- Manutenção atrasada ----
+    var talhoesAtrasados = (currentTalhoes || []).map(function (t) { return { t: t, info: computeSetorStatus(t) }; })
+      .filter(function (x) { return x.info.status === "atrasado" || x.info.status === "nunca"; })
+      .sort(function (a, b) {
+        var da = a.info.diasAte === null ? -9999 : a.info.diasAte;
+        var db = b.info.diasAte === null ? -9999 : b.info.diasAte;
+        return da - db;
+      });
+
+    // ---- Rondas da noite passada ----
+    var painelNoiteHtml = "";
+    try { painelNoiteHtml = renderPainelNoite_(hoje); } catch (e) {}
+
+    // ---- KPIs do topo ----
+    var maisVelha = abertas.length ? abertas[0] : null;
+    html += '<div class="kpi-row">' +
+      '<div class="kpi-tile" style="' + (abertas.length ? 'border-color:#B4442E;' : '') + '"><div class="kpi-num" style="' + (abertas.length ? 'color:#B4442E;' : '') + '">' + abertas.length + '</div><div class="kpi-label">ocorrências em aberto</div></div>' +
+      '<div class="kpi-tile" style="' + (talhoesAtrasados.length ? 'border-color:#C1501F;' : '') + '"><div class="kpi-num" style="' + (talhoesAtrasados.length ? 'color:#C1501F;' : '') + '">' + talhoesAtrasados.length + '</div><div class="kpi-label">setores c/ manutenção atrasada</div></div>' +
+    '</div>';
+
+    if (!abertas.length && !talhoesAtrasados.length) {
+      html += '<div style="background:#F2F8ED;border-radius:6px;padding:14px;text-align:center;font-size:13px;color:#2F6B1F;margin-bottom:14px;">✅ Nada pendente — nenhuma ocorrência aberta nem manutenção atrasada.</div>';
+    }
+
+    // ---- Bloco: ocorrência mais velha em destaque ----
+    if (maisVelha && maisVelha.dias !== null && maisVelha.dias >= 7) {
+      html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:10px 12px;margin-bottom:14px;">' +
+        '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#8A2E2E;text-transform:uppercase;letter-spacing:.05em;">🚨 Parada há mais tempo</div>' +
+        '<div style="font-weight:700;font-size:14px;color:#8A2E2E;margin-top:2px;">' + escapeHtml(maisVelha.r.setor) + ' · ' + escapeHtml(maisVelha.r.tipo) + '</div>' +
+        '<div style="font-size:12px;color:#6B6153;">há ' + maisVelha.dias + ' dias · ' + escapeHtml(maisVelha.r.descricao || "") + '</div>' +
+      '</div>';
+    }
+
+    // ---- Ocorrências em aberto (lista compacta, top 5) ----
+    if (abertas.length) {
+      html += '<div class="card"><h3 class="panel-title">📋 Ocorrências em aberto</h3>';
+      abertas.slice(0, 5).forEach(function (item) {
+        var r = item.r;
+        var cor = item.dias >= 15 ? "#B4442E" : (item.dias >= 7 ? "#B8862B" : "#6B6153");
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #EFEAD9;">' +
+          '<span style="font-size:12.5px;"><b>' + escapeHtml(r.setor) + '</b> · ' + escapeHtml(r.tipo) + '</span>' +
+          '<span style="font-size:11px;font-weight:700;color:' + cor + ';white-space:nowrap;margin-left:8px;">há ' + (item.dias === null ? "?" : item.dias) + 'd</span>' +
+        '</div>';
+      });
+      if (abertas.length > 5) html += '<div style="font-size:11px;color:#8A8072;margin-top:6px;">+ ' + (abertas.length - 5) + ' outra(s) — veja em Histórico</div>';
+      html += '<button class="photo-btn" data-ir-historico="1" style="background:#8A5A44;margin-top:10px;">Ver Histórico completo</button></div>';
+    }
+
+    // ---- Manutenção atrasada (lista compacta) ----
+    if (talhoesAtrasados.length) {
+      html += '<div class="card"><h3 class="panel-title">🔧 Manutenção atrasada</h3>';
+      talhoesAtrasados.slice(0, 6).forEach(function (item) {
+        var t = item.t, info = item.info;
+        var texto = info.status === "nunca" ? "nunca registrada" : (Math.abs(info.diasAte) + " dia(s) atrasado");
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #EFEAD9;">' +
+          '<span style="font-size:12.5px;"><b>' + escapeHtml(t.nome) + '</b> <span style="color:#8A8072;">(' + escapeHtml(t.cultura) + ')</span></span>' +
+          '<span style="font-size:11px;font-weight:700;color:#C1501F;white-space:nowrap;margin-left:8px;">' + texto + '</span>' +
+        '</div>';
+      });
+      if (talhoesAtrasados.length > 6) html += '<div style="font-size:11px;color:#8A8072;margin-top:6px;">+ ' + (talhoesAtrasados.length - 6) + ' outro(s) — veja em Manutenção</div>';
+      html += '<button class="photo-btn" data-ir-manutencao="1" style="background:#C1501F;margin-top:10px;">Ver Manutenção completa</button></div>';
+    }
+
+    // ---- Painel da noite (reaproveitado do Bombeamento) ----
+    if (painelNoiteHtml) {
+      html += '<div style="margin-top:4px;">' + painelNoiteHtml + '</div>';
+    }
+
+    el.innerHTML = html;
+    var b1 = el.querySelector("[data-ir-historico]");
+    if (b1) b1.addEventListener("click", function () { switchTab("historico"); });
+    var b2 = el.querySelector("[data-ir-manutencao]");
+    if (b2) b2.addEventListener("click", function () { switchTab("manutencao"); });
   }
 
   function renderHistorico() {
@@ -1602,6 +1714,88 @@
     atrasado: "Atrasado", proximo: "Próximo do prazo", em_dia: "Em dia", nunca: "Nunca registrada"
   };
 
+  // Calendário visual (tipo Gantt simples): mostra as próximas 5 semanas em
+  // colunas, e cada talhão numa linha, marcando em qual semana ele vence.
+  // Ajuda a enxergar de longe quando várias manutenções vão colidir na
+  // mesma semana - antes disso só dava pra saber lendo a lista, uma por uma.
+  function renderCalendarioManutencao_() {
+    if (!currentTalhoes.length) return "";
+    var hoje = todayUTC();
+    // início da semana atual (segunda-feira)
+    var diaSemana = hoje.getUTCDay(); // 0=domingo
+    var offsetSegunda = diaSemana === 0 ? -6 : 1 - diaSemana;
+    var inicioSemana0 = addDaysUTC(hoje, offsetSegunda);
+    var NSEM = 5;
+    var semanas = [];
+    for (var i = 0; i < NSEM; i++) {
+      var ini = addDaysUTC(inicioSemana0, i * 7);
+      var fim = addDaysUTC(ini, 6);
+      semanas.push({ ini: ini, fim: fim });
+    }
+
+    var linhas = currentTalhoes.map(function (t) {
+      var info = computeSetorStatus(t);
+      return { talhao: t, info: info };
+    }).sort(function (a, b) {
+      var da = a.info.proxima ? a.info.proxima.getTime() : -Infinity;
+      var db = b.info.proxima ? b.info.proxima.getTime() : -Infinity;
+      return da - db;
+    });
+
+    var contagemPorSemana = semanas.map(function () { return 0; });
+    linhas.forEach(function (item) {
+      if (!item.info.proxima) return;
+      for (var s = 0; s < NSEM; s++) {
+        if (item.info.proxima >= semanas[s].ini && item.info.proxima <= semanas[s].fim) { contagemPorSemana[s]++; break; }
+      }
+    });
+
+    var h = '<div class="card" style="overflow-x:auto;">' +
+      '<h3 class="panel-title">📅 Calendário das próximas 5 semanas</h3>' +
+      '<div style="min-width:520px;">';
+
+    // cabeçalho das semanas
+    h += '<div style="display:grid;grid-template-columns:88px repeat(' + NSEM + ',1fr);gap:2px;margin-bottom:3px;">';
+    h += '<div></div>';
+    semanas.forEach(function (sem, i) {
+      var pico = contagemPorSemana[i] >= 5;
+      h += '<div style="text-align:center;font-size:9.5px;font-weight:700;color:' + (pico ? "#B4442E" : "#6B6153") + ';padding:3px 2px;">' +
+        fmtDateUTC(sem.ini) + (pico ? ' ⚠' : '') + '</div>';
+    });
+    h += '</div>';
+
+    // uma linha por talhão (só os que vencem dentro da janela ou já atrasados/nunca)
+    var relevantes = linhas.filter(function (item) {
+      return item.info.status === "atrasado" || item.info.status === "nunca" ||
+        (item.info.proxima && item.info.proxima <= semanas[NSEM - 1].fim);
+    });
+    relevantes.forEach(function (item) {
+      var t = item.talhao, info = item.info;
+      h += '<div style="display:grid;grid-template-columns:88px repeat(' + NSEM + ',1fr);gap:2px;margin-bottom:2px;align-items:center;">';
+      h += '<div style="font-size:10.5px;font-weight:700;color:#241F1A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(t.nome) + '</div>';
+      for (var s = 0; s < NSEM; s++) {
+        var sem = semanas[s];
+        var aqui = info.proxima && info.proxima >= sem.ini && info.proxima <= sem.fim;
+        var atrasadoAntes = info.status === "atrasado" && s === 0; // atrasado aparece marcado logo na primeira coluna
+        var nuncaAntes = info.status === "nunca" && s === 0;
+        var cor = "transparent";
+        if (atrasadoAntes) cor = "#B4442E";
+        else if (nuncaAntes) cor = "#8A8072";
+        else if (aqui) cor = (s === 0) ? "#D6A233" : "#6FA84A";
+        h += '<div style="height:16px;border-radius:3px;background:' + cor + ';"></div>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+    h += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:10px;color:#6B6153;">' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#B4442E;border-radius:2px;margin-right:4px;"></span>atrasado</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#8A8072;border-radius:2px;margin-right:4px;"></span>nunca feito</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#D6A233;border-radius:2px;margin-right:4px;"></span>vence essa semana</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#6FA84A;border-radius:2px;margin-right:4px;"></span>vence mais pra frente</span>' +
+    '</div></div>';
+    return h;
+  }
+
   function renderManutencao() {
     var el = document.getElementById("manutencao-content");
     // Defensivo: nunca deixa a aba "sumir" mesmo se o cache local ficar vazio por algum motivo.
@@ -1609,6 +1803,7 @@
     if (!currentTalhoes.length) currentTalhoes = TALHOES_PADRAO.slice();
 
     var html = '<button class="photo-btn" id="btn-open-manut-generic" style="background:#C1501F;margin-bottom:4px;">➕ Registrar Manutenção</button>';
+    html += renderCalendarioManutencao_();
     var order = { atrasado: 0, proximo: 1, nunca: 2, em_dia: 3 };
 
     currentCulturas.forEach(function (cultura) {
@@ -3825,6 +4020,9 @@
       document.getElementById("cfg-token").value = config.token || "";
       updateBadge();
       refreshSyncPill();
+      try { renderResumo(); } catch (errResumo) {
+        console.error("[init] Falha ao montar o Resumo:", errResumo);
+      }
     } catch (errCore) {
       console.error("[init] Falha ao carregar dados/config iniciais:", errCore);
       showToast("Algo falhou ao carregar os dados salvos. Tente recarregar o app.");
