@@ -282,6 +282,10 @@
       <div id="bombeamento-content"></div>
     </section>
 
+    <section id="tab-pressao" class="tab-panel">
+      <div id="pressao-content"></div>
+    </section>
+
     <!-- RELATÓRIOS (somente administrador) -->
     <section id="tab-relatorios" class="tab-panel">
       <div id="relatorios-content"></div>
@@ -321,6 +325,10 @@
     <button class="nav-btn" data-tab="bombeamento">
       <span>🚰</span>
       <span class="nav-label">Bombeamento</span>
+    </button>
+    <button class="nav-btn" data-tab="pressao">
+      <span style="position:relative">🎯<span id="nav-badge-pressao" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
+      <span class="nav-label">Pressão Ideal</span>
     </button>
     <button class="nav-btn" data-tab="relatorios">
       <span>📄</span>
@@ -377,6 +385,49 @@
     <div style="padding:12px 18px 18px; border-top:1px solid #E5DFC9; background:#FFFDF8; flex-shrink:0;">
       <button class="save-btn" id="btn-save-ronda" style="margin-top:0;background:#4C7C59;">Salvar Ronda</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL DE LEITURA DE PRESSÃO -->
+<div class="modal-overlay" id="modal-pressao-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-pressao">✕</button>
+    <div class="modal-title" id="pressao-modal-title">Válvula</div>
+    <div class="modal-sub" id="pressao-modal-meta">—</div>
+    <div class="field">
+      <span class="field-label">Pressão na válvula (kg)</span>
+      <input id="pressao-valvula-input" type="number" step="0.1" placeholder="Ex.: 1,8">
+    </div>
+    <div class="field">
+      <span class="field-label">Pressão na ponta da linha (kg) — opcional</span>
+      <input id="pressao-ponta-input" type="number" step="0.1" placeholder="Ex.: 1,5">
+    </div>
+    <div id="pressao-avaliacao" style="font-size:12.5px;margin-bottom:10px;"></div>
+    <div class="field">
+      <span class="field-label">Observação (opcional)</span>
+      <textarea id="pressao-observacao-input" placeholder="Algo a registrar sobre essa leitura"></textarea>
+    </div>
+    <button class="save-btn" id="btn-save-pressao" style="background:#4C7C59;">Registrar Leitura</button>
+  </div>
+</div>
+
+<!-- MODAL DE CONFIGURAÇÃO DE PRESSÃO (admin) -->
+<div class="modal-overlay" id="modal-config-pressao-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-config-pressao">✕</button>
+    <div class="modal-title">🔒 Configurar Pressão Ideal</div>
+    <input type="hidden" id="admin-pressao-senha-oculta">
+    <div class="field">
+      <span class="field-label">Setores e válvulas</span>
+      <div class="modal-sub" style="margin-bottom:6px;">Um setor por linha, formato: <b>Setor | válvulas separadas por vírgula</b> — ex.: A3 | V7,V8,V9</div>
+      <textarea id="admin-valvulas-setor" style="min-height:140px;" placeholder="A3 | V7,V8,V9"></textarea>
+    </div>
+    <div class="field">
+      <span class="field-label">Metas de pressão por cultura</span>
+      <div class="modal-sub" style="margin-bottom:6px;">Uma cultura por linha, formato: <b>Cultura | meta na válvula | mínimo na ponta</b> — ex.: Coco | 1.8 | 1.5</div>
+      <textarea id="admin-metas-pressao" style="min-height:70px;" placeholder="Coco | 1.8 | 1.5"></textarea>
+    </div>
+    <button class="save-btn" id="btn-save-config-pressao" style="background:#8A5A44;">Salvar Configuração</button>
   </div>
 </div>
 
@@ -628,7 +679,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v28';
+  var APP_CACHE_NAME = 'registro-irrigacao-v29';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -662,6 +713,22 @@
 
   var currentCulturas = CULTURAS_PADRAO.slice();
   var currentTalhoes = TALHOES_PADRAO.slice();
+  // ---- Pressão Ideal nas Válvulas ----
+  var currentValvulasPorSetor = [
+    { setor: "A3", valvulas: ["V7", "V8", "V9"] },
+    { setor: "A4", valvulas: ["V10", "V11", "V12"] },
+    { setor: "B3", valvulas: ["V7", "V8", "V9"] },
+    { setor: "B4", valvulas: ["V10", "V11", "V12"] },
+    { setor: "C1", valvulas: ["V1", "V2", "V3"] }
+  ];
+  var currentMetasPressao = [
+    { cultura: "Coco", pressaoValvula: 1.8, pressaoPontaMin: 1.5 },
+    { cultura: "Cacau", pressaoValvula: 1.5, pressaoPontaMin: 0.8 }
+  ];
+  var leiturasPressaoRecords = [];
+  var VALVULAS_SETOR_CACHE_KEY = "valvulas_setor_cache_v1";
+  var METAS_PRESSAO_CACHE_KEY = "metas_pressao_cache_v1";
+  var LEITURAS_PRESSAO_KEY = "leituras_pressao_v1";
   var manutRecords = [];
   var bombRecords = [];
   var bombData = todayStr();
@@ -755,6 +822,16 @@
   }
   function saveRondaRecords() {
     try { localStorage.setItem(RONDA_KEY, JSON.stringify(rondaRecords)); return true; }
+    catch (e) { showToast("Armazenamento cheio."); return false; }
+  }
+  function loadLeiturasPressao() {
+    try {
+      var raw = localStorage.getItem(LEITURAS_PRESSAO_KEY);
+      leiturasPressaoRecords = raw ? JSON.parse(raw) : [];
+    } catch (e) { leiturasPressaoRecords = []; }
+  }
+  function saveLeiturasPressao() {
+    try { localStorage.setItem(LEITURAS_PRESSAO_KEY, JSON.stringify(leiturasPressaoRecords)); return true; }
     catch (e) { showToast("Armazenamento cheio."); return false; }
   }
   function loadOperador() {
@@ -960,6 +1037,12 @@
       try { renderBombeamento(); } catch (err) {
         document.getElementById("bombeamento-content").innerHTML =
           '<div class="empty-state">Não consegui carregar o Bombeamento agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
+    if (tab === "pressao") {
+      try { renderPressaoIdeal(); } catch (err) {
+        document.getElementById("pressao-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar a Pressão Ideal agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
       }
     }
     updateBadge();
@@ -2126,6 +2209,200 @@
   }
 
   function round2Bomb_(n) { return Math.round(n * 100) / 100; }
+
+  // ================= PRESSÃO IDEAL NAS VÁLVULAS =================
+  function getCulturaDoSetorPressao_(nomeSetor) {
+    var t = currentTalhoes.find(function (x) { return x.nome === nomeSetor; });
+    return t ? t.cultura : null;
+  }
+  function getMetaCultura_(nomeCultura) {
+    return currentMetasPressao.find(function (m) { return m.cultura === nomeCultura; }) || null;
+  }
+  function getUltimaLeituraValvula_(setor, valvula) {
+    var regs = leiturasPressaoRecords.filter(function (r) {
+      return r.setor === setor && r.valvula === valvula && !r._pendingDelete;
+    }).sort(function (a, b) { return String(b.data).localeCompare(String(a.data)); });
+    return regs.length ? regs[0] : null;
+  }
+  // Tolerância de 0,1 pra cima ou pra baixo da meta na válvula ainda conta
+  // como "dentro" (afinal é regulagem manual, não dá pra cravar o número
+  // exato). Na ponta só importa não cair abaixo do mínimo.
+  function avaliarLeituraPressao_(pressaoValvula, pressaoPonta, meta) {
+    if (!meta) return { corValvula: "#6B6153", corPonta: "#6B6153" };
+    var corValvula = "#6B6153";
+    if (pressaoValvula !== "" && pressaoValvula !== null && pressaoValvula !== undefined) {
+      var pv = parseFloat(pressaoValvula);
+      // + 0.001 de folga pra não cair na pegadinha clássica do JS, tipo
+      // 1.6 - 1.5 dar 0.10000000000000009 em vez de 0.1 certinho.
+      corValvula = Math.abs(pv - meta.pressaoValvula) <= 0.1 + 0.001 ? "#2F6B1F" : "#B4442E";
+    }
+    var corPonta = "#6B6153";
+    if (pressaoPonta !== "" && pressaoPonta !== null && pressaoPonta !== undefined) {
+      var pp = parseFloat(pressaoPonta);
+      corPonta = pp >= meta.pressaoPontaMin ? "#2F6B1F" : "#B4442E";
+    }
+    return { corValvula: corValvula, corPonta: corPonta };
+  }
+
+  function renderPressaoIdeal() {
+    var el = document.getElementById("pressao-content");
+    var html = '<div class="modal-sub" style="margin-bottom:12px;">Meta de pressão por cultura, e a última leitura registrada em cada válvula. Toque numa válvula pra registrar uma nova medição.</div>';
+
+    // metas no topo, sempre visíveis
+    html += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
+    currentMetasPressao.forEach(function (m) {
+      html += '<div style="flex:1;background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px;text-align:center;">' +
+        '<div style="font-family:\'Oswald\',sans-serif;font-size:13px;font-weight:600;">' + escapeHtml(m.cultura) + '</div>' +
+        '<div style="font-size:11px;color:#6B6153;margin-top:4px;">Válvula: <b>' + m.pressaoValvula + ' kg</b></div>' +
+        '<div style="font-size:11px;color:#6B6153;">Ponta mín.: <b>' + m.pressaoPontaMin + ' kg</b></div>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    if (!currentValvulasPorSetor.length) {
+      html += '<div class="empty-state">Nenhum setor com válvulas cadastradas ainda. Configure em ⚙️ (admin).</div>';
+      el.innerHTML = html;
+      return;
+    }
+
+    // agrupa por cultura
+    var porCultura = {};
+    currentValvulasPorSetor.forEach(function (item) {
+      var cultura = getCulturaDoSetorPressao_(item.setor) || "Sem cultura definida";
+      if (!porCultura[cultura]) porCultura[cultura] = [];
+      porCultura[cultura].push(item);
+    });
+
+    Object.keys(porCultura).forEach(function (cultura) {
+      var meta = getMetaCultura_(cultura);
+      html += '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10.5px;letter-spacing:.06em;color:#6B6153;text-transform:uppercase;margin:14px 0 8px;">' + escapeHtml(cultura) + '</div>';
+      porCultura[cultura].forEach(function (item) {
+        html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
+          '<div style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">' + escapeHtml(item.setor) + '</div>';
+        item.valvulas.forEach(function (valv) {
+          var ultima = getUltimaLeituraValvula_(item.setor, valv);
+          var avalia = ultima ? avaliarLeituraPressao_(ultima.pressaoValvula, ultima.pressaoPonta, meta) : { corValvula: "#C9BC9C", corPonta: "#C9BC9C" };
+          html += '<div data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '" style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-top:1px solid #EFEAD9;cursor:pointer;">' +
+            '<span style="font-size:12.5px;font-weight:700;">' + escapeHtml(valv) + '</span>';
+          if (ultima) {
+            html += '<span style="font-size:11.5px;text-align:right;">' +
+              '<span style="color:' + avalia.corValvula + ';font-weight:700;">' + (ultima.pressaoValvula || "—") + ' kg</span>' +
+              (ultima.pressaoPonta ? ' <span style="color:#8A8072;">· ponta </span><span style="color:' + avalia.corPonta + ';font-weight:700;">' + ultima.pressaoPonta + ' kg</span>' : '') +
+              '<br><span style="color:#8A8072;font-size:10px;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
+            '</span>';
+          } else {
+            html += '<span style="font-size:11px;color:#8A8072;">Nunca medida</span>';
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+    });
+
+    html += '<button class="photo-btn" id="btn-admin-pressao" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Válvulas e Metas (admin)</button>';
+
+    el.innerHTML = html;
+    el.querySelectorAll("[data-abrir-leitura]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var partes = b.getAttribute("data-abrir-leitura").split("|");
+        abrirModalLeituraPressao_(partes[0], partes[1]);
+      });
+    });
+    document.getElementById("btn-admin-pressao").addEventListener("click", abrirConfigPressao_);
+  }
+
+  var editingLeituraId = null, leituraSetorAtual = null, leituraValvulaAtual = null;
+  function abrirModalLeituraPressao_(setor, valvula) {
+    editingLeituraId = null;
+    leituraSetorAtual = setor; leituraValvulaAtual = valvula;
+    var meta = getMetaCultura_(getCulturaDoSetorPressao_(setor));
+    document.getElementById("pressao-modal-title").textContent = setor + " · " + valvula;
+    document.getElementById("pressao-modal-meta").textContent = meta
+      ? "Meta: " + meta.pressaoValvula + " kg na válvula · mínimo " + meta.pressaoPontaMin + " kg na ponta"
+      : "Sem meta configurada pra essa cultura.";
+    document.getElementById("pressao-valvula-input").value = "";
+    document.getElementById("pressao-ponta-input").value = "";
+    document.getElementById("pressao-observacao-input").value = "";
+    document.getElementById("pressao-avaliacao").textContent = "";
+    document.getElementById("modal-pressao-overlay").classList.add("active");
+  }
+  function fecharModalLeituraPressao_() {
+    document.getElementById("modal-pressao-overlay").classList.remove("active");
+    editingLeituraId = null;
+  }
+  function atualizarAvaliacaoPressao_() {
+    var el = document.getElementById("pressao-avaliacao");
+    var meta = getMetaCultura_(getCulturaDoSetorPressao_(leituraSetorAtual));
+    if (!meta) { el.textContent = ""; return; }
+    var pv = document.getElementById("pressao-valvula-input").value;
+    var pp = document.getElementById("pressao-ponta-input").value;
+    if (!pv && !pp) { el.innerHTML = ""; return; }
+    var avalia = avaliarLeituraPressao_(pv, pp, meta);
+    var partes = [];
+    if (pv) partes.push('<span style="color:' + avalia.corValvula + ';font-weight:700;">Válvula ' + (avalia.corValvula === "#2F6B1F" ? "dentro da meta ✓" : "fora da meta ✗") + '</span>');
+    if (pp) partes.push('<span style="color:' + avalia.corPonta + ';font-weight:700;">Ponta ' + (avalia.corPonta === "#2F6B1F" ? "OK ✓" : "abaixo do mínimo ✗") + '</span>');
+    el.innerHTML = partes.join(" · ");
+  }
+  function salvarLeituraPressao_() {
+    var pv = document.getElementById("pressao-valvula-input").value.trim();
+    var pp = document.getElementById("pressao-ponta-input").value.trim();
+    var obs = document.getElementById("pressao-observacao-input").value.trim();
+    if (!pv) { showToast("Preencha a pressão medida na válvula."); return; }
+    var registro = {
+      id: uid(), data: todayStr(), setor: leituraSetorAtual, valvula: leituraValvulaAtual,
+      pressaoValvula: pv, pressaoPonta: pp, responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
+      observacao: obs, _synced: false, _pendingDelete: false
+    };
+    leiturasPressaoRecords.unshift(registro);
+    saveLeiturasPressao();
+    fecharModalLeituraPressao_();
+    renderPressaoIdeal();
+    showToast("Leitura registrada.");
+    trySync();
+  }
+
+  function abrirConfigPressao_() {
+    var senha = prompt("Senha de administrador:");
+    if (senha === null) return;
+    document.getElementById("admin-valvulas-setor").value = currentValvulasPorSetor.map(function (v) {
+      return v.setor + " | " + v.valvulas.join(",");
+    }).join("\n");
+    document.getElementById("admin-metas-pressao").value = currentMetasPressao.map(function (m) {
+      return m.cultura + " | " + m.pressaoValvula + " | " + m.pressaoPontaMin;
+    }).join("\n");
+    document.getElementById("admin-pressao-senha-oculta").value = senha;
+    document.getElementById("modal-config-pressao-overlay").classList.add("active");
+  }
+  function fecharConfigPressao_() { document.getElementById("modal-config-pressao-overlay").classList.remove("active"); }
+  function salvarConfigPressao_() {
+    var senha = document.getElementById("admin-pressao-senha-oculta").value;
+    var linhasValvulas = document.getElementById("admin-valvulas-setor").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+    var novasValvulas = linhasValvulas.map(function (l) {
+      var partes = l.split("|").map(function (p) { return p.trim(); });
+      return { setor: partes[0], valvulas: (partes[1] || "").split(",").map(function (v) { return v.trim(); }).filter(function (v) { return v; }) };
+    }).filter(function (v) { return v.setor && v.valvulas.length; });
+
+    var linhasMetas = document.getElementById("admin-metas-pressao").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+    var novasMetas = linhasMetas.map(function (l) {
+      var partes = l.split("|").map(function (p) { return p.trim(); });
+      return { cultura: partes[0], pressaoValvula: parseFloat(partes[1]) || 0, pressaoPontaMin: parseFloat(partes[2]) || 0 };
+    }).filter(function (m) { return m.cultura; });
+
+    if (!novasValvulas.length) { showToast("A lista de válvulas não pode ficar vazia."); return; }
+    postToBackend({ action: "update_pressao_config", adminToken: senha, valvulasPorSetor: novasValvulas, metasPressao: novasMetas }).then(function (res) {
+      if (res && res.ok) {
+        currentValvulasPorSetor = res.valvulasPorSetor || novasValvulas;
+        currentMetasPressao = res.metasPressao || novasMetas;
+        localStorage.setItem(VALVULAS_SETOR_CACHE_KEY, JSON.stringify(currentValvulasPorSetor));
+        localStorage.setItem(METAS_PRESSAO_CACHE_KEY, JSON.stringify(currentMetasPressao));
+        fecharConfigPressao_();
+        renderPressaoIdeal();
+        showToast("Configuração salva.");
+      } else {
+        showToast((res && res.error) || "Não consegui salvar.");
+      }
+    }).catch(function () { showToast("Erro de conexão."); });
+  }
 
   function renderBombeamento() {
     var el = document.getElementById("bombeamento-content");
@@ -3620,6 +3897,7 @@
     var toCreateBomb = bombRecords.filter(function (r) { return !r._synced; });
     var toCreateRonda = rondaRecords.filter(function (r) { return !r._synced; });
     var toUpdateRonda = rondaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toCreateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return !r._synced; });
     var toUpdateBomb = bombRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var syncErrors = [];
 
@@ -3732,6 +4010,7 @@
 
     toUpdateRonda.forEach(function (r) {
       chain = chain.then(function () {
+
         return postToBackend({
           token: config.token, action: "update_ronda", id: r.id, data: r.data,
           horarioPrevisto: r.horarioPrevisto, horarioReal: r.horarioReal, plantonista: r.plantonista,
@@ -3748,6 +4027,23 @@
             r._synced = false; r._pendingUpdate = false; saveRondaRecords();
           } else {
             syncErrors.push((res && res.error) ? res.error : "erro ao atualizar ronda");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toCreateLeituraPressao.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "create_leitura_pressao", id: r.id, data: r.data,
+          setor: r.setor, valvula: r.valvula, pressaoValvula: r.pressaoValvula || "",
+          pressaoPonta: r.pressaoPonta || "", responsavel: r.responsavel || "", observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._synced = true;
+            saveLeiturasPressao();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao criar leitura de pressão");
           }
         }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
       });
@@ -3857,6 +4153,35 @@
             }
           });
           saveRondaRecords();
+        }
+        if (res.valvulasPorSetor && res.valvulasPorSetor.length) {
+          currentValvulasPorSetor = res.valvulasPorSetor;
+          localStorage.setItem(VALVULAS_SETOR_CACHE_KEY, JSON.stringify(currentValvulasPorSetor));
+        }
+        if (res.metasPressao && res.metasPressao.length) {
+          currentMetasPressao = res.metasPressao;
+          localStorage.setItem(METAS_PRESSAO_CACHE_KEY, JSON.stringify(currentMetasPressao));
+        }
+        if (res.leiturasPressao) {
+          var localLeituraById = {};
+          leiturasPressaoRecords.forEach(function (r) { localLeituraById[r.id] = r; });
+          res.leiturasPressao.forEach(function (row) {
+            if (!row.id) return;
+            var camposL = {
+              data: row.data, setor: row.setor || "", valvula: row.valvula || "",
+              pressaoValvula: row.pressaoValvula || "", pressaoPonta: row.pressaoPonta || "",
+              responsavel: row.responsavel || "", observacao: row.observacao || ""
+            };
+            var exL = localLeituraById[row.id];
+            if (exL) {
+              if (!exL._pendingUpdate && !exL._pendingDelete) Object.assign(exL, camposL, { _synced: true });
+            } else {
+              var novoL = Object.assign({ id: row.id, _synced: true, _pendingDelete: false }, camposL);
+              leiturasPressaoRecords.push(novoL);
+              localLeituraById[row.id] = novoL;
+            }
+          });
+          saveLeiturasPressao();
         }
         if (res.bombeamentos) {
           // Igual à Irrigação: reconcilia (atualiza quem já existe, não só
@@ -3998,6 +4323,15 @@
       loadManutRecords();
       loadBombRecords();
       loadRondaRecords();
+      loadLeiturasPressao();
+      try {
+        var cVS = localStorage.getItem(VALVULAS_SETOR_CACHE_KEY);
+        if (cVS) currentValvulasPorSetor = JSON.parse(cVS);
+      } catch (e) {}
+      try {
+        var cMP = localStorage.getItem(METAS_PRESSAO_CACHE_KEY);
+        if (cMP) currentMetasPressao = JSON.parse(cMP);
+      } catch (e) {}
       loadOperador();
       try {
         var cH = localStorage.getItem(RONDAS_HORARIOS_CACHE_KEY);
@@ -4067,6 +4401,18 @@
 
     document.getElementById("btn-save-bomb").addEventListener("click", handleSaveBomb);
     document.getElementById("btn-save-ronda").addEventListener("click", salvarRonda);
+    document.getElementById("btn-save-pressao").addEventListener("click", salvarLeituraPressao_);
+    document.getElementById("btn-close-pressao").addEventListener("click", fecharModalLeituraPressao_);
+    document.getElementById("modal-pressao-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-pressao-overlay") fecharModalLeituraPressao_();
+    });
+    document.getElementById("pressao-valvula-input").addEventListener("input", atualizarAvaliacaoPressao_);
+    document.getElementById("pressao-ponta-input").addEventListener("input", atualizarAvaliacaoPressao_);
+    document.getElementById("btn-close-config-pressao").addEventListener("click", fecharConfigPressao_);
+    document.getElementById("modal-config-pressao-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-config-pressao-overlay") fecharConfigPressao_();
+    });
+    document.getElementById("btn-save-config-pressao").addEventListener("click", salvarConfigPressao_);
     document.getElementById("btn-tudo-ok").addEventListener("click", marcarTudoOk_);
     document.getElementById("btn-bomba-ant").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual - 1); });
     document.getElementById("btn-bomba-prox").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual + 1); });
