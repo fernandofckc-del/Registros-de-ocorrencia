@@ -143,16 +143,28 @@
   nav.tabbar {
     position: sticky; bottom:0; left:0; right:0; display:flex;
     background:#FFFDF8; border-top:1px solid #DCD3BC; margin-top:auto;
+    overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
+  nav.tabbar::-webkit-scrollbar { display:none; }
   .nav-btn {
-    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
-    padding:10px 0 8px; background:none; border:none; color:#8A8072; cursor:pointer; position:relative;
+    flex:0 0 auto; width:58px; display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:8px 0 7px; background:none; border:none; color:#8A8072; cursor:pointer; position:relative;
+  }
+  .nav-disc {
+    width:38px; height:38px; border-radius:50%; background:#EFE7D3; display:flex; align-items:center;
+    justify-content:center; font-size:17px; transition:background .15s, box-shadow .15s;
+    border:1.5px solid #E5DFC9; position:relative;
+  }
+  .nav-btn.active .nav-disc {
+    background:linear-gradient(155deg,#D6714A,#C1501F); border-color:#C1501F; color:#fff;
+    box-shadow:0 3px 8px rgba(193,80,31,.35);
   }
   .nav-btn.active { color:#C1501F; }
-  .nav-label { font-size:9.5px; font-weight:600; letter-spacing:.01em; }
+  .nav-label { font-size:8.5px; font-weight:600; letter-spacing:.01em; white-space:nowrap; }
   .nav-badge {
-    position:absolute; top:0px; right:26%; background:#C1501F; color:#fff; font-size:9px; font-weight:700;
+    position:absolute; top:-3px; right:-4px; background:#C1501F; color:#fff; font-size:9px; font-weight:700;
     border-radius:8px; min-width:15px; height:15px; display:flex; align-items:center; justify-content:center; padding:0 3px;
+    border:1.5px solid #FFFDF8;
   }
 
   .tab-panel { display:none; }
@@ -303,35 +315,35 @@
 
   <nav class="tabbar">
     <button class="nav-btn active" data-tab="resumo">
-      <span style="position:relative">🌅<span id="nav-badge-resumo" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
+      <span class="nav-disc">🌅<span id="nav-badge-resumo" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
       <span class="nav-label">Resumo</span>
     </button>
     <button class="nav-btn" data-tab="registrar">
-      <span>➕</span>
+      <span class="nav-disc">➕</span>
       <span class="nav-label">Registrar</span>
     </button>
     <button class="nav-btn" data-tab="historico">
-      <span style="position:relative">📋<span id="nav-badge" class="nav-badge" style="display:none">0</span></span>
+      <span class="nav-disc">📋<span id="nav-badge" class="nav-badge" style="display:none">0</span></span>
       <span class="nav-label">Histórico</span>
     </button>
     <button class="nav-btn" data-tab="painel">
-      <span>📊</span>
+      <span class="nav-disc">📊</span>
       <span class="nav-label">Painel</span>
     </button>
     <button class="nav-btn" data-tab="manutencao">
-      <span style="position:relative">🔧<span id="nav-badge-manut" class="nav-badge" style="display:none;background:#C1501F;">0</span></span>
-      <span class="nav-label">Manutenção</span>
+      <span class="nav-disc">🔧<span id="nav-badge-manut" class="nav-badge" style="display:none;background:#C1501F;">0</span></span>
+      <span class="nav-label">Manut.</span>
     </button>
     <button class="nav-btn" data-tab="bombeamento">
-      <span>🚰</span>
-      <span class="nav-label">Bombeamento</span>
+      <span class="nav-disc">🚰</span>
+      <span class="nav-label">Bomb.</span>
     </button>
     <button class="nav-btn" data-tab="pressao">
-      <span style="position:relative">🎯<span id="nav-badge-pressao" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
-      <span class="nav-label">Pressão Ideal</span>
+      <span class="nav-disc">🎯<span id="nav-badge-pressao" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
+      <span class="nav-label">Pressão</span>
     </button>
     <button class="nav-btn" data-tab="relatorios">
-      <span>📄</span>
+      <span class="nav-disc">📄</span>
       <span class="nav-label">Relatórios</span>
     </button>
   </nav>
@@ -679,7 +691,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v29';
+  var APP_CACHE_NAME = 'registro-irrigacao-v30';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
