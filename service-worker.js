@@ -1,4 +1,4 @@
-var CACHE_NAME = 'registro-irrigacao-v26';
+var CACHE_NAME = 'registro-irrigacao-v27';
 var ASSETS = [
   './',
   './index.html',
@@ -79,4 +79,78 @@ self.addEventListener('fetch', function (event) {
       return cached || fetch(event.request);
     })
   );
+});
+
+// ================= ENVIO EM SEGUNDO PLANO (Background Sync) =================
+// Quando o navegador pega internet de novo, ele dispara este evento sozinho
+// - mesmo com o app FECHADO. Aqui a gente lê a "gaveta" (IndexedDB) onde o
+// index.html guardou os registros que não conseguiram sair na hora, e tenta
+// enviar cada um de novo. Se algum falhar (ex.: internet caiu de novo no
+// meio), o navegador tenta de novo mais tarde automaticamente - não precisa
+// tratar isso aqui, é o próprio contrato do Background Sync.
+var OUTBOX_DB = 'irrigacao_outbox_v1', OUTBOX_STORE = 'fila';
+
+function abrirOutboxSW_() {
+  return new Promise(function (resolve, reject) {
+    var req = indexedDB.open(OUTBOX_DB, 1);
+    req.onupgradeneeded = function () {
+      req.result.createObjectStore(OUTBOX_STORE, { keyPath: 'chave', autoIncrement: true });
+    };
+    req.onsuccess = function () { resolve(req.result); };
+    req.onerror = function () { reject(req.error); };
+  });
+}
+
+function listarOutboxSW_() {
+  return abrirOutboxSW_().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(OUTBOX_STORE, 'readonly');
+      var req = tx.objectStore(OUTBOX_STORE).getAll();
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { reject(req.error); };
+    });
+  });
+}
+
+function apagarDoOutboxSW_(chave) {
+  return abrirOutboxSW_().then(function (db) {
+    return new Promise(function (resolve) {
+      var tx = db.transaction(OUTBOX_STORE, 'readwrite');
+      tx.objectStore(OUTBOX_STORE)['delete'](chave);
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { resolve(); };
+    });
+  });
+}
+
+function enviarFilaPendente_() {
+  return listarOutboxSW_().then(function (itens) {
+    // Envia em sequência (não em paralelo) - o Apps Script não lida bem
+    // com várias requisições simultâneas na mesma planilha.
+    var promessa = Promise.resolve();
+    itens.forEach(function (item) {
+      promessa = promessa.then(function () {
+        return fetch(item.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(item.payload)
+        }).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        }).then(function () {
+          return apagarDoOutboxSW_(item.chave);
+        }).catch(function (err) {
+          console.log('[SW] Falha ao reenviar item da fila, tenta de novo depois:', err);
+          // não apaga - fica na fila pra próxima tentativa
+        });
+      });
+    });
+    return promessa;
+  });
+}
+
+self.addEventListener('sync', function (event) {
+  if (event.tag === 'enviar-fila-registros') {
+    event.waitUntil(enviarFilaPendente_());
+  }
 });

@@ -621,7 +621,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v26';
+  var APP_CACHE_NAME = 'registro-irrigacao-v27';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -3313,8 +3313,77 @@
     }
   }
 
+
+  // ================= ENVIO EM SEGUNDO PLANO (Background Sync) =================
+  // Guarda uma cópia de todo envio importante numa gaveta que o CELULAR
+  // mantém (IndexedDB) - diferente do localStorage, essa gaveta o
+  // navegador consegue abrir sozinho, mesmo com o app fechado, assim que
+  // pegar internet de novo. É isso que resolve o problema do plantonista
+  // que registra sem sinal, guarda o celular, e só sincroniza de verdade
+  // quando alguém abre o app na área com sinal.
+  //
+  // IMPORTANTE (celulares Xiaomi/MIUI): o sistema é bem agressivo fechando
+  // apps em segundo plano. Pra isso funcionar direito, cada celular precisa
+  // ir em Configurações > Bateria > Chrome > "Sem restrições". Sem isso, o
+  // MIUI pode impedir o envio mesmo com o recurso pronto.
+  var OUTBOX_DB = "irrigacao_outbox_v1", OUTBOX_STORE = "fila";
+  function outboxAbrir_() {
+    return new Promise(function (resolve, reject) {
+      if (!("indexedDB" in window)) { reject(new Error("sem IndexedDB")); return; }
+      var req = indexedDB.open(OUTBOX_DB, 1);
+      req.onupgradeneeded = function () {
+        req.result.createObjectStore(OUTBOX_STORE, { keyPath: "chave", autoIncrement: true });
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function outboxAdicionar_(url, payload) {
+    return outboxAbrir_().then(function (db) {
+      return new Promise(function (resolve) {
+        var tx = db.transaction(OUTBOX_STORE, "readwrite");
+        tx.objectStore(OUTBOX_STORE).add({ url: url, payload: payload, criadoEm: Date.now() });
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); }; // não trava o app por causa disso
+      });
+    }).catch(function () {});
+  }
+  function outboxRemoverPorAssinatura_(url, payload) {
+    // remove pela combinação (não tem como saber a "chave" aqui fora) -
+    // procura um item com o mesmo conteúdo e apaga o mais antigo igual
+    return outboxAbrir_().then(function (db) {
+      return new Promise(function (resolve) {
+        var tx = db.transaction(OUTBOX_STORE, "readwrite");
+        var store = tx.objectStore(OUTBOX_STORE);
+        var alvo = JSON.stringify(payload);
+        store.openCursor().onsuccess = function (e) {
+          var cur = e.target.result;
+          if (!cur) { resolve(); return; }
+          if (cur.value.url === url && JSON.stringify(cur.value.payload) === alvo) {
+            store.delete(cur.primaryKey);
+            resolve();
+            return;
+          }
+          cur.continue();
+        };
+      });
+    }).catch(function () {});
+  }
+  function registrarSyncSegundoPlano_() {
+    if (!("serviceWorker" in navigator) || !("SyncManager" in window)) return;
+    navigator.serviceWorker.ready.then(function (reg) {
+      return reg.sync.register("enviar-fila-registros");
+    }).catch(function () {});
+  }
+
   function postToBackend(payload, _tentativa) {
     _tentativa = _tentativa || 1;
+    // Ações de admin (senha, configuração) e de teste não entram na fila -
+    // só o que é dado de campo (criar/atualizar/apagar registro) precisa
+    // sobreviver ao app fechado.
+    var vaiNaFila = /^(create_|update_|delete_)/.test(payload.action || "");
+    if (vaiNaFila && _tentativa === 1) outboxAdicionar_(config.url, payload);
+
     return fetch(config.url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -3322,12 +3391,15 @@
     }).then(function (r) {
       return r.text().then(function (text) {
         try {
-          return JSON.parse(text);
+          var json = JSON.parse(text);
+          if (vaiNaFila) outboxRemoverPorAssinatura_(config.url, payload);
+          return json;
         } catch (e) {
           throw new Error("Resposta inesperada do servidor: " + text.slice(0, 150));
         }
       });
     }).catch(function (err) {
+      if (vaiNaFila) registrarSyncSegundoPlano_();
       // A PRIMEIRA chamada depois de um tempo parado costuma falhar: o Apps
       // Script demora a "acordar" e o navegador corta a conexão. Por isso a
       // senha só funcionava na segunda tentativa. Aqui tenta sozinho mais
