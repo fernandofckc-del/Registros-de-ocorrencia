@@ -699,7 +699,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v31';
+  var APP_CACHE_NAME = 'registro-irrigacao-v32';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -985,14 +985,22 @@
   }
 
   // Um campo só aparece quando faz sentido: "qual operação causou" só serve
-  // pra "Erro Operacional" - nas outras causas (Falha de Material, Animal,
-  // etc.) não tem operação nenhuma pra apontar.
+  // pra causas do tipo "Operacional" - nas outras causas (Falha de
+  // Material, Animal, etc.) não tem operação nenhuma pra apontar.
+  // Checa se o texto CONTÉM "operacional" (sem diferenciar maiúscula/
+  // acento simples) em vez de exigir o nome EXATO - assim continua
+  // funcionando mesmo se o nome da causa for editado no admin (ex.: de
+  // "Erro Operacional" pra só "Operacional").
+  function ehCausaOperacional_(causa) {
+    return /operacional/i.test(causa || "");
+  }
   function atualizarVisibilidadeOperacaoCausadora_() {
     var causa = document.getElementById("f-causa").value;
     var wrap = document.getElementById("f-operacao-wrap");
     if (!wrap) return;
-    wrap.style.display = (causa === "Erro Operacional") ? "" : "none";
-    if (causa !== "Erro Operacional") document.getElementById("f-operacao-causadora").value = "";
+    var ehOperacional = ehCausaOperacional_(causa);
+    wrap.style.display = ehOperacional ? "" : "none";
+    if (!ehOperacional) document.getElementById("f-operacao-causadora").value = "";
   }
 
   function resetForm() {
@@ -1544,7 +1552,7 @@
     if (operacaoEntries.length) {
       var totalOperacional = operacaoEntries.reduce(function (s, e) { return s + e[1]; }, 0);
       html += '<div class="card" style="border-left:4px solid #C1501F;">' +
-        '<div class="card-tag"></div><h3 class="panel-title">⚙️ Qual operação causou (dentro de "Erro Operacional")</h3>';
+        '<div class="card-tag"></div><h3 class="panel-title">⚙️ Qual operação causou (dentro das causas operacionais)</h3>';
       operacaoEntries.forEach(function (e, i) { html += barRowHtml(e[0], e[1], totalOperacional, PALETTE[i % PALETTE.length]); });
       html += '</div>';
     }
@@ -1711,7 +1719,7 @@
     y += 8;
     if (operacaoEntriesPdf.length) {
       ctx.fillStyle = VERMELHO; ctx.font = "bold 12px Arial";
-      ctx.fillText("Qual operação causou (dentro de Erro Operacional):", 20, y); y += 18;
+      ctx.fillText("Qual operação causou (dentro das causas operacionais):", 20, y); y += 18;
       operacaoEntriesPdf.forEach(function (e) {
         ctx.fillStyle = CINZA; ctx.font = "12px Arial";
         ctx.fillText("• " + e[0] + ": " + e[1], 28, y);
