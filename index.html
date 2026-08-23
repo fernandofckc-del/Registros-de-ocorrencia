@@ -699,7 +699,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v32';
+  var APP_CACHE_NAME = 'registro-irrigacao-v34';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -775,7 +775,19 @@
   var painelPeriodoFim = "";
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
-  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  // Antes usava toISOString(), que sempre devolve em UTC. Como o Brasil é
+  // UTC-3, a partir das 21h a data já virava "amanhã" no app, três horas
+  // adiantado do relógio de parede - foi isso que causou os hidrômetros
+  // registrados com a data errada logo no começo da noite. Agora monta a
+  // data a partir do horário LOCAL do celular, então só vira mesmo à
+  // meia-noite de verdade.
+  function todayStr() {
+    var d = new Date();
+    var ano = d.getFullYear();
+    var mes = String(d.getMonth() + 1).padStart(2, "0");
+    var dia = String(d.getDate()).padStart(2, "0");
+    return ano + "-" + mes + "-" + dia;
+  }
   function fmtDate(iso) {
     if (!iso) return "";
     var p = String(iso).split("T")[0].split("-");
@@ -881,10 +893,32 @@
         String(r.bomba) === String(bomba) && !r._pendingDelete;
     });
   }
-  function rondaFoiFeita_(data, horarioPrevisto) {
-    return rondaRecords.some(function (r) {
-      return r.data === data && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete;
+  // Antes: qualquer registro (mesmo 1 bomba de 4) marcava a ronda inteira
+  // como "feita" (✓), dando falsa sensação de tudo OK quando só parte foi
+  // checada de verdade. Foi exatamente o que aconteceu na madrugada de
+  // 19/08: só as bombas 1 e 2 foram registradas, e a ronda apareceu como
+  // completa mesmo assim. Agora conta quantas bombas distintas têm
+  // registro e distingue não iniciada / parcial / completa.
+  var TOTAL_BOMBAS_RONDA = 4;
+  function statusRonda_(data, horarioPrevisto) {
+    var bombasRegistradas = {};
+    rondaRecords.forEach(function (r) {
+      if (r.data === data && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete && r.bomba) {
+        bombasRegistradas[r.bomba] = true;
+      }
     });
+    var qtd = Object.keys(bombasRegistradas).length;
+    var faltando = [];
+    for (var n = 1; n <= TOTAL_BOMBAS_RONDA; n++) {
+      if (!bombasRegistradas[n]) faltando.push(n);
+    }
+    return {
+      qtd: qtd, total: TOTAL_BOMBAS_RONDA, faltando: faltando,
+      status: qtd === 0 ? "nao_iniciada" : (qtd < TOTAL_BOMBAS_RONDA ? "parcial" : "completa")
+    };
+  }
+  function rondaFoiFeita_(data, horarioPrevisto) {
+    return statusRonda_(data, horarioPrevisto).status === "completa";
   }
   function horaAgora_() {
     var d = new Date();
@@ -2607,7 +2641,9 @@
     horariosOrdenados.forEach(function (hp) {
       var dataDaRonda = (minutosDeHora_(hp) >= 720) ? noiteIni : noiteFim;
       var ehHoje = (dataDaRonda === hojeStr);
-      var feita = rondaFoiFeita_(dataDaRonda, hp);
+      var statusR = statusRonda_(dataDaRonda, hp);
+      var feita = statusR.status === "completa";
+      var parcial = statusR.status === "parcial";
       var regs = rondaRecords.filter(function (r) { return r.data === dataDaRonda && r.horarioPrevisto === hp && !r._pendingDelete; });
       var primeiro = regs[0];
       var atrasada = false;
@@ -2619,14 +2655,21 @@
       var bombasDesligadas = regs.filter(function (r) { return !r.bombaLigada; });
       var painelProblema = regs.filter(function (r) { return r.painelStatus === "Com problema"; });
 
-      var corBorda = feita ? (bombasDesligadas.length || painelProblema.length ? "#C1501F" : "#4C7C59") : (atrasada ? "#B4442E" : "#DCD3BC");
-      var fundo = feita ? (bombasDesligadas.length || painelProblema.length ? "#FBEDE8" : "#F2F8ED") : (atrasada ? "#FBEDE8" : "#FFFDF8");
+      var corBorda = feita ? (bombasDesligadas.length || painelProblema.length ? "#C1501F" : "#4C7C59")
+        : (parcial ? "#B8862B" : (atrasada ? "#B4442E" : "#DCD3BC"));
+      var fundo = feita ? (bombasDesligadas.length || painelProblema.length ? "#FBEDE8" : "#F2F8ED")
+        : (parcial ? "#FBF4E4" : (atrasada ? "#FBEDE8" : "#FFFDF8"));
 
       html += '<div data-abrir-ronda="' + hp + '" data-ronda-data="' + dataDaRonda + '" style="background:' + fundo + ';border:1px solid ' + corBorda + ';border-left:4px solid ' + corBorda + ';border-radius:4px;padding:10px 12px;margin-bottom:8px;cursor:pointer;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-          '<span style="font-weight:700;font-size:13.5px;">' + (feita ? "✅" : (atrasada ? "🚨" : "⏳")) + ' Ronda das ' + escapeHtml(hp) + '</span>' +
-          '<span style="font-size:11px;color:#6B6153;">' + (feita ? regs.length + ' bomba(s)' : (atrasada ? "ATRASADA" : "pendente")) + '</span>' +
+          '<span style="font-weight:700;font-size:13.5px;">' + (feita ? "✅" : (parcial ? "⚠" : (atrasada ? "🚨" : "⏳"))) + ' Ronda das ' + escapeHtml(hp) + '</span>' +
+          '<span style="font-size:11px;color:' + (parcial ? "#B8862B" : "#6B6153") + ';font-weight:' + (parcial ? "700" : "400") + ';">' +
+            (feita ? regs.length + " bomba(s)" : (parcial ? statusR.qtd + " de " + statusR.total + " — INCOMPLETA" : (atrasada ? "ATRASADA" : "pendente"))) +
+          '</span>' +
         '</div>';
+      if (parcial) {
+        html += '<div style="font-size:12px;color:#7A5A18;margin-top:4px;">Faltou registrar a bomba ' + statusR.faltando.join(", ") + '. Toque pra completar.</div>';
+      }
       if (feita && primeiro) {
         var atraso = atrasoRonda_(hp, primeiro.horarioReal);
         html += '<div style="font-size:12px;color:#4A4136;margin-top:4px;">' +
@@ -3531,8 +3574,13 @@
       });
     });
     for (var k = 1; k <= 4; k++) renderFotoPainelPreview_(k);
-    rondaBombaAtual = 1;
-    mostrarBombaPasso_(1);
+    // Se a ronda já tem alguma bomba registrada mas está incompleta, abre
+    // direto na primeira que falta - em vez de sempre começar na Bomba 1 e
+    // obrigar a pessoa a passar pelas que já foram feitas.
+    var statusAoAbrir = statusRonda_(rondaAbertaData, horarioPrevisto);
+    var bombaInicial = statusAoAbrir.faltando.length ? statusAoAbrir.faltando[0] : 1;
+    rondaBombaAtual = bombaInicial;
+    mostrarBombaPasso_(bombaInicial);
 
     document.getElementById("modal-ronda-overlay").classList.add("active");
   }
