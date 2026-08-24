@@ -699,7 +699,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v35';
+  var APP_CACHE_NAME = 'registro-irrigacao-v36';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4364,17 +4364,33 @@
           saveBombRecords();
         }
         if (!res.rows) return;
-        var localIds = {};
-        records.forEach(function (r) { localIds[r.id] = true; });
+        // Antes: só ADICIONAVA ocorrência nova, nunca ATUALIZAVA uma que já
+        // conhecia. Resultado: se alguém resolve uma ocorrência em outro
+        // celular (ou direto na planilha), o seu continuava mostrando
+        // "Aberto" pra sempre - o número de abertas ficava cada vez mais
+        // torto com o tempo. Agora reconcilia igual Bombeamento/Rondas/
+        // Pressão já fazem: atualiza quem já existe, só cria o que é novo.
+        var localById = {};
+        records.forEach(function (r) { localById[r.id] = r; });
         res.rows.forEach(function (row) {
-          if (!row.id || localIds[row.id]) return;
-          records.push({
-            id: row.id, data: row.data, setor: row.setor, tipo: row.tipo, causa: row.causa,
+          if (!row.id) return;
+          var campos = {
+            data: row.data, setor: row.setor, tipo: row.tipo, causa: row.causa,
             operacaoCausadora: row.operacao_causadora || "",
             encarregado: row.encarregado, descricao: row.descricao, acao: row.acao,
-            status: row.status || "Aberto", fotos: row.fotos || [], cultura: row.cultura || "",
-            _synced: true, _pendingStatus: false, _pendingDelete: false, _pendingUpdate: false
-          });
+            status: row.status || "Aberto", fotos: row.fotos || [], cultura: row.cultura || ""
+          };
+          var existente = localById[row.id];
+          if (existente) {
+            // não pisa em cima de uma edição que ainda não terminou de subir
+            if (!existente._pendingUpdate && !existente._pendingStatus && !existente._pendingDelete) {
+              Object.assign(existente, campos, { _synced: true });
+            }
+          } else {
+            var novo = Object.assign({ id: row.id, _synced: true, _pendingStatus: false, _pendingDelete: false, _pendingUpdate: false }, campos);
+            records.push(novo);
+            localById[row.id] = novo;
+          }
         });
         records.sort(function (a, b) { return (b.data || "").localeCompare(a.data || ""); });
         saveRecords();
