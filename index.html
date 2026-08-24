@@ -699,7 +699,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v34';
+  var APP_CACHE_NAME = 'registro-irrigacao-v35';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1137,9 +1137,13 @@
     else { bm.style.display = "none"; }
 
     var abertasCount = records.filter(function (r) { return !r._pendingDelete && r.status !== "Resolvido"; }).length;
+    var hojeBadge = todayStr();
+    var bombasEsquecidasCount = bombRecords.filter(function (r) {
+      return !r._pendingDelete && !r.horarioFim && r.data && r.data < hojeBadge;
+    }).length;
     var br = document.getElementById("nav-badge-resumo");
     if (br) {
-      var totalAlerta = abertasCount + overdue;
+      var totalAlerta = abertasCount + overdue + bombasEsquecidasCount;
       if (totalAlerta > 0) { br.style.display = "flex"; br.textContent = totalAlerta; }
       else { br.style.display = "none"; }
     }
@@ -1223,6 +1227,15 @@
     var painelNoiteHtml = "";
     try { painelNoiteHtml = renderPainelNoite_(hoje); } catch (e) {}
 
+    // ---- Bombas iniciadas e nunca fechadas (esquecidas) ----
+    // Uma rodada sem horarioFim ainda "em andamento" é normal enquanto for
+    // da noite atual. Mas se já passou o dia (a rodada é de ANTES de hoje)
+    // e continua sem fechar, é sinal de que ficou esquecida - foi
+    // exatamente o que aconteceu com a Bomba 1 na noite de 23/08.
+    var bombasEsquecidas = bombRecords.filter(function (r) {
+      return !r._pendingDelete && !r.horarioFim && r.data && r.data < hoje;
+    }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+
     // ---- KPIs do topo ----
     var maisVelha = abertas.length ? abertas[0] : null;
     html += '<div class="kpi-row">' +
@@ -1230,8 +1243,22 @@
       '<div class="kpi-tile" style="' + (talhoesAtrasados.length ? 'border-color:#C1501F;' : '') + '"><div class="kpi-num" style="' + (talhoesAtrasados.length ? 'color:#C1501F;' : '') + '">' + talhoesAtrasados.length + '</div><div class="kpi-label">setores c/ manutenção atrasada</div></div>' +
     '</div>';
 
-    if (!abertas.length && !talhoesAtrasados.length) {
-      html += '<div style="background:#F2F8ED;border-radius:6px;padding:14px;text-align:center;font-size:13px;color:#2F6B1F;margin-bottom:14px;">✅ Nada pendente — nenhuma ocorrência aberta nem manutenção atrasada.</div>';
+    if (!abertas.length && !talhoesAtrasados.length && !bombasEsquecidas.length) {
+      html += '<div style="background:#F2F8ED;border-radius:6px;padding:14px;text-align:center;font-size:13px;color:#2F6B1F;margin-bottom:14px;">✅ Nada pendente — nenhuma ocorrência aberta, manutenção atrasada, nem bomba esquecida.</div>';
+    }
+
+    // ---- Bombas esquecidas em destaque ----
+    if (bombasEsquecidas.length) {
+      html += '<div class="card" style="border-left:4px solid #B4442E;">' +
+        '<h3 class="panel-title">🚨 Bomba iniciada e nunca fechada</h3>' +
+        '<div class="modal-sub" style="margin-bottom:8px;">Registrada mas sem horário de desligamento - provavelmente esqueceram de fechar.</div>';
+      bombasEsquecidas.forEach(function (r) {
+        html += '<div style="background:#FBEDE8;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12.5px;color:#4A4136;">' +
+          '<b>' + escapeHtml(fmtDate(r.data)) + ' · Bomba ' + escapeHtml(r.bomba) + '</b>' +
+          '<br>Ligou às ' + escapeHtml(r.horarioInicio || "—") + (r.leituraInicial !== "" && r.leituraInicial !== undefined ? ' · leitura inicial ' + r.leituraInicial : '') +
+        '</div>';
+      });
+      html += '<button class="photo-btn" data-ir-bombeamento="1" style="background:#B4442E;margin-top:6px;">Ir pro Bombeamento e fechar</button></div>';
     }
 
     // ---- Bloco: ocorrência mais velha em destaque ----
@@ -1283,6 +1310,8 @@
     if (b1) b1.addEventListener("click", function () { switchTab("historico"); });
     var b2 = el.querySelector("[data-ir-manutencao]");
     if (b2) b2.addEventListener("click", function () { switchTab("manutencao"); });
+    var b3 = el.querySelector("[data-ir-bombeamento]");
+    if (b3) b3.addEventListener("click", function () { switchTab("bombeamento"); });
   }
 
   function renderHistorico() {
