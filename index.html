@@ -699,7 +699,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v36';
+  var APP_CACHE_NAME = 'registro-irrigacao-v37';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4079,6 +4079,15 @@
             r._pendingUpdate = false;
             if (res.fotoUrls) r.fotos = res.fotoUrls;
             saveRecords();
+          } else if (res && res.notFound) {
+            // "update" só acontece em registro que JÁ estava no servidor -
+            // se agora não existe mais lá, é porque foi apagado direto na
+            // planilha (fora do app). Respeita isso: remove a cópia local
+            // também, em vez de ficar tentando pra sempre ou recriar algo
+            // que foi apagado de propósito.
+            records = records.filter(function (rec) { return rec.id !== r.id; });
+            saveRecords();
+            showToast("Um registro que você editou não existe mais na planilha - removido daqui também.");
           } else {
             syncErrors.push((res && res.error) ? res.error : "erro desconhecido ao atualizar");
           }
