@@ -702,7 +702,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v39';
+  var APP_CACHE_NAME = 'registro-irrigacao-v40';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -797,6 +797,25 @@
     if (p.length < 3) return iso;
     return p[2] + "/" + p[1] + "/" + p[0];
   }
+
+  // Selo de sincronização por registro - em vez de só confiar no aviso
+  // geral do topo (que diz "3 pendentes" sem dizer QUAIS), cada card
+  // mostra o próprio status: se já chegou na nuvem, ou se ainda está só
+  // no celular esperando envio.
+  function syncBadgeHtml_(rec) {
+    var texto, cor, fundo;
+    if (rec._pendingDelete) {
+      texto = "🗑 Apagando..."; cor = "#8A5A44"; fundo = "#F3EAE0";
+    } else if (!rec._synced) {
+      texto = "⏳ Pendente — ainda no celular"; cor = "#B8862B"; fundo = "#FBF4E4";
+    } else if (rec._pendingUpdate || rec._pendingStatus) {
+      texto = "🔄 Editado — enviando"; cor = "#2F7DB0"; fundo = "#E8F1F8";
+    } else {
+      texto = "☁️ Enviado"; cor = "#2F6B1F"; fundo = "#F2F8ED";
+    }
+    return '<span style="display:inline-block;font-size:9.5px;font-weight:700;color:' + cor + ';background:' + fundo + ';border-radius:8px;padding:2px 7px;margin-top:3px;">' + texto + '</span>';
+  }
+
   function escapeHtml(s) {
     return String(s || "").replace(/[&<>"']/g, function (c) {
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
@@ -1372,7 +1391,6 @@
       '<div class="list">';
     filtrados.forEach(function (r) {
       var color = STATUS_COLOR[r.status] || "#333";
-      var pendente = !r._synced || r._pendingStatus || r._pendingUpdate;
       var dias = diasEmAberto_(r);
       var emAberto = r.status !== "Resolvido";
       // Destaque pra quem está aberto há muito tempo: 15+ dias vira vermelho,
@@ -1396,12 +1414,13 @@
             '<button class="stamp" style="border-color:' + color + ';color:' + color + '" data-cycle="' + r.id + '" title="Toque para mudar o status">' + escapeHtml(r.status) + '</button>' +
           '</div>' +
           '<p class="tag-desc">' + escapeHtml(r.descricao) + '</p>' +
+          '<div>' + syncBadgeHtml_(r) + '</div>' +
           (r.acao ? '<p class="tag-acao"><b>Ação:</b> ' + escapeHtml(r.acao) + '</p>' : '') +
           ((r.fotos && r.fotos.length) ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">' +
             r.fotos.map(function (f) { return '<img class="tag-photo" data-ver-foto="' + urlFoto_(f) + '" data-ver-legenda="' + escapeHtml(r.setor + " · " + fmtDate(r.data)) + '" style="width:calc(50% - 3px);margin-top:0;cursor:pointer;" src="' + urlFoto_(f) + '" alt="Foto da ocorrência">'; }).join('') +
             '</div>' : '') +
           '<div class="tag-footer">' +
-            '<span class="tag-enc">' + escapeHtml(r.encarregado) + (pendente ? ' <span class="pending-badge">pendente</span>' : '') + '</span>' +
+            '<span class="tag-enc">' + escapeHtml(r.encarregado) + '</span>' +
             '<span style="display:flex;gap:10px;align-items:center;">' +
               '<button class="del-btn" data-edit="' + r.id + '" title="Editar">✏️</button>' +
               '<button class="del-btn" data-del="' + r.id + '" title="Excluir (admin)">🗑</button>' +
@@ -2065,6 +2084,7 @@
               '<div style="font-size:11.5px;color:#3A332B;">' +
                 '<b>' + escapeHtml(fmtDateUTC(parseISODate(r.data))) + '</b> · ' + escapeHtml(r.encarregado) +
                 (r.observacao ? '<br><span style="color:#6B6153;">' + escapeHtml(r.observacao) + '</span>' : '') +
+                '<br>' + syncBadgeHtml_(r) +
               '</div>' +
               '<button class="del-btn" data-del-manut="' + r.id + '" title="Excluir (admin)">🗑</button>' +
             '</div>';
@@ -2421,6 +2441,7 @@
               '<span style="color:' + avalia.corValvula + ';font-weight:700;">' + (ultima.pressaoValvula || "—") + ' kg</span>' +
               (ultima.pressaoPonta ? ' <span style="color:#8A8072;">· ponta </span><span style="color:' + avalia.corPonta + ';font-weight:700;">' + ultima.pressaoPonta + ' kg</span>' : '') +
               '<br><span style="color:#8A8072;font-size:10px;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
+              '<br>' + syncBadgeHtml_(ultima) +
             '</span>';
           } else {
             html += '<span style="font-size:11px;color:#8A8072;">Nunca medida</span>';
@@ -2584,7 +2605,8 @@
               '<br>💧 Consumo: <b>' + consumoTxt + '</b>' +
               (rec.responsavel ? '<br>👤 ' + escapeHtml(rec.responsavel) : "") +
               (rec.observacao ? '<br>📝 ' + escapeHtml(rec.observacao) : "") +
-            '</div>';
+            '</div>' +
+            '<div>' + syncBadgeHtml_(rec) + '</div>';
           var an = analiseRodada_(rec);
           if (an) {
             var corA = an.paradaMin > 90 ? "#B4442E" : (an.paradaMin > 30 ? "#B8862B" : "#2F6B1F");
@@ -2722,6 +2744,11 @@
             '⚠ Painel com problema: bomba(s) ' + painelProblema.map(function (r) { return r.bomba; }).join(", ") +
           '</div>';
         }
+        // A ronda tem um registro por bomba - se qualquer um ainda não
+        // subiu, o selo mostra "pendente" pro grupo inteiro, já que é
+        // isso que importa saber de relance.
+        var algumPendenteRonda = regs.some(function (r) { return !r._synced || r._pendingUpdate || r._pendingDelete; });
+        html += '<div style="margin-top:5px;">' + syncBadgeHtml_(algumPendenteRonda ? { _synced: false } : { _synced: true }) + '</div>';
       } else {
         html += '<div style="font-size:12px;color:#6B6153;margin-top:3px;">Toque para registrar</div>';
       }
