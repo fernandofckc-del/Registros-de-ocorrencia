@@ -274,9 +274,13 @@
 
         <div class="photo-block">
           <span class="field-label">Fotos da Ocorrência (até 4)</span>
-          <input id="f-foto-input" type="file" accept="image/*" multiple style="display:none">
+          <input id="f-foto-input-camera" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="f-foto-input-galeria" type="file" accept="image/*" multiple style="display:none">
           <div id="foto-gallery" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-          <button class="photo-btn" id="btn-foto">📷 Adicionar foto</button>
+          <div style="display:flex; gap:8px;">
+            <button class="photo-btn" id="btn-foto-camera" style="flex:1;">📷 Tirar Foto</button>
+            <button class="photo-btn" id="btn-foto-galeria" style="flex:1;background:#8A5A44;">🖼️ Da Galeria</button>
+          </div>
         </div>
 
         <button class="save-btn" id="btn-salvar">Salvar Ocorrência</button>
@@ -702,7 +706,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v41';
+  var APP_CACHE_NAME = 'registro-irrigacao-v42';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -995,7 +999,8 @@
 
   function renderFotoGallery() {
     var gallery = document.getElementById("foto-gallery");
-    var addBtn = document.getElementById("btn-foto");
+    var btnCamera = document.getElementById("btn-foto-camera");
+    var btnGaleria = document.getElementById("btn-foto-galeria");
     gallery.innerHTML = "";
     pendingFotos.forEach(function (src, idx) {
       var wrap = document.createElement("div");
@@ -1012,10 +1017,14 @@
       });
     });
     if (pendingFotos.length >= MAX_FOTOS) {
-      addBtn.style.display = "none";
+      btnCamera.style.display = "none";
+      btnGaleria.style.display = "none";
     } else {
-      addBtn.style.display = "flex";
-      addBtn.textContent = "📷 Adicionar foto (" + pendingFotos.length + "/" + MAX_FOTOS + ")";
+      btnCamera.style.display = "flex";
+      btnGaleria.style.display = "flex";
+      var restante = " (" + pendingFotos.length + "/" + MAX_FOTOS + ")";
+      btnCamera.textContent = "📷 Tirar Foto" + restante;
+      btnGaleria.textContent = "🖼️ Da Galeria" + restante;
     }
   }
 
@@ -4637,10 +4646,15 @@
     // navegação já ligada acima continua funcionando.
     try {
 
-    document.getElementById("btn-foto").addEventListener("click", function () {
-      document.getElementById("f-foto-input").click();
+    document.getElementById("btn-foto-camera").addEventListener("click", function () {
+      document.getElementById("f-foto-input-camera").click();
     });
-    document.getElementById("f-foto-input").addEventListener("change", function (e) {
+    document.getElementById("btn-foto-galeria").addEventListener("click", function () {
+      document.getElementById("f-foto-input-galeria").click();
+    });
+    // Mesma lógica de processar arquivo pros dois botões - só muda de onde
+    // o arquivo veio (câmera ou galeria).
+    function processarArquivosFoto_(e) {
       var arquivos = e.target.files ? Array.prototype.slice.call(e.target.files) : [];
       if (!arquivos.length) return;
       var vagas = MAX_FOTOS - pendingFotos.length;
@@ -4653,8 +4667,8 @@
         showToast("Só cabiam mais " + vagas + " foto(s) - o resto foi ignorado.");
         arquivos = arquivos.slice(0, vagas);
       }
-      var btn = document.getElementById("btn-foto");
-      btn.textContent = "Processando...";
+      document.getElementById("btn-foto-camera").textContent = "Processando...";
+      document.getElementById("btn-foto-galeria").textContent = "Processando...";
       var restantes = arquivos.length;
       arquivos.forEach(function (file) {
         compressImage(file, 1000, 0.62, function (dataUrl) {
@@ -4666,7 +4680,9 @@
           }
         });
       });
-    });
+    }
+    document.getElementById("f-foto-input-camera").addEventListener("change", processarArquivosFoto_);
+    document.getElementById("f-foto-input-galeria").addEventListener("change", processarArquivosFoto_);
 
     document.getElementById("btn-salvar").addEventListener("click", handleSave);
     document.getElementById("btn-cancel-edit").addEventListener("click", cancelEdit);
