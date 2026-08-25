@@ -274,7 +274,7 @@
 
         <div class="photo-block">
           <span class="field-label">Fotos da Ocorrência (até 4)</span>
-          <input id="f-foto-input" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="f-foto-input" type="file" accept="image/*" multiple style="display:none">
           <div id="foto-gallery" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
           <button class="photo-btn" id="btn-foto">📷 Adicionar foto</button>
         </div>
@@ -702,7 +702,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v40';
+  var APP_CACHE_NAME = 'registro-irrigacao-v41';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4641,19 +4641,30 @@
       document.getElementById("f-foto-input").click();
     });
     document.getElementById("f-foto-input").addEventListener("change", function (e) {
-      var file = e.target.files && e.target.files[0];
-      if (!file) return;
-      if (pendingFotos.length >= MAX_FOTOS) {
+      var arquivos = e.target.files ? Array.prototype.slice.call(e.target.files) : [];
+      if (!arquivos.length) return;
+      var vagas = MAX_FOTOS - pendingFotos.length;
+      if (vagas <= 0) {
         showToast("Máximo de " + MAX_FOTOS + " fotos por ocorrência.");
         e.target.value = "";
         return;
       }
+      if (arquivos.length > vagas) {
+        showToast("Só cabiam mais " + vagas + " foto(s) - o resto foi ignorado.");
+        arquivos = arquivos.slice(0, vagas);
+      }
       var btn = document.getElementById("btn-foto");
       btn.textContent = "Processando...";
-      compressImage(file, 1000, 0.62, function (dataUrl) {
-        pendingFotos.push(dataUrl);
-        renderFotoGallery();
-        e.target.value = "";
+      var restantes = arquivos.length;
+      arquivos.forEach(function (file) {
+        compressImage(file, 1000, 0.62, function (dataUrl) {
+          pendingFotos.push(dataUrl);
+          restantes--;
+          if (restantes === 0) {
+            renderFotoGallery();
+            e.target.value = "";
+          }
+        });
       });
     });
 
