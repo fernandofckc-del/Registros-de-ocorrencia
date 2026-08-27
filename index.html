@@ -311,6 +311,10 @@
       <div id="pressao-content"></div>
     </section>
 
+    <section id="tab-gerador" class="tab-panel">
+      <div id="gerador-content"></div>
+    </section>
+
     <!-- RELATÓRIOS (somente administrador) -->
     <section id="tab-relatorios" class="tab-panel">
       <div id="relatorios-content"></div>
@@ -354,6 +358,10 @@
     <button class="nav-btn" data-tab="pressao">
       <span class="nav-disc">🎯<span id="nav-badge-pressao" class="nav-badge" style="display:none;background:#B4442E;">0</span></span>
       <span class="nav-label">Pressão</span>
+    </button>
+    <button class="nav-btn" data-tab="gerador">
+      <span class="nav-disc">🔌</span>
+      <span class="nav-label">Gerador</span>
     </button>
     <button class="nav-btn" data-tab="relatorios">
       <span class="nav-disc">📄</span>
@@ -414,6 +422,51 @@
 </div>
 
 <!-- MODAL DE LEITURA DE PRESSÃO -->
+<!-- MODAL DE LEITURA DO GERADOR -->
+<div class="modal-overlay" id="modal-gerador-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-gerador">✕</button>
+    <div class="modal-title" id="gerador-modal-title">Nova Leitura do Gerador</div>
+    <div class="modal-sub">Digita o que estiver mostrando no painel agora (valores totais acumulados).</div>
+    <div class="field">
+      <span class="field-label">Data da leitura</span>
+      <input id="gerador-data" type="date">
+    </div>
+    <div class="field">
+      <span class="field-label">Horas de operação (total no painel)</span>
+      <input id="gerador-horas" type="number" step="0.1" placeholder="Ex.: 41">
+    </div>
+    <div class="field">
+      <span class="field-label">Combustível total (litros)</span>
+      <input id="gerador-litros" type="number" step="0.1" placeholder="Ex.: 734">
+    </div>
+    <div class="field">
+      <span class="field-label">Energia total (kWh)</span>
+      <input id="gerador-kwh" type="number" step="0.1" placeholder="Ex.: 2398">
+    </div>
+    <div class="field">
+      <span class="field-label">Tensão da bateria (opcional)</span>
+      <input id="gerador-bateria" type="number" step="0.1" placeholder="Ex.: 27.0">
+    </div>
+    <div id="gerador-preview" style="font-size:12px;color:#4A4136;margin-bottom:10px;"></div>
+    <div class="field">
+      <span class="field-label">Observação (opcional)</span>
+      <textarea id="gerador-observacao" placeholder="Algo a registrar"></textarea>
+    </div>
+    <div class="photo-block">
+      <span class="field-label">Foto do painel (opcional)</span>
+      <input id="gerador-foto-input-camera" type="file" accept="image/*" capture="environment" style="display:none">
+      <input id="gerador-foto-input-galeria" type="file" accept="image/*" style="display:none">
+      <div id="gerador-foto-preview" style="margin:6px 0;"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="photo-btn" id="btn-gerador-foto-camera" style="flex:1;">📷 Tirar Foto</button>
+        <button class="photo-btn" id="btn-gerador-foto-galeria" style="flex:1;background:#8A5A44;">🖼️ Da Galeria</button>
+      </div>
+    </div>
+    <button class="save-btn" id="btn-save-gerador" style="background:#4C7C59;">Salvar Leitura</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-pressao-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-pressao">✕</button>
@@ -706,7 +759,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v42';
+  var APP_CACHE_NAME = 'registro-irrigacao-v43';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -753,6 +806,8 @@
     { cultura: "Cacau", pressaoValvula: 1.5, pressaoPontaMin: 0.8 }
   ];
   var leiturasPressaoRecords = [];
+  var geradorRecords = [];
+  var GERADOR_KEY = "gerador_records_v1";
   var VALVULAS_SETOR_CACHE_KEY = "valvulas_setor_cache_v1";
   var METAS_PRESSAO_CACHE_KEY = "metas_pressao_cache_v1";
   var LEITURAS_PRESSAO_KEY = "leituras_pressao_v1";
@@ -890,6 +945,16 @@
   }
   function saveLeiturasPressao() {
     try { localStorage.setItem(LEITURAS_PRESSAO_KEY, JSON.stringify(leiturasPressaoRecords)); return true; }
+    catch (e) { showToast("Armazenamento cheio."); return false; }
+  }
+  function loadGeradorRecords() {
+    try {
+      var raw = localStorage.getItem(GERADOR_KEY);
+      geradorRecords = raw ? JSON.parse(raw) : [];
+    } catch (e) { geradorRecords = []; }
+  }
+  function saveGeradorRecords() {
+    try { localStorage.setItem(GERADOR_KEY, JSON.stringify(geradorRecords)); return true; }
     catch (e) { showToast("Armazenamento cheio."); return false; }
   }
   function loadOperador() {
@@ -1151,6 +1216,12 @@
       try { renderPressaoIdeal(); } catch (err) {
         document.getElementById("pressao-content").innerHTML =
           '<div class="empty-state">Não consegui carregar a Pressão Ideal agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
+    if (tab === "gerador") {
+      try { renderGerador(); } catch (err) {
+        document.getElementById("gerador-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar o Gerador agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
       }
     }
     updateBadge();
@@ -2403,6 +2474,190 @@
       corPonta = pp >= meta.pressaoPontaMin ? "#2F6B1F" : "#B4442E";
     }
     return { corValvula: corValvula, corPonta: corPonta };
+  }
+
+
+  // ================= GERADOR (leituras acumuladas) =================
+  function geradorOrdenados_() {
+    return geradorRecords.filter(function (r) { return !r._pendingDelete; })
+      .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
+  }
+  function num_(v) { var n = parseFloat(v); return isFinite(n) ? n : null; }
+
+  function renderGerador() {
+    var el = document.getElementById("gerador-content");
+    var ordenados = geradorOrdenados_();
+    var html = '<div class="modal-sub" style="margin-bottom:12px;">Não precisa ser todo dia — registra quando for olhar o painel. O app calcula sozinho o que rodou/gastou/gerou desde a última leitura.</div>';
+
+    html += '<button class="save-btn" id="btn-nova-leitura-gerador" style="background:#4C7C59;margin-top:0;">⛽ Nova Leitura do Gerador</button>';
+
+    if (!ordenados.length) {
+      html += '<div class="empty-state" style="margin-top:12px;">Nenhuma leitura registrada ainda.</div>';
+      el.innerHTML = html;
+      document.getElementById("btn-nova-leitura-gerador").addEventListener("click", function () { abrirModalGerador_(null); });
+      return;
+    }
+
+    var ultima = ordenados[ordenados.length - 1];
+    var anterior = ordenados.length > 1 ? ordenados[ordenados.length - 2] : null;
+
+    html += '<div class="card" style="margin-top:12px;">' +
+      '<h3 class="panel-title">Última leitura · ' + escapeHtml(fmtDate(ultima.data)) + '</h3>';
+    html += '<div class="kpi-row">' +
+      '<div class="kpi-tile"><div class="kpi-num">' + (num_(ultima.horasOperacao) !== null ? ultima.horasOperacao : "—") + '</div><div class="kpi-label">horas totais</div></div>' +
+      '<div class="kpi-tile"><div class="kpi-num">' + (num_(ultima.litrosCombustivel) !== null ? ultima.litrosCombustivel : "—") + '</div><div class="kpi-label">litros totais</div></div>' +
+      '<div class="kpi-tile"><div class="kpi-num">' + (num_(ultima.energiaKwh) !== null ? ultima.energiaKwh : "—") + '</div><div class="kpi-label">kWh totais</div></div>' +
+    '</div>';
+    if (ultima.tensaoBateria) html += '<div style="font-size:12px;color:#6B6153;margin-top:4px;">🔋 Bateria: ' + escapeHtml(ultima.tensaoBateria) + 'V</div>';
+
+    if (anterior) {
+      var dH = num_(ultima.horasOperacao) !== null && num_(anterior.horasOperacao) !== null ? num_(ultima.horasOperacao) - num_(anterior.horasOperacao) : null;
+      var dL = num_(ultima.litrosCombustivel) !== null && num_(anterior.litrosCombustivel) !== null ? num_(ultima.litrosCombustivel) - num_(anterior.litrosCombustivel) : null;
+      var dE = num_(ultima.energiaKwh) !== null && num_(anterior.energiaKwh) !== null ? num_(ultima.energiaKwh) - num_(anterior.energiaKwh) : null;
+      html += '<div style="background:#EFE7D3;border-radius:4px;padding:9px 12px;margin-top:10px;font-size:12.5px;color:#4A4136;">' +
+        '<b>Desde ' + escapeHtml(fmtDate(anterior.data)) + ':</b><br>' +
+        (dH !== null ? '⏱ ' + round2Painel_(dH) + ' horas rodadas<br>' : '') +
+        (dL !== null ? '⛽ ' + round2Painel_(dL) + ' litros consumidos<br>' : '') +
+        (dE !== null ? '⚡ ' + round2Painel_(dE) + ' kWh gerados<br>' : '') +
+        (dL !== null && dE !== null && dE > 0 ? '📊 ' + round2Painel_(dL / dE) + ' L/kWh de consumo médio' : '') +
+      '</div>';
+    } else {
+      html += '<div style="font-size:11.5px;color:#8A8072;margin-top:8px;">Essa é a primeira leitura - a partir da próxima, o app já calcula o período entre elas.</div>';
+    }
+    html += '<div style="margin-top:8px;">' + syncBadgeHtml_(ultima) + '</div>';
+    html += '<div style="display:flex;gap:8px;margin-top:10px;">' +
+      '<button class="del-btn" data-editar-gerador="' + ultima.id + '" style="flex:1;border:1px solid #D2C7AB;border-radius:6px;padding:8px;font-size:12px;background:#FBF8F1;">✏️ Editar</button>' +
+      '<button class="del-btn" data-apagar-gerador="' + ultima.id + '" style="flex:1;border:1px solid #E0B3A8;border-radius:6px;padding:8px;font-size:12px;background:#FBEDE8;color:#8A2E2E;">🗑 Excluir</button>' +
+    '</div>';
+    html += '</div>';
+
+    if (ordenados.length > 1) {
+      html += '<div class="card"><h3 class="panel-title">Histórico</h3>';
+      ordenados.slice().reverse().slice(1).forEach(function (r) {
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #EFEAD9;">' +
+          '<div style="font-size:12px;">' +
+            '<b>' + escapeHtml(fmtDate(r.data)) + '</b><br>' +
+            '<span style="color:#6B6153;">' + (num_(r.horasOperacao) !== null ? r.horasOperacao + 'h' : "—") +
+            ' · ' + (num_(r.litrosCombustivel) !== null ? r.litrosCombustivel + 'L' : "—") +
+            ' · ' + (num_(r.energiaKwh) !== null ? r.energiaKwh + 'kWh' : "—") + '</span><br>' +
+            syncBadgeHtml_(r) +
+          '</div>' +
+          '<button class="del-btn" data-editar-gerador="' + r.id + '" title="Editar">✏️</button>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+
+    el.innerHTML = html;
+    document.getElementById("btn-nova-leitura-gerador").addEventListener("click", function () { abrirModalGerador_(null); });
+    el.querySelectorAll("[data-editar-gerador]").forEach(function (b) {
+      b.addEventListener("click", function () { abrirModalGerador_(b.getAttribute("data-editar-gerador")); });
+    });
+    var btnApagar = el.querySelector("[data-apagar-gerador]");
+    if (btnApagar) btnApagar.addEventListener("click", function () { apagarGerador_(btnApagar.getAttribute("data-apagar-gerador")); });
+  }
+
+  var editingGeradorId = null;
+  function abrirModalGerador_(id) {
+    editingGeradorId = id;
+    var rec = id ? geradorRecords.find(function (r) { return r.id === id; }) : null;
+    document.getElementById("gerador-modal-title").textContent = rec ? "Editar Leitura · " + fmtDate(rec.data) : "Nova Leitura do Gerador";
+    document.getElementById("gerador-data").value = rec ? rec.data : todayStr();
+    document.getElementById("gerador-horas").value = rec ? rec.horasOperacao : "";
+    document.getElementById("gerador-litros").value = rec ? rec.litrosCombustivel : "";
+    document.getElementById("gerador-kwh").value = rec ? rec.energiaKwh : "";
+    document.getElementById("gerador-bateria").value = rec ? (rec.tensaoBateria || "") : "";
+    document.getElementById("gerador-observacao").value = rec ? (rec.observacao || "") : "";
+    pendingFotoGerador = rec && rec.foto ? rec.foto : null;
+    renderFotoGeradorPreview_();
+    atualizarPreviewGerador_();
+    document.getElementById("modal-gerador-overlay").classList.add("active");
+  }
+  function fecharModalGerador_() {
+    document.getElementById("modal-gerador-overlay").classList.remove("active");
+    editingGeradorId = null;
+  }
+  function atualizarPreviewGerador_() {
+    var el = document.getElementById("gerador-preview");
+    var ordenados = geradorOrdenados_().filter(function (r) { return r.id !== editingGeradorId; });
+    var dataAtual = document.getElementById("gerador-data").value;
+    var anterior = ordenados.filter(function (r) { return r.data <= dataAtual; }).pop();
+    if (!anterior) { el.innerHTML = "Primeira leitura registrada - nada pra comparar ainda."; return; }
+    var h = num_(document.getElementById("gerador-horas").value), hA = num_(anterior.horasOperacao);
+    var l = num_(document.getElementById("gerador-litros").value), lA = num_(anterior.litrosCombustivel);
+    var e = num_(document.getElementById("gerador-kwh").value), eA = num_(anterior.energiaKwh);
+    var partes = [];
+    if (h !== null && hA !== null) partes.push((h - hA).toFixed(1) + " horas");
+    if (l !== null && lA !== null) partes.push((l - lA).toFixed(1) + " litros");
+    if (e !== null && eA !== null) partes.push((e - eA).toFixed(1) + " kWh");
+    if (!partes.length) { el.innerHTML = ""; return; }
+    var negativo = (h !== null && hA !== null && h < hA) || (l !== null && lA !== null && l < lA) || (e !== null && eA !== null && e < eA);
+    el.innerHTML = negativo
+      ? '<span style="color:#B4442E;font-weight:700;">⚠ Valor menor que a leitura anterior (' + fmtDate(anterior.data) + ') - confere se não trocou os números.</span>'
+      : "Desde " + fmtDate(anterior.data) + ": " + partes.join(" · ");
+  }
+
+  var pendingFotoGerador = null;
+  function renderFotoGeradorPreview_() {
+    var el = document.getElementById("gerador-foto-preview");
+    el.innerHTML = pendingFotoGerador
+      ? '<img src="' + pendingFotoGerador + '" style="width:70px;height:70px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">'
+      : "";
+  }
+  function salvarGerador_() {
+    var data = document.getElementById("gerador-data").value;
+    var horas = document.getElementById("gerador-horas").value.trim();
+    var litros = document.getElementById("gerador-litros").value.trim();
+    var kwh = document.getElementById("gerador-kwh").value.trim();
+    var bateria = document.getElementById("gerador-bateria").value.trim();
+    var obs = document.getElementById("gerador-observacao").value.trim();
+    if (!data) { showToast("Escolha a data da leitura."); return; }
+    if (!horas && !litros && !kwh) { showToast("Preencha ao menos um dos três valores."); return; }
+
+    if (editingGeradorId) {
+      var rec = geradorRecords.find(function (r) { return r.id === editingGeradorId; });
+      Object.assign(rec, {
+        data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
+        tensaoBateria: bateria, foto: pendingFotoGerador || "", observacao: obs
+      });
+      if (rec._synced) rec._pendingUpdate = true;
+    } else {
+      geradorRecords.push({
+        id: uid(), data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
+        tensaoBateria: bateria, foto: pendingFotoGerador || "",
+        responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
+        observacao: obs, _synced: false, _pendingUpdate: false, _pendingDelete: false
+      });
+    }
+    saveGeradorRecords();
+    fecharModalGerador_();
+    renderGerador();
+    showToast("Leitura do gerador salva.");
+    trySync();
+  }
+  function apagarGerador_(id) {
+    var rec = geradorRecords.find(function (r) { return r.id === id; });
+    if (!rec) return;
+    if (!confirm("Excluir essa leitura do gerador?")) return;
+    if (!rec._synced) {
+      geradorRecords = geradorRecords.filter(function (r) { return r.id !== id; });
+      saveGeradorRecords();
+      renderGerador();
+      showToast("Leitura removida.");
+      return;
+    }
+    var senha = prompt("Senha de administrador:");
+    if (senha === null) return;
+    postToBackend({ action: "delete_gerador", id: id, adminToken: senha }).then(function (res) {
+      if (res && res.ok) {
+        geradorRecords = geradorRecords.filter(function (r) { return r.id !== id; });
+        saveGeradorRecords();
+        renderGerador();
+        showToast("Leitura excluída.");
+      } else {
+        showToast((res && res.error) || "Não consegui excluir.");
+      }
+    }).catch(function () { showToast("Erro de conexão."); });
   }
 
   function renderPressaoIdeal() {
@@ -4141,6 +4396,8 @@
     var toCreateRonda = rondaRecords.filter(function (r) { return !r._synced; });
     var toUpdateRonda = rondaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toCreateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return !r._synced; });
+    var toCreateGerador = geradorRecords.filter(function (r) { return !r._synced; });
+    var toUpdateGerador = geradorRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toUpdateBomb = bombRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var syncErrors = [];
 
@@ -4301,6 +4558,47 @@
       });
     });
 
+    toCreateGerador.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "create_gerador", id: r.id, data: r.data,
+          horasOperacao: r.horasOperacao || "", litrosCombustivel: r.litrosCombustivel || "",
+          energiaKwh: r.energiaKwh || "", tensaoBateria: r.tensaoBateria || "",
+          foto: r.foto || "", responsavel: r.responsavel || "", observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._synced = true;
+            if (res.fotoUrl) r.foto = res.fotoUrl;
+            saveGeradorRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao criar registro do gerador");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toUpdateGerador.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "update_gerador", id: r.id, data: r.data,
+          horasOperacao: r.horasOperacao || "", litrosCombustivel: r.litrosCombustivel || "",
+          energiaKwh: r.energiaKwh || "", tensaoBateria: r.tensaoBateria || "",
+          foto: r.foto || "", responsavel: r.responsavel || "", observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._pendingUpdate = false;
+            if (res.fotoUrl) r.foto = res.fotoUrl;
+            saveGeradorRecords();
+          } else if (res && res.notFound) {
+            geradorRecords = geradorRecords.filter(function (rec) { return rec.id !== r.id; });
+            saveGeradorRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao atualizar registro do gerador");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
     toUpdateBomb.forEach(function (r) {
       chain = chain.then(function () {
         return postToBackend({
@@ -4439,6 +4737,30 @@
             }
           });
           saveLeiturasPressao();
+        }
+        if (res.gerador) {
+          var localGeradorById = {};
+          geradorRecords.forEach(function (r) { localGeradorById[r.id] = r; });
+          res.gerador.forEach(function (row) {
+            if (!row.id) return;
+            var camposG = {
+              data: row.data,
+              horasOperacao: row.horas_operacao !== undefined ? row.horas_operacao : "",
+              litrosCombustivel: row.litros_combustivel !== undefined ? row.litros_combustivel : "",
+              energiaKwh: row.energia_kwh !== undefined ? row.energia_kwh : "",
+              tensaoBateria: row.tensao_bateria !== undefined ? row.tensao_bateria : "",
+              foto: row.foto_url || "", responsavel: row.responsavel || "", observacao: row.observacao || ""
+            };
+            var exG = localGeradorById[row.id];
+            if (exG) {
+              if (!exG._pendingUpdate && !exG._pendingDelete) Object.assign(exG, camposG, { _synced: true });
+            } else {
+              var novoG = Object.assign({ id: row.id, _synced: true, _pendingUpdate: false, _pendingDelete: false }, camposG);
+              geradorRecords.push(novoG);
+              localGeradorById[row.id] = novoG;
+            }
+          });
+          saveGeradorRecords();
         }
         if (res.bombeamentos) {
           // Igual à Irrigação: reconcilia (atualiza quem já existe, não só
@@ -4603,6 +4925,7 @@
       loadBombRecords();
       loadRondaRecords();
       loadLeiturasPressao();
+      loadGeradorRecords();
       try {
         var cVS = localStorage.getItem(VALVULAS_SETOR_CACHE_KEY);
         if (cVS) currentValvulasPorSetor = JSON.parse(cVS);
@@ -4710,6 +5033,32 @@
       if (e.target.id === "modal-config-pressao-overlay") fecharConfigPressao_();
     });
     document.getElementById("btn-save-config-pressao").addEventListener("click", salvarConfigPressao_);
+
+    document.getElementById("btn-close-gerador").addEventListener("click", fecharModalGerador_);
+    document.getElementById("modal-gerador-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-gerador-overlay") fecharModalGerador_();
+    });
+    document.getElementById("btn-save-gerador").addEventListener("click", salvarGerador_);
+    ["gerador-data", "gerador-horas", "gerador-litros", "gerador-kwh"].forEach(function (idCampo) {
+      document.getElementById(idCampo).addEventListener("input", atualizarPreviewGerador_);
+    });
+    document.getElementById("btn-gerador-foto-camera").addEventListener("click", function () {
+      document.getElementById("gerador-foto-input-camera").click();
+    });
+    document.getElementById("btn-gerador-foto-galeria").addEventListener("click", function () {
+      document.getElementById("gerador-foto-input-galeria").click();
+    });
+    function processarFotoGerador_(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      compressImage(file, 1000, 0.62, function (dataUrl) {
+        pendingFotoGerador = dataUrl;
+        renderFotoGeradorPreview_();
+        e.target.value = "";
+      });
+    }
+    document.getElementById("gerador-foto-input-camera").addEventListener("change", processarFotoGerador_);
+    document.getElementById("gerador-foto-input-galeria").addEventListener("change", processarFotoGerador_);
     document.getElementById("btn-tudo-ok").addEventListener("click", marcarTudoOk_);
     document.getElementById("btn-bomba-ant").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual - 1); });
     document.getElementById("btn-bomba-prox").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual + 1); });
