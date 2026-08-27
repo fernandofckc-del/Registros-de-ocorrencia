@@ -198,7 +198,7 @@
       <div>
         <div class="plate-label">CONTROLE DE CAMPO</div>
         <div class="plate-title" id="plate-title">REGISTRO DE OCORRÊNCIAS · IRRIGAÇÃO</div>
-        <div id="app-versao" style="font-family:'IBM Plex Mono', monospace; font-size:9.5px; color:#6E8B85; margin-top:2px;">—</div>
+        <div id="app-versao" style="font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:700; color:#FFFFFF; background:rgba(0,0,0,.18); display:inline-block; padding:1px 7px; border-radius:8px; margin-top:3px;">—</div>
       </div>
       <button class="gear-btn" id="btn-settings" title="Configurar sincronização">⚙️</button>
     </div>
@@ -270,6 +270,11 @@
         <div class="field">
           <span class="field-label">Ação Tomada (opcional)</span>
           <textarea id="f-acao" placeholder="O que já foi feito"></textarea>
+        </div>
+        <div class="field">
+          <span class="field-label">Quantas vezes aconteceu?</span>
+          <input id="f-quantidade" type="number" min="1" step="1" value="1">
+          <div style="font-size:11px;color:#8A8072;margin-top:3px;">Pra não repetir o cadastro quando o mesmo problema aparece várias vezes no setor - continua sendo 1 registro, mas conta certo nas estatísticas.</div>
         </div>
 
         <div class="photo-block">
@@ -759,7 +764,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v44';
+  var APP_CACHE_NAME = 'registro-irrigacao-v45';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1142,6 +1147,7 @@
     document.getElementById("f-encarregado").value = "";
     document.getElementById("f-descricao").value = "";
     document.getElementById("f-acao").value = "";
+    document.getElementById("f-quantidade").value = "1";
     pendingFotos = [];
     renderFotoGallery();
     editingId = null;
@@ -1164,6 +1170,7 @@
     document.getElementById("f-encarregado").value = r.encarregado || "";
     document.getElementById("f-descricao").value = r.descricao || "";
     document.getElementById("f-acao").value = r.acao || "";
+    document.getElementById("f-quantidade").value = r.quantidade || 1;
     pendingFotos = (r.fotos || []).slice();
     renderFotoGallery();
     document.getElementById("edit-banner").style.display = "flex";
@@ -1509,7 +1516,7 @@
         '<div class="tag-perf"></div>' +
         '<div class="tag-body">' +
           '<div class="tag-body-top">' +
-            '<div><div class="tag-tipo">' + escapeHtml(r.tipo) + '</div><div class="tag-causa">Causa: ' + escapeHtml(r.causa) + (r.operacaoCausadora ? ' (' + escapeHtml(r.operacaoCausadora) + ')' : '') + '</div>' +
+            '<div><div class="tag-tipo">' + escapeHtml(r.tipo) + (r.quantidade && r.quantidade > 1 ? ' <span style="font-size:11px;font-weight:700;color:#B4442E;background:#FBEDE8;border-radius:8px;padding:1px 7px;">×' + r.quantidade + '</span>' : '') + '</div><div class="tag-causa">Causa: ' + escapeHtml(r.causa) + (r.operacaoCausadora ? ' (' + escapeHtml(r.operacaoCausadora) + ')' : '') + '</div>' +
               '<div style="display:flex;gap:8px;align-items:center;margin-top:2px;">' +
                 (r.cultura ? '<span style="font-size:10.5px;color:#2F7DB0;font-weight:700;">' + escapeHtml(r.cultura) + '</span>' : '') +
                 badgeIdade +
@@ -1620,7 +1627,7 @@
       }
       return true;
     });
-    var total = visible.length;
+    var total = visible.length; // reatribuído logo abaixo pra somar as quantidades
 
     var html = filtrosHtml;
 
@@ -1633,24 +1640,31 @@
 
     var byTipo = {}, byCausa = {}, byCultura = {}, bySetor = {}, byOperacaoCausadora = {}, byStatus = { "Aberto": 0, "Em Andamento": 0, "Resolvido": 0 };
     var somaDiasAberto = 0, qtdEmAberto = 0, maisAntigaEmAberto = null;
+    var totalPonderado = 0;
     visible.forEach(function (r) {
-      byTipo[r.tipo] = (byTipo[r.tipo] || 0) + 1;
-      byCausa[r.causa] = (byCausa[r.causa] || 0) + 1;
-      if (r.operacaoCausadora) byOperacaoCausadora[r.operacaoCausadora] = (byOperacaoCausadora[r.operacaoCausadora] || 0) + 1;
-      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+      // "Quantidade" deixa registrar 1x na planilha mas contar certo aqui -
+      // um problema que aconteceu 3 vezes no mesmo setor entra como 3 nas
+      // estatísticas, mesmo sendo 1 registro só.
+      var q = parseInt(r.quantidade, 10) || 1;
+      totalPonderado += q;
+      byTipo[r.tipo] = (byTipo[r.tipo] || 0) + q;
+      byCausa[r.causa] = (byCausa[r.causa] || 0) + q;
+      if (r.operacaoCausadora) byOperacaoCausadora[r.operacaoCausadora] = (byOperacaoCausadora[r.operacaoCausadora] || 0) + q;
+      byStatus[r.status] = (byStatus[r.status] || 0) + q;
       var culturaKey = r.cultura || "Sem cultura";
-      byCultura[culturaKey] = (byCultura[culturaKey] || 0) + 1;
+      byCultura[culturaKey] = (byCultura[culturaKey] || 0) + q;
       var setorKey = r.setor || "Sem setor";
-      bySetor[setorKey] = (bySetor[setorKey] || 0) + 1;
+      bySetor[setorKey] = (bySetor[setorKey] || 0) + q;
       if (r.status !== "Resolvido") {
-        qtdEmAberto++;
+        qtdEmAberto += q;
         var dias = diasEmAberto_(r);
         if (dias !== null) {
-          somaDiasAberto += dias;
+          somaDiasAberto += dias * q;
           if (!maisAntigaEmAberto || dias > maisAntigaEmAberto.dias) maisAntigaEmAberto = { dias: dias, reg: r };
         }
       }
     });
+    total = totalPonderado; // a partir daqui, "total" já conta pela quantidade, não só pelo nº de registros
     var tipoEntries = Object.keys(byTipo).map(function (k) { return [k, byTipo[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
     var causaEntries = Object.keys(byCausa).map(function (k) { return [k, byCausa[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
     var operacaoEntries = Object.keys(byOperacaoCausadora).map(function (k) { return [k, byOperacaoCausadora[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
@@ -1828,18 +1842,21 @@
 
     var byTipo = {}, byCausa = {}, bySetor = {}, byOperacaoCausadora = {}, byStatus = { "Aberto": 0, "Em Andamento": 0, "Resolvido": 0 };
     var qtdEmAberto = 0, somaDias = 0, maisAntiga = null;
+    var totalPonderadoPdf = 0;
     ocorrencias.forEach(function (r) {
-      byTipo[r.tipo] = (byTipo[r.tipo] || 0) + 1;
-      byCausa[r.causa] = (byCausa[r.causa] || 0) + 1;
-      if (r.operacaoCausadora) byOperacaoCausadora[r.operacaoCausadora] = (byOperacaoCausadora[r.operacaoCausadora] || 0) + 1;
-      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+      var q = parseInt(r.quantidade, 10) || 1;
+      totalPonderadoPdf += q;
+      byTipo[r.tipo] = (byTipo[r.tipo] || 0) + q;
+      byCausa[r.causa] = (byCausa[r.causa] || 0) + q;
+      if (r.operacaoCausadora) byOperacaoCausadora[r.operacaoCausadora] = (byOperacaoCausadora[r.operacaoCausadora] || 0) + q;
+      byStatus[r.status] = (byStatus[r.status] || 0) + q;
       var setorKey = r.setor || "Sem setor";
-      bySetor[setorKey] = (bySetor[setorKey] || 0) + 1;
+      bySetor[setorKey] = (bySetor[setorKey] || 0) + q;
       if (r.status !== "Resolvido") {
-        qtdEmAberto++;
+        qtdEmAberto += q;
         var dias = diasEmAberto_(r);
         if (dias !== null) {
-          somaDias += dias;
+          somaDias += dias * q;
           if (!maisAntiga || dias > maisAntiga.dias) maisAntiga = { dias: dias, reg: r };
         }
       }
@@ -1850,7 +1867,7 @@
     var setorTop = setorEntries.length ? setorEntries[0] : null;
     var setoresNoResumo = setorEntries.slice(0, 5);
     var mediaDias = qtdEmAberto ? Math.round(somaDias / qtdEmAberto) : 0;
-    var pctResolvido = ocorrencias.length ? Math.round((byStatus["Resolvido"] / ocorrencias.length) * 100) : 0;
+    var pctResolvido = totalPonderadoPdf ? Math.round((byStatus["Resolvido"] / totalPonderadoPdf) * 100) : 0;
 
     var operacaoEntriesPdf = Object.keys(byOperacaoCausadora).map(function (k) { return [k, byOperacaoCausadora[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
     var resumoH = 60 + (maiorProblema ? 52 : 0) + (setorTop ? 52 : 0) + 44 +
@@ -1872,7 +1889,7 @@
     ctx.fillText("RELATÓRIO DE OCORRÊNCIAS", 20, 40);
     ctx.font = "13px Arial"; ctx.fillStyle = "#D6E4C4";
     var periodoTxt = (dataInicioTxt ? "De " + dataInicioTxt : "Desde o início") + " até " + (dataFimTxt || "hoje");
-    ctx.fillText(periodoTxt + " · " + ocorrencias.length + " ocorrência(s)", 20, 64);
+    ctx.fillText(periodoTxt + " · " + totalPonderadoPdf + " ocorrência(s)", 20, 64);
     ctx.fillText(qtdEmAberto + " em aberto · " + pctResolvido + "% resolvidas" + (qtdEmAberto ? " · média de " + mediaDias + " dias parada" : ""), 20, 86);
 
     var y = headerH + 20;
@@ -1882,13 +1899,13 @@
     if (maiorProblema) {
       fillRR_(ctx, 20, y, W - 40, 40, 6, "#FBEDE8");
       ctx.fillStyle = VERMELHO; ctx.font = "bold 13px Arial";
-      ctx.fillText("⚠ Maior problema: " + maiorProblema[0] + " (" + maiorProblema[1] + " de " + ocorrencias.length + ")", 32, y + 25);
+      ctx.fillText("⚠ Maior problema: " + maiorProblema[0] + " (" + maiorProblema[1] + " de " + totalPonderadoPdf + ")", 32, y + 25);
       y += 52;
     }
     if (setorTop) {
       fillRR_(ctx, 20, y, W - 40, 40, 6, "#FBF4E4");
       ctx.fillStyle = "#7A5A18"; ctx.font = "bold 13px Arial";
-      ctx.fillText("📍 Setor mais problemático: " + setorTop[0] + " (" + setorTop[1] + " de " + ocorrencias.length + ")", 32, y + 25);
+      ctx.fillText("📍 Setor mais problemático: " + setorTop[0] + " (" + setorTop[1] + " de " + totalPonderadoPdf + ")", 32, y + 25);
       y += 52;
     }
     if (maisAntiga && maisAntiga.dias >= 15) {
@@ -2109,8 +2126,12 @@
     });
     relevantes.forEach(function (item) {
       var t = item.talhao, info = item.info;
-      h += '<div style="display:grid;grid-template-columns:88px repeat(' + NSEM + ',1fr);gap:2px;margin-bottom:2px;align-items:center;">';
-      h += '<div style="font-size:10.5px;font-weight:700;color:#241F1A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(t.nome) + '</div>';
+      h += '<div style="display:grid;grid-template-columns:88px repeat(' + NSEM + ',1fr);gap:2px;margin-bottom:2px;align-items:center;position:relative;">' +
+        // Linha guia pontilhada atravessando a linha toda, na altura do meio -
+        // ajuda o olho a "seguir" do nome do setor até achar a célula colorida,
+        // em vez de se perder contando quantas colunas tem até lá.
+        '<div style="position:absolute;left:88px;right:0;top:50%;border-top:1.5px dashed #D2C7AB;z-index:0;"></div>';
+      h += '<div style="font-size:10.5px;font-weight:700;color:#241F1A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;z-index:1;background:#FFFDF8;">' + escapeHtml(t.nome) + '</div>';
       for (var s = 0; s < NSEM; s++) {
         var sem = semanas[s];
         var aqui = info.proxima && info.proxima >= sem.ini && info.proxima <= sem.fim;
@@ -2120,7 +2141,7 @@
         if (atrasadoAntes) cor = "#B4442E";
         else if (nuncaAntes) cor = "#8A8072";
         else if (aqui) cor = (s === 0) ? "#D6A233" : "#6FA84A";
-        h += '<div style="height:16px;border-radius:3px;background:' + cor + ';"></div>';
+        h += '<div style="height:16px;border-radius:3px;background:' + cor + ';position:relative;z-index:1;"></div>';
       }
       h += '</div>';
     });
@@ -4170,6 +4191,7 @@
     var encarregado = document.getElementById("f-encarregado").value.trim();
     var descricao = document.getElementById("f-descricao").value.trim();
     var acao = document.getElementById("f-acao").value.trim();
+    var quantidade = Math.max(1, parseInt(document.getElementById("f-quantidade").value, 10) || 1);
 
     if (!setor || !tipo || !causa || !encarregado || !descricao) {
       showToast("Preencha setor, tipo, causa, encarregado e descrição.");
@@ -4182,6 +4204,7 @@
       var rec = records[i];
       rec.cultura = cultura; rec.setor = setor; rec.data = data; rec.tipo = tipo; rec.causa = causa;
       rec.operacaoCausadora = operacaoCausadora;
+      rec.quantidade = quantidade;
       rec.encarregado = encarregado; rec.descricao = descricao; rec.acao = acao;
       rec.fotos = pendingFotos.slice();
 
@@ -4197,6 +4220,7 @@
     var newRec = {
       id: uid(), status: "Aberto", cultura: cultura, data: data, setor: setor, tipo: tipo, causa: causa,
       operacaoCausadora: operacaoCausadora,
+      quantidade: quantidade,
       encarregado: encarregado, descricao: descricao, acao: acao, fotos: pendingFotos.slice(),
       _synced: false, _pendingStatus: false, _pendingDelete: false, _pendingUpdate: false
     };
@@ -4431,7 +4455,7 @@
       chain = chain.then(function () {
         return postToBackend({
           token: config.token, action: "create", id: r.id, data: r.data, setor: r.setor,
-          tipo: r.tipo, causa: r.causa, operacaoCausadora: r.operacaoCausadora || "", encarregado: r.encarregado, descricao: r.descricao,
+          tipo: r.tipo, causa: r.causa, operacaoCausadora: r.operacaoCausadora || "", quantidade: r.quantidade || 1, encarregado: r.encarregado, descricao: r.descricao,
           acao: r.acao, status: r.status, fotos: r.fotos || [], cultura: r.cultura || ""
         }).then(function (res) {
           if (res && res.ok) {
@@ -4449,7 +4473,7 @@
       chain = chain.then(function () {
         var payload = {
           token: config.token, action: "update", id: r.id, data: r.data, setor: r.setor,
-          tipo: r.tipo, causa: r.causa, operacaoCausadora: r.operacaoCausadora || "", encarregado: r.encarregado, descricao: r.descricao,
+          tipo: r.tipo, causa: r.causa, operacaoCausadora: r.operacaoCausadora || "", quantidade: r.quantidade || 1, encarregado: r.encarregado, descricao: r.descricao,
           acao: r.acao, status: r.status, fotos: r.fotos || [], cultura: r.cultura || ""
         };
         return postToBackend(payload).then(function (res) {
@@ -4829,6 +4853,7 @@
           var campos = {
             data: row.data, setor: row.setor, tipo: row.tipo, causa: row.causa,
             operacaoCausadora: row.operacao_causadora || "",
+            quantidade: parseInt(row.quantidade, 10) || 1,
             encarregado: row.encarregado, descricao: row.descricao, acao: row.acao,
             status: row.status || "Aberto", fotos: row.fotos || [], cultura: row.cultura || ""
           };
