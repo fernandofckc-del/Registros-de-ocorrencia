@@ -759,7 +759,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v43';
+  var APP_CACHE_NAME = 'registro-irrigacao-v44';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1407,12 +1407,36 @@
       html += '<div style="margin-top:4px;">' + painelNoiteHtml + '</div>';
     }
 
+    // ---- Gerador: última leitura, resumida ----
+    var geradorOrd = (typeof geradorOrdenados_ === "function") ? geradorOrdenados_() : [];
+    if (geradorOrd.length) {
+      var ultimaGer = geradorOrd[geradorOrd.length - 1];
+      var anteriorGer = geradorOrd.length > 1 ? geradorOrd[geradorOrd.length - 2] : null;
+      html += '<div class="card" style="margin-top:4px;"><h3 class="panel-title">🔌 Gerador · última leitura ' + escapeHtml(fmtDate(ultimaGer.data)) + '</h3>';
+      html += '<div style="font-size:12px;color:#4A4136;">' +
+        (num_(ultimaGer.horasOperacao) !== null ? ultimaGer.horasOperacao + 'h' : "—") + ' totais · ' +
+        (num_(ultimaGer.litrosCombustivel) !== null ? ultimaGer.litrosCombustivel + 'L' : "—") + ' totais · ' +
+        (num_(ultimaGer.energiaKwh) !== null ? ultimaGer.energiaKwh + 'kWh' : "—") + ' totais</div>';
+      if (anteriorGer) {
+        var dHg = num_(ultimaGer.horasOperacao) - num_(anteriorGer.horasOperacao);
+        var dLg = num_(ultimaGer.litrosCombustivel) - num_(anteriorGer.litrosCombustivel);
+        var dEg = num_(ultimaGer.energiaKwh) - num_(anteriorGer.energiaKwh);
+        html += '<div style="font-size:11.5px;color:#6B6153;margin-top:3px;">Desde ' + escapeHtml(fmtDate(anteriorGer.data)) + ': ' +
+          (isFinite(dHg) ? round2Bomb_(dHg) + 'h rodadas · ' : "") +
+          (isFinite(dLg) ? round2Bomb_(dLg) + 'L consumidos · ' : "") +
+          (isFinite(dEg) ? round2Bomb_(dEg) + 'kWh gerados' : "") + '</div>';
+      }
+      html += '<button class="photo-btn" data-ir-gerador="1" style="background:#8A5A44;margin-top:8px;">Ver Gerador</button></div>';
+    }
+
     el.innerHTML = html;
     var b1 = el.querySelector("[data-ir-historico]");
     if (b1) b1.addEventListener("click", function () { switchTab("historico"); });
     var b2 = el.querySelector("[data-ir-manutencao]");
     if (b2) b2.addEventListener("click", function () { switchTab("manutencao"); });
     var b3 = el.querySelector("[data-ir-bombeamento]");
+    var bGer = el.querySelector("[data-ir-gerador]");
+    if (bGer) bGer.addEventListener("click", function () { switchTab("gerador"); });
     if (b3) b3.addEventListener("click", function () { switchTab("bombeamento"); });
   }
 
@@ -2516,10 +2540,10 @@
       var dE = num_(ultima.energiaKwh) !== null && num_(anterior.energiaKwh) !== null ? num_(ultima.energiaKwh) - num_(anterior.energiaKwh) : null;
       html += '<div style="background:#EFE7D3;border-radius:4px;padding:9px 12px;margin-top:10px;font-size:12.5px;color:#4A4136;">' +
         '<b>Desde ' + escapeHtml(fmtDate(anterior.data)) + ':</b><br>' +
-        (dH !== null ? '⏱ ' + round2Painel_(dH) + ' horas rodadas<br>' : '') +
-        (dL !== null ? '⛽ ' + round2Painel_(dL) + ' litros consumidos<br>' : '') +
-        (dE !== null ? '⚡ ' + round2Painel_(dE) + ' kWh gerados<br>' : '') +
-        (dL !== null && dE !== null && dE > 0 ? '📊 ' + round2Painel_(dL / dE) + ' L/kWh de consumo médio' : '') +
+        (dH !== null ? '⏱ ' + round2Bomb_(dH) + ' horas rodadas<br>' : '') +
+        (dL !== null ? '⛽ ' + round2Bomb_(dL) + ' litros consumidos<br>' : '') +
+        (dE !== null ? '⚡ ' + round2Bomb_(dE) + ' kWh gerados<br>' : '') +
+        (dL !== null && dE !== null && dE > 0 ? '📊 ' + round2Bomb_(dL / dE) + ' L/kWh de consumo médio' : '') +
       '</div>';
     } else {
       html += '<div style="font-size:11.5px;color:#8A8072;margin-top:8px;">Essa é a primeira leitura - a partir da próxima, o app já calcula o período entre elas.</div>';
