@@ -320,6 +320,10 @@
       <div id="gerador-content"></div>
     </section>
 
+    <section id="tab-anotacoes" class="tab-panel">
+      <div id="anotacoes-content"></div>
+    </section>
+
     <!-- RELATÓRIOS (somente administrador) -->
     <section id="tab-relatorios" class="tab-panel">
       <div id="relatorios-content"></div>
@@ -367,6 +371,10 @@
     <button class="nav-btn" data-tab="gerador">
       <span class="nav-disc">🔌</span>
       <span class="nav-label">Gerador</span>
+    </button>
+    <button class="nav-btn" data-tab="anotacoes">
+      <span class="nav-disc">📝</span>
+      <span class="nav-label">Notas</span>
     </button>
     <button class="nav-btn" data-tab="relatorios">
       <span class="nav-disc">📄</span>
@@ -764,7 +772,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v45';
+  var APP_CACHE_NAME = 'registro-irrigacao-v47';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -813,6 +821,8 @@
   var leiturasPressaoRecords = [];
   var geradorRecords = [];
   var GERADOR_KEY = "gerador_records_v1";
+  var anotacoesRecords = [];
+  var ANOTACOES_KEY = "anotacoes_records_v1";
   var VALVULAS_SETOR_CACHE_KEY = "valvulas_setor_cache_v1";
   var METAS_PRESSAO_CACHE_KEY = "metas_pressao_cache_v1";
   var LEITURAS_PRESSAO_KEY = "leituras_pressao_v1";
@@ -960,6 +970,16 @@
   }
   function saveGeradorRecords() {
     try { localStorage.setItem(GERADOR_KEY, JSON.stringify(geradorRecords)); return true; }
+    catch (e) { showToast("Armazenamento cheio."); return false; }
+  }
+  function loadAnotacoesRecords() {
+    try {
+      var raw = localStorage.getItem(ANOTACOES_KEY);
+      anotacoesRecords = raw ? JSON.parse(raw) : [];
+    } catch (e) { anotacoesRecords = []; }
+  }
+  function saveAnotacoesRecords() {
+    try { localStorage.setItem(ANOTACOES_KEY, JSON.stringify(anotacoesRecords)); return true; }
     catch (e) { showToast("Armazenamento cheio."); return false; }
   }
   function loadOperador() {
@@ -1229,6 +1249,12 @@
       try { renderGerador(); } catch (err) {
         document.getElementById("gerador-content").innerHTML =
           '<div class="empty-state">Não consegui carregar o Gerador agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
+    if (tab === "anotacoes") {
+      try { renderAnotacoes(); } catch (err) {
+        document.getElementById("anotacoes-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar as Notas agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
       }
     }
     updateBadge();
@@ -2043,6 +2069,25 @@
     return currentCulturas.find(function (c) { return c.nome === talhaoObj.cultura; }) || { nome: talhaoObj.cultura, intervalo: 15 };
   }
 
+  // Média real de reentrada: em vez de assumir que o intervalo configurado
+  // (15 dias Coco, 20 Cacau) é o que realmente acontece, calcula a partir
+  // do histórico de datas reais daquele talhão - a média das diferenças
+  // entre uma manutenção e a seguinte. Precisa de pelo menos 2 registros
+  // pra dar 1 intervalo; com menos que isso não tem o que comparar ainda.
+  function mediaReentradaReal_(nomeSetor) {
+    var recs = manutRecords.filter(function (r) { return r.setor === nomeSetor && !r._pendingDelete; })
+      .map(function (r) { return parseISODate(r.data); })
+      .filter(function (d) { return d; })
+      .sort(function (a, b) { return a.getTime() - b.getTime(); });
+    if (recs.length < 2) return null;
+    var soma = 0, n = 0;
+    for (var i = 1; i < recs.length; i++) {
+      soma += diffDaysUTC(recs[i], recs[i - 1]);
+      n++;
+    }
+    return { media: soma / n, amostras: n };
+  }
+
   function computeSetorStatus(talhaoObj) {
     var recs = manutRecords.filter(function (r) {
       return r.setor === talhaoObj.nome && !r._pendingDelete;
@@ -2169,8 +2214,21 @@
       var talhoesDaCultura = currentTalhoes.filter(function (t) { return t.cultura === cultura.nome; });
       if (!talhoesDaCultura.length) return;
 
-      var withStatus = talhoesDaCultura.map(function (t) { return { talhao: t, info: computeSetorStatus(t) }; });
+      var withStatus = talhoesDaCultura.map(function (t) { return { talhao: t, info: computeSetorStatus(t), real: mediaReentradaReal_(t.nome) }; });
       withStatus.sort(function (a, b) { return order[a.info.status] - order[b.info.status]; });
+
+      // ---- Resumo geral da cultura: média real (todos os setores juntos) x oficial ----
+      var comReal = withStatus.filter(function (x) { return x.real; });
+      if (comReal.length) {
+        var mediaGeral = comReal.reduce(function (s, x) { return s + x.real.media; }, 0) / comReal.length;
+        var diff = mediaGeral - cultura.intervalo;
+        var corDiff = Math.abs(diff) <= 2 ? "#2F6B1F" : (diff > 0 ? "#B4442E" : "#B8862B");
+        html += '<div style="background:#EFE7D3;border-radius:4px;padding:9px 12px;margin-bottom:8px;font-size:12px;color:#4A4136;">' +
+          '<b>Reentrada real do ' + escapeHtml(cultura.nome) + ':</b> <span style="color:' + corDiff + ';font-weight:700;">' + mediaGeral.toFixed(1) + ' dias</span> em média ' +
+          '(configurado: ' + cultura.intervalo + ' dias · ' + (diff > 0 ? "+" : "") + diff.toFixed(1) + ' dias de diferença) ' +
+          '<span style="color:#8A8072;">— baseado em ' + comReal.length + ' de ' + withStatus.length + ' talhões com histórico suficiente</span>' +
+        '</div>';
+      }
 
       html += '<div style="display:flex;align-items:baseline;gap:8px;margin:18px 0 10px;">' +
         '<h3 style="font-family:\'Oswald\',sans-serif;font-size:16px;font-weight:600;color:#241F1A;margin:0;">' + escapeHtml(cultura.nome) + '</h3>' +
@@ -2194,6 +2252,14 @@
             '<span style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;color:#241F1A;flex-shrink:0;">' + escapeHtml(t.nome) + ' <span style="font-size:10px;color:#B0A78E;">' + (expanded ? '▲' : '▼') + '</span></span>' +
             '<span style="font-size:11.5px;color:#6B6153;text-align:right;">' + linhaDireita + '</span>' +
           '</div>';
+        if (item.real) {
+          var diffSetor = item.real.media - cultura.intervalo;
+          var corSetor = Math.abs(diffSetor) <= 2 ? "#2F6B1F" : (diffSetor > 0 ? "#B4442E" : "#B8862B");
+          html += '<div style="padding:0 12px 8px;font-size:11px;color:#6B6153;">' +
+            'Reentrada real: <span style="color:' + corSetor + ';font-weight:700;">' + item.real.media.toFixed(1) + ' dias</span> ' +
+            '(oficial ' + cultura.intervalo + 'd, ' + (diffSetor > 0 ? "+" : "") + diffSetor.toFixed(1) + 'd) · ' + item.real.amostras + ' intervalo(s) medido(s)' +
+          '</div>';
+        }
         if (expanded) {
           var hist = manutRecords.filter(function (r) { return r.setor === t.nome && !r._pendingDelete; })
             .sort(function (a, b) {
@@ -2528,6 +2594,144 @@
       .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
   }
   function num_(v) { var n = parseFloat(v); return isFinite(n) ? n : null; }
+
+
+  // ================= ANOTAÇÕES LIVRES =================
+  // Texto solto, sem categoria fixa - o Fernando anota o que quiser em
+  // campo e, quando precisar, pede pra organizar essas anotações depois.
+  function anotacoesOrdenadas_() {
+    return anotacoesRecords.filter(function (r) { return !r._pendingDelete; })
+      .sort(function (a, b) { return String(b.dataHora).localeCompare(String(a.dataHora)); });
+  }
+  function fmtDataHoraAnotacao_(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function renderAnotacoes() {
+    var el = document.getElementById("anotacoes-content");
+    var html = '<div class="modal-sub" style="margin-bottom:10px;">Anota o que quiser aqui no campo. Quando precisar, é só pedir pra organizar essas anotações depois.</div>';
+    html += '<div class="card">' +
+      '<textarea id="nova-anotacao-texto" placeholder="O que você quer anotar agora..." style="min-height:90px;"></textarea>' +
+      '<div id="nova-anotacao-foto-preview" style="margin:8px 0;"></div>' +
+      '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+        '<button class="photo-btn" id="btn-anotacao-foto-camera" style="flex:1;">📷 Foto</button>' +
+        '<button class="photo-btn" id="btn-anotacao-foto-galeria" style="flex:1;background:#8A5A44;">🖼️ Galeria</button>' +
+      '</div>' +
+      '<input id="nova-anotacao-foto-input-camera" type="file" accept="image/*" capture="environment" style="display:none">' +
+      '<input id="nova-anotacao-foto-input-galeria" type="file" accept="image/*" style="display:none">' +
+      '<button class="save-btn" id="btn-salvar-anotacao" style="background:#4C7C59;margin-top:0;">Salvar Anotação</button>' +
+    '</div>';
+
+    var ordenadas = anotacoesOrdenadas_();
+    if (ordenadas.length) {
+      html += '<div class="card"><h3 class="panel-title">Anotações (' + ordenadas.length + ')</h3>';
+      ordenadas.forEach(function (r) {
+        html += '<div style="padding:9px 0;border-bottom:1px solid #EFEAD9;">' +
+          '<div style="font-size:10.5px;color:#8A8072;font-family:\'IBM Plex Mono\',monospace;">' + escapeHtml(fmtDataHoraAnotacao_(r.dataHora)) + (r.responsavel ? " · " + escapeHtml(r.responsavel) : "") + '</div>' +
+          '<div style="font-size:13px;color:#241F1A;white-space:pre-wrap;margin-top:3px;">' + escapeHtml(r.texto) + '</div>' +
+          (r.foto ? '<img src="' + escapeHtml(r.foto) + '" style="max-width:120px;border-radius:4px;margin-top:6px;display:block;">' : '') +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">' +
+            syncBadgeHtml_(r) +
+            '<span><button class="del-btn" data-editar-anotacao="' + r.id + '" style="margin-right:4px;" title="Editar">✏️</button>' +
+            '<button class="del-btn" data-apagar-anotacao="' + r.id + '" title="Excluir">🗑</button></span>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="empty-state">Nenhuma anotação ainda.</div>';
+    }
+
+    el.innerHTML = html;
+    wireFormAnotacao_(null);
+    el.querySelectorAll("[data-editar-anotacao]").forEach(function (b) {
+      b.addEventListener("click", function () { editarAnotacao_(b.getAttribute("data-editar-anotacao")); });
+    });
+    el.querySelectorAll("[data-apagar-anotacao]").forEach(function (b) {
+      b.addEventListener("click", function () { apagarAnotacao_(b.getAttribute("data-apagar-anotacao")); });
+    });
+  }
+
+  var pendingFotoAnotacao = null, editingAnotacaoId = null;
+  function wireFormAnotacao_() {
+    document.getElementById("btn-anotacao-foto-camera").addEventListener("click", function () {
+      document.getElementById("nova-anotacao-foto-input-camera").click();
+    });
+    document.getElementById("btn-anotacao-foto-galeria").addEventListener("click", function () {
+      document.getElementById("nova-anotacao-foto-input-galeria").click();
+    });
+    function processarFotoAnotacao_(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      compressImage(file, 1000, 0.62, function (dataUrl) {
+        pendingFotoAnotacao = dataUrl;
+        document.getElementById("nova-anotacao-foto-preview").innerHTML =
+          '<img src="' + dataUrl + '" style="width:70px;height:70px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
+        e.target.value = "";
+      });
+    }
+    document.getElementById("nova-anotacao-foto-input-camera").addEventListener("change", processarFotoAnotacao_);
+    document.getElementById("nova-anotacao-foto-input-galeria").addEventListener("change", processarFotoAnotacao_);
+    document.getElementById("btn-salvar-anotacao").addEventListener("click", salvarAnotacao_);
+  }
+  function editarAnotacao_(id) {
+    var r = anotacoesRecords.find(function (x) { return x.id === id; });
+    if (!r) return;
+    editingAnotacaoId = id;
+    document.getElementById("nova-anotacao-texto").value = r.texto || "";
+    pendingFotoAnotacao = r.foto || null;
+    if (pendingFotoAnotacao) {
+      document.getElementById("nova-anotacao-foto-preview").innerHTML =
+        '<img src="' + pendingFotoAnotacao + '" style="width:70px;height:70px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">';
+    }
+    document.getElementById("btn-salvar-anotacao").textContent = "Salvar Alteração";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function salvarAnotacao_() {
+    var texto = document.getElementById("nova-anotacao-texto").value.trim();
+    if (!texto) { showToast("Escreve alguma coisa antes de salvar."); return; }
+    if (editingAnotacaoId) {
+      var r = anotacoesRecords.find(function (x) { return x.id === editingAnotacaoId; });
+      r.texto = texto; r.foto = pendingFotoAnotacao || "";
+      if (r._synced) r._pendingUpdate = true;
+      editingAnotacaoId = null;
+    } else {
+      anotacoesRecords.unshift({
+        id: uid(), dataHora: new Date().toISOString(), texto: texto, foto: pendingFotoAnotacao || "",
+        responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
+        _synced: false, _pendingUpdate: false, _pendingDelete: false
+      });
+    }
+    pendingFotoAnotacao = null;
+    saveAnotacoesRecords();
+    renderAnotacoes();
+    showToast("Anotação salva.");
+    trySync();
+  }
+  function apagarAnotacao_(id) {
+    var r = anotacoesRecords.find(function (x) { return x.id === id; });
+    if (!r) return;
+    if (!confirm("Excluir essa anotação?")) return;
+    if (!r._synced) {
+      anotacoesRecords = anotacoesRecords.filter(function (x) { return x.id !== id; });
+      saveAnotacoesRecords();
+      renderAnotacoes();
+      showToast("Anotação removida.");
+      return;
+    }
+    postToBackend({ action: "delete_anotacao", id: id }).then(function (res) {
+      if (res && res.ok) {
+        anotacoesRecords = anotacoesRecords.filter(function (x) { return x.id !== id; });
+        saveAnotacoesRecords();
+        renderAnotacoes();
+        showToast("Anotação excluída.");
+      } else {
+        showToast((res && res.error) || "Não consegui excluir.");
+      }
+    }).catch(function () { showToast("Erro de conexão."); });
+  }
 
   function renderGerador() {
     var el = document.getElementById("gerador-content");
@@ -4446,6 +4650,8 @@
     var toCreateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return !r._synced; });
     var toCreateGerador = geradorRecords.filter(function (r) { return !r._synced; });
     var toUpdateGerador = geradorRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toCreateAnotacao = anotacoesRecords.filter(function (r) { return !r._synced; });
+    var toUpdateAnotacao = anotacoesRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toUpdateBomb = bombRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var syncErrors = [];
 
@@ -4647,6 +4853,43 @@
       });
     });
 
+    toCreateAnotacao.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "create_anotacao", id: r.id, dataHora: r.dataHora,
+          texto: r.texto || "", foto: r.foto || "", responsavel: r.responsavel || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._synced = true;
+            if (res.fotoUrl) r.foto = res.fotoUrl;
+            saveAnotacoesRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao criar anotação");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toUpdateAnotacao.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "update_anotacao", id: r.id, dataHora: r.dataHora,
+          texto: r.texto || "", foto: r.foto || "", responsavel: r.responsavel || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._pendingUpdate = false;
+            if (res.fotoUrl) r.foto = res.fotoUrl;
+            saveAnotacoesRecords();
+          } else if (res && res.notFound) {
+            anotacoesRecords = anotacoesRecords.filter(function (rec) { return rec.id !== r.id; });
+            saveAnotacoesRecords();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao atualizar anotação");
+          }
+        }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
     toUpdateBomb.forEach(function (r) {
       chain = chain.then(function () {
         return postToBackend({
@@ -4810,6 +5053,26 @@
           });
           saveGeradorRecords();
         }
+        if (res.anotacoes) {
+          var localAnotById = {};
+          anotacoesRecords.forEach(function (r) { localAnotById[r.id] = r; });
+          res.anotacoes.forEach(function (row) {
+            if (!row.id) return;
+            var camposAn = {
+              dataHora: row.data_hora, texto: row.texto || "",
+              foto: row.foto_url || "", responsavel: row.responsavel || ""
+            };
+            var exAn = localAnotById[row.id];
+            if (exAn) {
+              if (!exAn._pendingUpdate && !exAn._pendingDelete) Object.assign(exAn, camposAn, { _synced: true });
+            } else {
+              var novoAn = Object.assign({ id: row.id, _synced: true, _pendingUpdate: false, _pendingDelete: false }, camposAn);
+              anotacoesRecords.push(novoAn);
+              localAnotById[row.id] = novoAn;
+            }
+          });
+          saveAnotacoesRecords();
+        }
         if (res.bombeamentos) {
           // Igual à Irrigação: reconcilia (atualiza quem já existe, não só
           // adiciona novo) - Bombeamento é editável (registra início, volta
@@ -4818,6 +5081,12 @@
           // sincronizado aquele registro antes.
           var localBombById = {};
           bombRecords.forEach(function (r) { localBombById[r.id] = r; });
+          // Defesa extra: se a PLANILHA tiver duas linhas com o mesmo id
+          // (pode acontecer por uma corrida entre dois envios quase
+          // simultâneos, já corrigida no servidor, mas linhas antigas
+          // ainda podem existir) - nunca deixa a versão INCOMPLETA
+          // sobrescrever uma completa só por vir depois na lista.
+          var vistoNestaSincB = {};
           res.bombeamentos.forEach(function (row) {
             if (!row.id) return;
             var campos = {
@@ -4829,13 +5098,20 @@
             var existenteB = localBombById[row.id];
             if (existenteB) {
               if (!existenteB._pendingUpdate && !existenteB._pendingDelete) {
-                Object.assign(existenteB, campos, { _synced: true });
+                if (vistoNestaSincB[row.id] && existenteB.horarioFim && !campos.horarioFim) {
+                  // já vimos esse id nesta mesma sincronização, e essa
+                  // segunda cópia é menos completa (perdeu o horário de
+                  // fim) - ignora, mantém a versão completa que já pegamos.
+                } else {
+                  Object.assign(existenteB, campos, { _synced: true });
+                }
               }
             } else {
               var novoB = Object.assign({ id: row.id, _synced: true, _pendingDelete: false }, campos);
               bombRecords.push(novoB);
               localBombById[row.id] = novoB;
             }
+            vistoNestaSincB[row.id] = true;
           });
           saveBombRecords();
         }
@@ -4975,6 +5251,7 @@
       loadRondaRecords();
       loadLeiturasPressao();
       loadGeradorRecords();
+      loadAnotacoesRecords();
       try {
         var cVS = localStorage.getItem(VALVULAS_SETOR_CACHE_KEY);
         if (cVS) currentValvulasPorSetor = JSON.parse(cVS);
