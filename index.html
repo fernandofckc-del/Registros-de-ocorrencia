@@ -486,10 +486,10 @@
     <div class="modal-title" id="pressao-modal-title">Válvula</div>
     <div class="modal-sub" id="pressao-modal-meta">—</div>
     <div class="field">
-      <span class="field-label">Pressão na válvula (kg)</span>
+      <span class="field-label" id="pressao-valvula-label">Pressão na válvula (kg)</span>
       <input id="pressao-valvula-input" type="number" step="0.1" placeholder="Ex.: 1,8">
     </div>
-    <div class="field">
+    <div class="field" id="pressao-ponta-field">
       <span class="field-label">Pressão na ponta da linha (kg) — opcional</span>
       <input id="pressao-ponta-input" type="number" step="0.1" placeholder="Ex.: 1,5">
     </div>
@@ -515,8 +515,8 @@
     </div>
     <div class="field">
       <span class="field-label">Metas de pressão por cultura</span>
-      <div class="modal-sub" style="margin-bottom:6px;">Uma cultura por linha, formato: <b>Cultura | meta na válvula | mínimo na ponta</b> — ex.: Coco | 1.8 | 1.5</div>
-      <textarea id="admin-metas-pressao" style="min-height:70px;" placeholder="Coco | 1.8 | 1.5"></textarea>
+      <div class="modal-sub" style="margin-bottom:6px;">Uma cultura por linha, formato: <b>Cultura | meta na válvula | mínimo na ponta | meta do inversor</b> — ex.: Coco | 1.8 | 1.5 | 6</div>
+      <textarea id="admin-metas-pressao" style="min-height:70px;" placeholder="Coco | 1.8 | 1.5 | 6"></textarea>
     </div>
     <button class="save-btn" id="btn-save-config-pressao" style="background:#8A5A44;">Salvar Configuração</button>
   </div>
@@ -772,7 +772,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v47';
+  var APP_CACHE_NAME = 'registro-irrigacao-v48';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -815,8 +815,8 @@
     { setor: "C1", valvulas: ["V1", "V2", "V3"] }
   ];
   var currentMetasPressao = [
-    { cultura: "Coco", pressaoValvula: 1.8, pressaoPontaMin: 1.5 },
-    { cultura: "Cacau", pressaoValvula: 1.5, pressaoPontaMin: 0.8 }
+    { cultura: "Coco", pressaoValvula: 1.8, pressaoPontaMin: 1.5, pressaoInversor: 6 },
+    { cultura: "Cacau", pressaoValvula: 1.5, pressaoPontaMin: 0.8, pressaoInversor: 5 }
   ];
   var leiturasPressaoRecords = [];
   var geradorRecords = [];
@@ -1384,9 +1384,9 @@
 
     // ---- Bombas esquecidas em destaque ----
     if (bombasEsquecidas.length) {
-      html += '<div class="card" style="border-left:4px solid #B4442E;">' +
-        '<h3 class="panel-title">🚨 Bomba iniciada e nunca fechada</h3>' +
-        '<div class="modal-sub" style="margin-bottom:8px;">Registrada mas sem horário de desligamento - provavelmente esqueceram de fechar.</div>';
+      html += '<div class="card" style="border-left:4px solid #D6A233;">' +
+        '<h3 class="panel-title">⏳ Bomba sem horário de fim registrado</h3>' +
+        '<div class="modal-sub" style="margin-bottom:8px;">Pode estar rodando ainda, ou pode ter esquecido de fechar - vale conferir.</div>';
       bombasEsquecidas.forEach(function (r) {
         html += '<div style="background:#FBEDE8;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12.5px;color:#4A4136;">' +
           '<b>' + escapeHtml(fmtDate(r.data)) + ' · Bomba ' + escapeHtml(r.bomba) + '</b>' +
@@ -2924,6 +2924,30 @@
     });
     html += '</div>';
 
+    html += '<div class="card" style="margin-bottom:14px;"><h3 class="panel-title">🔧 Pressão do Inversor de Frequência</h3>';
+    currentMetasPressao.forEach(function (m) {
+      var ultimaInv = getUltimaLeituraValvula_(INVERSOR_SETOR_KEY, m.cultura);
+      var corInv = "#6B6153";
+      if (ultimaInv && ultimaInv.pressaoValvula !== "") {
+        corInv = Math.abs(parseFloat(ultimaInv.pressaoValvula) - m.pressaoInversor) <= 0.3 + 0.001 ? "#2F6B1F" : "#B4442E";
+      }
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-top:1px solid #EFEAD9;">' +
+        '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-inversor="' + escapeHtml(m.cultura) + '">' + escapeHtml(m.cultura) + ' <span style="font-weight:400;color:#8A8072;">(meta ' + m.pressaoInversor + ' kg)</span></span>';
+      if (ultimaInv) {
+        html += '<span style="font-size:11.5px;text-align:right;" data-abrir-inversor="' + escapeHtml(m.cultura) + '">' +
+          '<span style="color:' + corInv + ';font-weight:700;">' + ultimaInv.pressaoValvula + ' kg</span>' +
+          '<br><span style="color:#8A8072;font-size:10px;">' + escapeHtml(fmtDate(ultimaInv.data)) + '</span>' +
+          '<br>' + syncBadgeHtml_(ultimaInv) +
+          '<br><button class="del-btn" data-editar-leitura="' + ultimaInv.id + '" style="font-size:10px;padding:2px 6px;margin-top:3px;">✏️ Editar</button> ' +
+          '<button class="del-btn" data-apagar-leitura="' + ultimaInv.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
+        '</span>';
+      } else {
+        html += '<span style="font-size:11px;color:#8A8072;cursor:pointer;" data-abrir-inversor="' + escapeHtml(m.cultura) + '">Nunca medida</span>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+
     if (!currentValvulasPorSetor.length) {
       html += '<div class="empty-state">Nenhum setor com válvulas cadastradas ainda. Configure em ⚙️ (admin).</div>';
       el.innerHTML = html;
@@ -2947,17 +2971,19 @@
         item.valvulas.forEach(function (valv) {
           var ultima = getUltimaLeituraValvula_(item.setor, valv);
           var avalia = ultima ? avaliarLeituraPressao_(ultima.pressaoValvula, ultima.pressaoPonta, meta) : { corValvula: "#C9BC9C", corPonta: "#C9BC9C" };
-          html += '<div data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '" style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-top:1px solid #EFEAD9;cursor:pointer;">' +
-            '<span style="font-size:12.5px;font-weight:700;">' + escapeHtml(valv) + '</span>';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-top:1px solid #EFEAD9;">' +
+            '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">' + escapeHtml(valv) + '</span>';
           if (ultima) {
             html += '<span style="font-size:11.5px;text-align:right;">' +
               '<span style="color:' + avalia.corValvula + ';font-weight:700;">' + (ultima.pressaoValvula || "—") + ' kg</span>' +
               (ultima.pressaoPonta ? ' <span style="color:#8A8072;">· ponta </span><span style="color:' + avalia.corPonta + ';font-weight:700;">' + ultima.pressaoPonta + ' kg</span>' : '') +
               '<br><span style="color:#8A8072;font-size:10px;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
               '<br>' + syncBadgeHtml_(ultima) +
+              '<br><button class="del-btn" data-editar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;margin-top:3px;">✏️ Editar</button> ' +
+              '<button class="del-btn" data-apagar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
             '</span>';
           } else {
-            html += '<span style="font-size:11px;color:#8A8072;">Nunca medida</span>';
+            html += '<span style="font-size:11px;color:#8A8072;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">Nunca medida</span>';
           }
           html += '</div>';
         });
@@ -2968,20 +2994,40 @@
     html += '<button class="photo-btn" id="btn-admin-pressao" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Válvulas e Metas (admin)</button>';
 
     el.innerHTML = html;
+    el.querySelectorAll("[data-abrir-inversor]").forEach(function (b) {
+      b.addEventListener("click", function () { abrirModalInversor_(b.getAttribute("data-abrir-inversor")); });
+    });
     el.querySelectorAll("[data-abrir-leitura]").forEach(function (b) {
       b.addEventListener("click", function () {
         var partes = b.getAttribute("data-abrir-leitura").split("|");
         abrirModalLeituraPressao_(partes[0], partes[1]);
       });
     });
+    el.querySelectorAll("[data-editar-leitura]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        editarLeituraPressao_(b.getAttribute("data-editar-leitura"));
+      });
+    });
+    el.querySelectorAll("[data-apagar-leitura]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        apagarLeituraPressao_(b.getAttribute("data-apagar-leitura"));
+      });
+    });
     document.getElementById("btn-admin-pressao").addEventListener("click", abrirConfigPressao_);
   }
 
   var editingLeituraId = null, leituraSetorAtual = null, leituraValvulaAtual = null;
+  var INVERSOR_SETOR_KEY = "__INVERSOR__";
+  var modoInversorAtual = false;
   function abrirModalLeituraPressao_(setor, valvula) {
     editingLeituraId = null;
+    modoInversorAtual = false;
     leituraSetorAtual = setor; leituraValvulaAtual = valvula;
     var meta = getMetaCultura_(getCulturaDoSetorPressao_(setor));
+    document.getElementById("pressao-valvula-label").textContent = "Pressão na válvula (kg)";
+    document.getElementById("pressao-ponta-field").style.display = "block";
     document.getElementById("pressao-modal-title").textContent = setor + " · " + valvula;
     document.getElementById("pressao-modal-meta").textContent = meta
       ? "Meta: " + meta.pressaoValvula + " kg na válvula · mínimo " + meta.pressaoPontaMin + " kg na ponta"
@@ -2990,7 +3036,77 @@
     document.getElementById("pressao-ponta-input").value = "";
     document.getElementById("pressao-observacao-input").value = "";
     document.getElementById("pressao-avaliacao").textContent = "";
+    document.getElementById("btn-save-pressao").textContent = "Salvar Leitura";
     document.getElementById("modal-pressao-overlay").classList.add("active");
+  }
+  function abrirModalInversor_(cultura) {
+    editingLeituraId = null;
+    modoInversorAtual = true;
+    leituraSetorAtual = INVERSOR_SETOR_KEY; leituraValvulaAtual = cultura;
+    var meta = getMetaCultura_(cultura);
+    document.getElementById("pressao-valvula-label").textContent = "Pressão do inversor (kg)";
+    document.getElementById("pressao-ponta-field").style.display = "none";
+    document.getElementById("pressao-modal-title").textContent = "Inversor · " + cultura;
+    document.getElementById("pressao-modal-meta").textContent = meta
+      ? "Meta: " + meta.pressaoInversor + " kg de trabalho"
+      : "Sem meta configurada pra essa cultura.";
+    document.getElementById("pressao-valvula-input").value = "";
+    document.getElementById("pressao-ponta-input").value = "";
+    document.getElementById("pressao-observacao-input").value = "";
+    document.getElementById("pressao-avaliacao").textContent = "";
+    document.getElementById("btn-save-pressao").textContent = "Salvar Leitura";
+    document.getElementById("modal-pressao-overlay").classList.add("active");
+  }
+  function editarLeituraPressao_(id) {
+    var r = leiturasPressaoRecords.find(function (x) { return x.id === id; });
+    if (!r) return;
+    editingLeituraId = id;
+    modoInversorAtual = (r.setor === INVERSOR_SETOR_KEY);
+    leituraSetorAtual = r.setor; leituraValvulaAtual = r.valvula;
+    document.getElementById("pressao-ponta-field").style.display = modoInversorAtual ? "none" : "block";
+    if (modoInversorAtual) {
+      var metaInv = getMetaCultura_(r.valvula);
+      document.getElementById("pressao-valvula-label").textContent = "Pressão do inversor (kg)";
+      document.getElementById("pressao-modal-title").textContent = "Inversor · " + r.valvula + " (editando " + fmtDate(r.data) + ")";
+      document.getElementById("pressao-modal-meta").textContent = metaInv ? "Meta: " + metaInv.pressaoInversor + " kg de trabalho" : "Sem meta configurada.";
+    } else {
+      var meta = getMetaCultura_(getCulturaDoSetorPressao_(r.setor));
+      document.getElementById("pressao-valvula-label").textContent = "Pressão na válvula (kg)";
+      document.getElementById("pressao-modal-title").textContent = r.setor + " · " + r.valvula + " (editando " + fmtDate(r.data) + ")";
+      document.getElementById("pressao-modal-meta").textContent = meta
+        ? "Meta: " + meta.pressaoValvula + " kg na válvula · mínimo " + meta.pressaoPontaMin + " kg na ponta"
+        : "Sem meta configurada pra essa cultura.";
+    }
+    document.getElementById("pressao-valvula-input").value = r.pressaoValvula || "";
+    document.getElementById("pressao-ponta-input").value = r.pressaoPonta || "";
+    document.getElementById("pressao-observacao-input").value = r.observacao || "";
+    document.getElementById("btn-save-pressao").textContent = "Salvar Alteração";
+    atualizarAvaliacaoPressao_();
+    document.getElementById("modal-pressao-overlay").classList.add("active");
+  }
+  function apagarLeituraPressao_(id) {
+    var r = leiturasPressaoRecords.find(function (x) { return x.id === id; });
+    if (!r) return;
+    if (!confirm("Excluir essa leitura de pressão?")) return;
+    if (!r._synced) {
+      leiturasPressaoRecords = leiturasPressaoRecords.filter(function (x) { return x.id !== id; });
+      saveLeiturasPressao();
+      renderPressaoIdeal();
+      showToast("Leitura removida.");
+      return;
+    }
+    var senha = prompt("Senha de administrador:");
+    if (senha === null) return;
+    postToBackend({ action: "delete_leitura_pressao", id: id, adminToken: senha }).then(function (res) {
+      if (res && res.ok) {
+        leiturasPressaoRecords = leiturasPressaoRecords.filter(function (x) { return x.id !== id; });
+        saveLeiturasPressao();
+        renderPressaoIdeal();
+        showToast("Leitura excluída.");
+      } else {
+        showToast((res && res.error) || "Não consegui excluir.");
+      }
+    }).catch(function () { showToast("Erro de conexão."); });
   }
   function fecharModalLeituraPressao_() {
     document.getElementById("modal-pressao-overlay").classList.remove("active");
@@ -2998,6 +3114,14 @@
   }
   function atualizarAvaliacaoPressao_() {
     var el = document.getElementById("pressao-avaliacao");
+    if (modoInversorAtual) {
+      var metaInv = getMetaCultura_(leituraValvulaAtual);
+      var pvInv = document.getElementById("pressao-valvula-input").value;
+      if (!metaInv || !pvInv) { el.innerHTML = ""; return; }
+      var corInv = Math.abs(parseFloat(pvInv) - metaInv.pressaoInversor) <= 0.3 + 0.001 ? "#2F6B1F" : "#B4442E";
+      el.innerHTML = '<span style="color:' + corInv + ';font-weight:700;">' + (corInv === "#2F6B1F" ? "Dentro da meta ✓" : "Fora da meta ✗") + '</span>';
+      return;
+    }
     var meta = getMetaCultura_(getCulturaDoSetorPressao_(leituraSetorAtual));
     if (!meta) { el.textContent = ""; return; }
     var pv = document.getElementById("pressao-valvula-input").value;
@@ -3013,17 +3137,25 @@
     var pv = document.getElementById("pressao-valvula-input").value.trim();
     var pp = document.getElementById("pressao-ponta-input").value.trim();
     var obs = document.getElementById("pressao-observacao-input").value.trim();
-    if (!pv) { showToast("Preencha a pressão medida na válvula."); return; }
-    var registro = {
-      id: uid(), data: todayStr(), setor: leituraSetorAtual, valvula: leituraValvulaAtual,
-      pressaoValvula: pv, pressaoPonta: pp, responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
-      observacao: obs, _synced: false, _pendingDelete: false
-    };
-    leiturasPressaoRecords.unshift(registro);
+    if (!pv) { showToast("Preencha a pressão medida."); return; }
+    if (editingLeituraId) {
+      var existente = leiturasPressaoRecords.find(function (x) { return x.id === editingLeituraId; });
+      if (existente) {
+        existente.pressaoValvula = pv; existente.pressaoPonta = pp; existente.observacao = obs;
+        if (existente._synced) existente._pendingUpdate = true;
+      }
+    } else {
+      var registro = {
+        id: uid(), data: todayStr(), setor: leituraSetorAtual, valvula: leituraValvulaAtual,
+        pressaoValvula: pv, pressaoPonta: pp, responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
+        observacao: obs, _synced: false, _pendingUpdate: false, _pendingDelete: false
+      };
+      leiturasPressaoRecords.unshift(registro);
+    }
     saveLeiturasPressao();
     fecharModalLeituraPressao_();
     renderPressaoIdeal();
-    showToast("Leitura registrada.");
+    showToast(editingLeituraId ? "Leitura atualizada." : "Leitura registrada.");
     trySync();
   }
 
@@ -3034,7 +3166,7 @@
       return v.setor + " | " + v.valvulas.join(",");
     }).join("\n");
     document.getElementById("admin-metas-pressao").value = currentMetasPressao.map(function (m) {
-      return m.cultura + " | " + m.pressaoValvula + " | " + m.pressaoPontaMin;
+      return m.cultura + " | " + m.pressaoValvula + " | " + m.pressaoPontaMin + " | " + (m.pressaoInversor || 0);
     }).join("\n");
     document.getElementById("admin-pressao-senha-oculta").value = senha;
     document.getElementById("modal-config-pressao-overlay").classList.add("active");
@@ -3051,7 +3183,7 @@
     var linhasMetas = document.getElementById("admin-metas-pressao").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
     var novasMetas = linhasMetas.map(function (l) {
       var partes = l.split("|").map(function (p) { return p.trim(); });
-      return { cultura: partes[0], pressaoValvula: parseFloat(partes[1]) || 0, pressaoPontaMin: parseFloat(partes[2]) || 0 };
+      return { cultura: partes[0], pressaoValvula: parseFloat(partes[1]) || 0, pressaoPontaMin: parseFloat(partes[2]) || 0, pressaoInversor: parseFloat(partes[3]) || 0 };
     }).filter(function (m) { return m.cultura; });
 
     if (!novasValvulas.length) { showToast("A lista de válvulas não pode ficar vazia."); return; }
@@ -4648,6 +4780,7 @@
     var toCreateRonda = rondaRecords.filter(function (r) { return !r._synced; });
     var toUpdateRonda = rondaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toCreateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return !r._synced; });
+    var toUpdateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toCreateGerador = geradorRecords.filter(function (r) { return !r._synced; });
     var toUpdateGerador = geradorRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toCreateAnotacao = anotacoesRecords.filter(function (r) { return !r._synced; });
@@ -4807,6 +4940,26 @@
             saveLeiturasPressao();
           } else {
             syncErrors.push((res && res.error) ? res.error : "erro ao criar leitura de pressão");
+        }
+      }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
+      });
+    });
+
+    toUpdateLeituraPressao.forEach(function (r) {
+      chain = chain.then(function () {
+        return postToBackend({
+          token: config.token, action: "update_leitura_pressao", id: r.id, data: r.data,
+          setor: r.setor, valvula: r.valvula, pressaoValvula: r.pressaoValvula || "",
+          pressaoPonta: r.pressaoPonta || "", responsavel: r.responsavel || "", observacao: r.observacao || ""
+        }).then(function (res) {
+          if (res && res.ok) {
+            r._pendingUpdate = false;
+            saveLeiturasPressao();
+          } else if (res && res.notFound) {
+            leiturasPressaoRecords = leiturasPressaoRecords.filter(function (rec) { return rec.id !== r.id; });
+            saveLeiturasPressao();
+          } else {
+            syncErrors.push((res && res.error) ? res.error : "erro ao atualizar leitura de pressão");
           }
         }).catch(function (err) { syncErrors.push(err && err.message ? err.message : String(err)); });
       });
@@ -5258,7 +5411,13 @@
       } catch (e) {}
       try {
         var cMP = localStorage.getItem(METAS_PRESSAO_CACHE_KEY);
-        if (cMP) currentMetasPressao = JSON.parse(cMP);
+        if (cMP) {
+          currentMetasPressao = JSON.parse(cMP);
+          var PADRAO_INVERSOR = { Coco: 6, Cacau: 5 };
+          currentMetasPressao.forEach(function (m) {
+            if (!m.pressaoInversor) m.pressaoInversor = PADRAO_INVERSOR[m.cultura] || 0;
+          });
+        }
       } catch (e) {}
       loadOperador();
       try {
