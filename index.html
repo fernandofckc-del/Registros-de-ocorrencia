@@ -772,7 +772,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v48';
+  var APP_CACHE_NAME = 'registro-irrigacao-v49';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2611,6 +2611,22 @@
 
   function renderAnotacoes() {
     var el = document.getElementById("anotacoes-content");
+    if (!anotacoesLiberado) {
+      el.innerHTML =
+        '<div class="card" style="margin-top:20px;">' +
+          '<div style="text-align:center;font-size:34px;margin-bottom:6px;">🔒</div>' +
+          '<div class="modal-title" style="text-align:center;">Anotações Pessoais</div>' +
+          '<div class="modal-sub" style="text-align:center;">Essas notas são de uso exclusivo seu. Digite a senha de administrador para liberar nesta sessão.</div>' +
+          '<div class="field"><span class="field-label">Senha de administrador</span><input id="anot-senha" type="password"></div>' +
+          '<button class="save-btn" id="btn-liberar-anot" style="background:#4C6B2F;">Liberar</button>' +
+          '<div id="anot-senha-result" class="test-result"></div>' +
+        '</div>';
+      document.getElementById("btn-liberar-anot").addEventListener("click", liberarAnotacoes_);
+      document.getElementById("anot-senha").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") liberarAnotacoes_();
+      });
+      return;
+    }
     var html = '<div class="modal-sub" style="margin-bottom:10px;">Anota o que quiser aqui no campo. Quando precisar, é só pedir pra organizar essas anotações depois.</div>';
     html += '<div class="card">' +
       '<textarea id="nova-anotacao-texto" placeholder="O que você quer anotar agora..." style="min-height:90px;"></textarea>' +
@@ -3436,6 +3452,7 @@
 
   // ================= ABA RELATÓRIOS (somente administrador) =================
   var relatorioLiberado = false;   // vale só enquanto o app estiver aberto
+  var anotacoesLiberado = false;   // idem - as anotações são pessoais, não pra qualquer um ver
   var relDataInicio = "", relDataFim = "";
 
   function renderRelatorios() {
@@ -3609,6 +3626,22 @@
     resultEl.textContent = "Verificando...";
     postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
       if (res && res.ok) { relatorioLiberado = true; renderRelatorios(); }
+      else { resultEl.className = "test-result fail"; resultEl.textContent = (res && res.error) || "Senha incorreta."; }
+    }).catch(function () {
+      resultEl.className = "test-result fail"; resultEl.textContent = "Erro de conexão.";
+    });
+  }
+
+  function liberarAnotacoes_() {
+    var pass = document.getElementById("anot-senha").value.trim();
+    var resultEl = document.getElementById("anot-senha-result");
+    resultEl.className = "test-result"; resultEl.style.display = "block";
+    if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a sincronização primeiro."; return; }
+    if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha."; return; }
+    if (!navigator.onLine) { resultEl.className = "test-result fail"; resultEl.textContent = "Precisa de internet para validar a senha."; return; }
+    resultEl.textContent = "Verificando...";
+    postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
+      if (res && res.ok) { anotacoesLiberado = true; renderAnotacoes(); }
       else { resultEl.className = "test-result fail"; resultEl.textContent = (res && res.error) || "Senha incorreta."; }
     }).catch(function () {
       resultEl.className = "test-result fail"; resultEl.textContent = "Erro de conexão.";
