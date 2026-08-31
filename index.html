@@ -781,7 +781,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v54';
+  var APP_CACHE_NAME = 'registro-irrigacao-v55';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2777,7 +2777,7 @@
       renderEscala();
       return;
     }
-    postToBackend({ action: "delete_escala", id: id }).then(function (res) {
+    postToBackend({ token: config.token, action: "delete_escala", id: id }).then(function (res) {
       if (res && res.ok) {
         escalaRecords = escalaRecords.filter(function (x) { return x.id !== id; });
         saveEscalaRecords();
@@ -3047,7 +3047,7 @@
       showToast("Anotação removida.");
       return;
     }
-    postToBackend({ action: "delete_anotacao", id: id }).then(function (res) {
+    postToBackend({ token: config.token, action: "delete_anotacao", id: id }).then(function (res) {
       if (res && res.ok) {
         anotacoesRecords = anotacoesRecords.filter(function (x) { return x.id !== id; });
         saveAnotacoesRecords();
