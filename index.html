@@ -781,7 +781,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v52';
+  var APP_CACHE_NAME = 'registro-irrigacao-v53';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2664,6 +2664,11 @@
     return escalaRecords.filter(function (r) { return r.data === iso && !r._pendingDelete; });
   }
 
+  // Guarda o que a pessoa está digitando em CADA dia, mesmo antes de
+  // confirmar - sem isso, salvar a entrada de um dia redesenhava a tela
+  // inteira e apagava o que ainda estava sendo digitado nos outros dias.
+  var escalaRascunhos = {};
+
   function renderEscala() {
     var el = document.getElementById("escala-content");
     var dias = diasDaSemanaEscala_();
@@ -2698,6 +2703,16 @@
     });
 
     el.innerHTML = html;
+    // Restaura o que a pessoa já tinha digitado em cada dia, antes de
+    // qualquer coisa disparar um redesenho da tela.
+    el.querySelectorAll("[data-nova-linha-escala]").forEach(function (input) {
+      var iso = input.getAttribute("data-nova-linha-escala");
+      if (escalaRascunhos[iso]) input.value = escalaRascunhos[iso];
+      input.addEventListener("input", function () { escalaRascunhos[iso] = input.value; });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") adicionarLinhaEscala_(iso, input.value);
+      });
+    });
     document.getElementById("btn-escala-semana-anterior").addEventListener("click", function () { escalaOffsetSemana--; renderEscala(); });
     document.getElementById("btn-escala-semana-seguinte").addEventListener("click", function () { escalaOffsetSemana++; renderEscala(); });
     document.getElementById("btn-exportar-escala").addEventListener("click", function () { exportarEscalaExcel_(dias, rotuloSemana); });
@@ -2706,11 +2721,6 @@
         var iso = b.getAttribute("data-add-linha-escala");
         var input = el.querySelector('[data-nova-linha-escala="' + iso + '"]');
         adicionarLinhaEscala_(iso, input.value);
-      });
-    });
-    el.querySelectorAll("[data-nova-linha-escala]").forEach(function (input) {
-      input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") adicionarLinhaEscala_(input.getAttribute("data-nova-linha-escala"), input.value);
       });
     });
     el.querySelectorAll("[data-editar-escala]").forEach(function (b) {
@@ -2729,6 +2739,7 @@
       responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
       _synced: false, _pendingUpdate: false, _pendingDelete: false
     });
+    delete escalaRascunhos[iso]; // já foi confirmado - esse campo volta vazio, os outros mantêm o que estava digitado
     saveEscalaRecords();
     renderEscala();
     trySync();
