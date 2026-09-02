@@ -679,6 +679,17 @@
 
     <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
 
+    <div class="modal-title" style="font-size:15px;">🔒 Operação Causadora (administrador)</div>
+    <div class="modal-sub">Mesma senha de administrador de cima. Aparece só quando a causa é operacional.</div>
+    <div class="field">
+      <span class="field-label">Operações (uma por linha)</span>
+      <textarea id="admin-operacoes-causadoras" style="min-height:140px;" placeholder="Carregando..."></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-operacoes-causadoras" style="background:#8A5A44">Salvar Operações</button>
+    <div id="admin-operacoes-causadoras-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
     <div class="modal-title" style="font-size:15px;">🔒 Culturas (administrador)</div>
     <div class="modal-sub">Mesma senha de administrador. Uma cultura por linha, formato: <b>Nome, dias, Kc, modo</b> (modo = gotejo ou microaspersor). Ex.: Coco, 15, 1.15, microaspersor</div>
     <div class="field">
@@ -770,7 +781,7 @@
   var CAUSAS_CACHE_KEY = "oc_causas_cache_v1";
   var currentTipos = TIPOS.slice();
   var currentCausas = CAUSAS.slice();
-  var currentOperacoesCausadoras = ["Roçagem/Roçadeira", "Trator/Colheita", "Poda", "Capina", "Aplicação de Defensivo", "Adubação", "Outra"];
+  var currentOperacoesCausadoras = ["Roçagem", "Roçadeira", "Trator/Colheita", "Poda", "Capina", "Aplicação de Defensivo", "Adubação", "Outra"];
   var OPERACOES_CAUSADORAS_CACHE_KEY = "operacoes_causadoras_cache_v1";
 
   var CULTURAS_PADRAO = [{ nome: "Coco", intervalo: 15, kc: 1.15, modo: "microaspersor" }, { nome: "Cacau", intervalo: 20, kc: 0.94, modo: "gotejo" }];
@@ -781,7 +792,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v55';
+  var APP_CACHE_NAME = 'registro-irrigacao-v56';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -6000,6 +6011,8 @@
       document.getElementById("admin-result").style.display = "none";
       document.getElementById("admin-causas").value = currentCausas.join("\n");
       document.getElementById("admin-causas-result").style.display = "none";
+      document.getElementById("admin-operacoes-causadoras").value = currentOperacoesCausadoras.join("\n");
+      document.getElementById("admin-operacoes-causadoras-result").style.display = "none";
       document.getElementById("admin-culturas").value = currentCulturas.map(function (c) { return c.nome + ", " + c.intervalo + ", " + (c.kc !== undefined ? c.kc : 0.85) + ", " + (c.modo || "gotejo"); }).join("\n");
       document.getElementById("admin-culturas-result").style.display = "none";
       document.getElementById("admin-talhoes").value = currentTalhoes.map(function (t) {
@@ -6092,6 +6105,34 @@
           populateSelect("f-causa", currentCausas);
           resultEl.className = "test-result ok";
           resultEl.textContent = "Causas atualizadas! Já valem para todos os celulares.";
+          document.getElementById("admin-pass").value = "";
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+        }
+      }).catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão. Verifique a internet.";
+      });
+    });
+
+    document.getElementById("btn-save-operacoes-causadoras").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var lines = document.getElementById("admin-operacoes-causadoras").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+      var resultEl = document.getElementById("admin-operacoes-causadoras-result");
+      resultEl.className = "test-result";
+      resultEl.style.display = "block";
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      if (!lines.length) { resultEl.className = "test-result fail"; resultEl.textContent = "A lista não pode ficar vazia."; return; }
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_operacoes_causadoras", adminToken: pass, operacoesCausadoras: lines }).then(function (res) {
+        if (res && res.ok) {
+          currentOperacoesCausadoras = res.operacoesCausadoras || lines;
+          localStorage.setItem(OPERACOES_CAUSADORAS_CACHE_KEY, JSON.stringify(currentOperacoesCausadoras));
+          populateSelect("f-operacao-causadora", currentOperacoesCausadoras);
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Operações atualizadas! Já valem para todos os celulares.";
           document.getElementById("admin-pass").value = "";
         } else {
           resultEl.className = "test-result fail";
