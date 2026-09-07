@@ -575,15 +575,23 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="field">
           <span class="field-label">Foto do Hidrômetro · Início</span>
-          <input id="bomb-foto-inicio-input" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="bomb-foto-inicio-input-camera" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="bomb-foto-inicio-input-galeria" type="file" accept="image/*" style="display:none">
           <div id="bomb-foto-inicio-preview" style="margin-bottom:6px;"></div>
-          <button class="photo-btn" id="btn-bomb-foto-inicio" style="padding:8px;font-size:12px;">📷 Foto Início</button>
+          <div style="display:flex;gap:6px;">
+            <button class="photo-btn" id="btn-bomb-foto-inicio-camera" style="padding:8px;font-size:11px;flex:1;">📷 Câmera</button>
+            <button class="photo-btn" id="btn-bomb-foto-inicio-galeria" style="padding:8px;font-size:11px;flex:1;background:#8A5A44;">🖼️ Galeria</button>
+          </div>
         </div>
         <div class="field">
           <span class="field-label">Foto do Hidrômetro · Fim</span>
-          <input id="bomb-foto-fim-input" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="bomb-foto-fim-input-camera" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="bomb-foto-fim-input-galeria" type="file" accept="image/*" style="display:none">
           <div id="bomb-foto-fim-preview" style="margin-bottom:6px;"></div>
-          <button class="photo-btn" id="btn-bomb-foto-fim" style="padding:8px;font-size:12px;">📷 Foto Fim</button>
+          <div style="display:flex;gap:6px;">
+            <button class="photo-btn" id="btn-bomb-foto-fim-camera" style="padding:8px;font-size:11px;flex:1;">📷 Câmera</button>
+            <button class="photo-btn" id="btn-bomb-foto-fim-galeria" style="padding:8px;font-size:11px;flex:1;background:#8A5A44;">🖼️ Galeria</button>
+          </div>
         </div>
       </div>
 
@@ -806,7 +814,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v61';
+  var APP_CACHE_NAME = 'registro-irrigacao-v62';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -6064,10 +6072,13 @@
     });
     document.getElementById("bomb-leitura-inicio").addEventListener("input", updateBombConsumoPreview);
     document.getElementById("bomb-leitura-fim").addEventListener("input", updateBombConsumoPreview);
-    document.getElementById("btn-bomb-foto-inicio").addEventListener("click", function () {
-      document.getElementById("bomb-foto-inicio-input").click();
+    document.getElementById("btn-bomb-foto-inicio-camera").addEventListener("click", function () {
+      document.getElementById("bomb-foto-inicio-input-camera").click();
     });
-    document.getElementById("bomb-foto-inicio-input").addEventListener("change", function (e) {
+    document.getElementById("btn-bomb-foto-inicio-galeria").addEventListener("click", function () {
+      document.getElementById("bomb-foto-inicio-input-galeria").click();
+    });
+    function processarFotoBombInicio_(e) {
       var file = e.target.files && e.target.files[0];
       if (!file) return;
       compressImage(file, 1000, 0.62, function (dataUrl) {
@@ -6075,11 +6086,17 @@
         renderFotoBombPreview_("inicio", dataUrl);
         e.target.value = "";
       });
+    }
+    document.getElementById("bomb-foto-inicio-input-camera").addEventListener("change", processarFotoBombInicio_);
+    document.getElementById("bomb-foto-inicio-input-galeria").addEventListener("change", processarFotoBombInicio_);
+
+    document.getElementById("btn-bomb-foto-fim-camera").addEventListener("click", function () {
+      document.getElementById("bomb-foto-fim-input-camera").click();
     });
-    document.getElementById("btn-bomb-foto-fim").addEventListener("click", function () {
-      document.getElementById("bomb-foto-fim-input").click();
+    document.getElementById("btn-bomb-foto-fim-galeria").addEventListener("click", function () {
+      document.getElementById("bomb-foto-fim-input-galeria").click();
     });
-    document.getElementById("bomb-foto-fim-input").addEventListener("change", function (e) {
+    function processarFotoBombFim_(e) {
       var file = e.target.files && e.target.files[0];
       if (!file) return;
       compressImage(file, 1000, 0.62, function (dataUrl) {
@@ -6087,7 +6104,9 @@
         renderFotoBombPreview_("fim", dataUrl);
         e.target.value = "";
       });
-    });
+    }
+    document.getElementById("bomb-foto-fim-input-camera").addEventListener("change", processarFotoBombFim_);
+    document.getElementById("bomb-foto-fim-input-galeria").addEventListener("change", processarFotoBombFim_);
 
     document.getElementById("f-cultura").addEventListener("change", function (e) {
       populateOcorrenciaSetorSelect(e.target.value, "");
