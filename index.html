@@ -806,7 +806,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v60';
+  var APP_CACHE_NAME = 'registro-irrigacao-v61';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1047,11 +1047,11 @@
     return p ? p.tipo : "inversor";
   }
   function getRondasDia_(data) {
-    return rondaRecords.filter(function (r) { return r.data === data && !r._pendingDelete; });
+    return rondaRecords.filter(function (r) { return mesmaDataStr_(r.data, data) && !r._pendingDelete; });
   }
   function getRondaBomba_(data, horarioPrevisto, bomba) {
     return rondaRecords.find(function (r) {
-      return r.data === data && r.horarioPrevisto === horarioPrevisto &&
+      return mesmaDataStr_(r.data, data) && r.horarioPrevisto === horarioPrevisto &&
         String(r.bomba) === String(bomba) && !r._pendingDelete;
     });
   }
@@ -1065,7 +1065,7 @@
   function statusRonda_(data, horarioPrevisto) {
     var bombasRegistradas = {};
     rondaRecords.forEach(function (r) {
-      if (r.data === data && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete && r.bomba) {
+      if (mesmaDataStr_(r.data, data) && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete && r.bomba) {
         bombasRegistradas[r.bomba] = true;
       }
     });
@@ -1357,7 +1357,7 @@
     var abertasCount = records.filter(function (r) { return !r._pendingDelete && r.status !== "Resolvido"; }).length;
     var hojeBadge = todayStr();
     var bombasEsquecidasCount = bombRecords.filter(function (r) {
-      return !r._pendingDelete && !r.horarioFim && r.data && r.data < hojeBadge;
+      return !r._pendingDelete && !r.horarioFim && r.data && dataAntes_(r.data, hojeBadge);
     }).length;
     var br = document.getElementById("nav-badge-resumo");
     if (br) {
@@ -1451,7 +1451,7 @@
     // e continua sem fechar, é sinal de que ficou esquecida - foi
     // exatamente o que aconteceu com a Bomba 1 na noite de 23/08.
     var bombasEsquecidas = bombRecords.filter(function (r) {
-      return !r._pendingDelete && !r.horarioFim && r.data && r.data < hoje;
+      return !r._pendingDelete && !r.horarioFim && r.data && dataAntes_(r.data, hoje);
     }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
 
     // ---- KPIs do topo ----
@@ -2129,6 +2129,30 @@
     if (m2) return new Date(Date.UTC(parseInt(m2[3], 10), parseInt(m2[2], 10) - 1, parseInt(m2[1], 10)));
     return null;
   }
+  // Compara duas datas MESMO que estejam em formatos diferentes - o Google
+  // Sheets pode devolver "24/08/2026" quando o app mandou "2026-08-24" (ele
+  // "entende" que é uma data e reformata sozinho). Comparar como texto puro
+  // fazia o app "perder de vista" rodadas de bomba e rondas já abertas,
+  // achando que precisava criar uma nova em vez de fechar a existente.
+  function mesmaDataStr_(a, b) {
+    if (a === b) return true; // atalho: já bateu como texto, nem precisa converter
+    var da = parseISODate(a), db = parseISODate(b);
+    return !!da && !!db && da.getTime() === db.getTime();
+  }
+  // Mesma ideia do mesmaDataStr_, mas pra saber se uma data vem ANTES da
+  // outra - comparar como texto puro ("05/09/2026" < "2026-09-06") dá
+  // resultado errado sempre que os formatos são diferentes, porque compara
+  // letra por letra em vez de datas de verdade.
+  function dataAntes_(a, b) {
+    var da = parseISODate(a), db = parseISODate(b);
+    if (!da || !db) return false;
+    return da.getTime() < db.getTime();
+  }
+  function dataAntesOuIgual_(a, b) {
+    var da = parseISODate(a), db = parseISODate(b);
+    if (!da || !db) return false;
+    return da.getTime() <= db.getTime();
+  }
   function todayUTC() {
     var t = new Date();
     return new Date(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()));
@@ -2534,7 +2558,7 @@
 
   // ================= BOMBEAMENTO (captação de água - 4 bombas) =================
   function getBombDia(data) {
-    return bombRecords.filter(function (r) { return r.data === data && !r._pendingDelete; })
+    return bombRecords.filter(function (r) { return mesmaDataStr_(r.data, data) && !r._pendingDelete; })
       .sort(function (a, b) { return (parseInt(a.bomba, 10) || 0) - (parseInt(b.bomba, 10) || 0); });
   }
   // Todas as RODADAS de uma bomba num dia. A bomba pode ligar, desligar e
@@ -2542,7 +2566,7 @@
   // operação), então guardamos um registro por rodada, em ordem de horário.
   function getRodadasBomba(data, n) {
     return bombRecords.filter(function (r) {
-      return r.data === data && String(r.bomba) === String(n) && !r._pendingDelete;
+      return mesmaDataStr_(r.data, data) && String(r.bomba) === String(n) && !r._pendingDelete;
     }).sort(function (a, b) {
       // O turno atravessa a meia-noite: uma rodada que começa 21:30 vem ANTES
       // de uma que começa 03:00 do dia seguinte. Ordenar por texto puro
@@ -3212,7 +3236,7 @@
     var el = document.getElementById("gerador-preview");
     var ordenados = geradorOrdenados_().filter(function (r) { return r.id !== editingGeradorId; });
     var dataAtual = document.getElementById("gerador-data").value;
-    var anterior = ordenados.filter(function (r) { return r.data <= dataAtual; }).pop();
+    var anterior = ordenados.filter(function (r) { return dataAntesOuIgual_(r.data, dataAtual); }).pop();
     if (!anterior) { el.innerHTML = "Primeira leitura registrada - nada pra comparar ainda."; return; }
     var h = num_(document.getElementById("gerador-horas").value), hA = num_(anterior.horasOperacao);
     var l = num_(document.getElementById("gerador-litros").value), lA = num_(anterior.litrosCombustivel);
@@ -3725,7 +3749,7 @@
       var statusR = statusRonda_(dataDaRonda, hp);
       var feita = statusR.status === "completa";
       var parcial = statusR.status === "parcial";
-      var regs = rondaRecords.filter(function (r) { return r.data === dataDaRonda && r.horarioPrevisto === hp && !r._pendingDelete; });
+      var regs = rondaRecords.filter(function (r) { return mesmaDataStr_(r.data, dataDaRonda) && r.horarioPrevisto === hp && !r._pendingDelete; });
       var primeiro = regs[0];
       var atrasada = false;
       if (!feita && ehHoje) {
@@ -4434,7 +4458,7 @@
     var itens = currentRondasHorarios.map(function (hp) {
       var dataDaRonda = (minutosDeHora_(hp) >= 720) ? noiteIni : noiteFim;
       var regs = rondaRecords.filter(function (r) {
-        return r.data === dataDaRonda && r.horarioPrevisto === hp && !r._pendingDelete;
+        return mesmaDataStr_(r.data, dataDaRonda) && r.horarioPrevisto === hp && !r._pendingDelete;
       });
       return { horario: hp, data: dataDaRonda, regs: regs, feita: regs.length > 0 };
     }).sort(function (a, b) {
@@ -4590,7 +4614,7 @@
       currentPlantonistas.map(function (n) { return '<option value="' + escapeHtml(n) + '">'; }).join("");
 
     var primeiro = rondaRecords.find(function (r) {
-      return r.data === rondaAbertaData && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete;
+      return mesmaDataStr_(r.data, rondaAbertaData) && r.horarioPrevisto === horarioPrevisto && !r._pendingDelete;
     });
     document.getElementById("ronda-plantonista").value = primeiro ? (primeiro.plantonista || "") : nomeSugerido_();
     var nivelInicial = primeiro ? (primeiro.nivelReservatorio || "") : "";
