@@ -192,6 +192,9 @@
   .test-result.fail { display:block; background:#F5E3DC; color:#96351B; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
 </head>
 <body>
 <div id="app">
@@ -814,7 +817,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v62';
+  var APP_CACHE_NAME = 'registro-irrigacao-v63';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -894,6 +897,43 @@
   var painelFiltroCultura = "Todas";
   var painelPeriodoInicio = "";
   var painelPeriodoFim = "";
+
+  // ================= FIREBASE (migração em andamento) =================
+  // Começando pelo Bombeamento - o resto continua na planilha por enquanto.
+  // Sem Cloud Functions de propósito: o app fala direto com o Firestore,
+  // pra não depender do plano pago (Blaze) que já deu problema antes.
+  var firebaseConfig = {
+    apiKey: "AIzaSyAzsUSbMQsjMKADnOToZ3fMWEsPgbAOatg",
+    authDomain: "registroocorrencia-94e27.firebaseapp.com",
+    projectId: "registroocorrencia-94e27",
+    storageBucket: "registroocorrencia-94e27.firebasestorage.app",
+    messagingSenderId: "597413327398",
+    appId: "1:597413327398:web:d6a87eaa7872203434ace7"
+  };
+  var db = null;
+  var firebaseProntoP = null;
+  function iniciarFirebase_() {
+    if (firebaseProntoP) return firebaseProntoP;
+    firebaseProntoP = new Promise(function (resolve) {
+      try {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        db.enablePersistence({ synchronizeTabs: true }).catch(function (err) {
+          console.warn("[firebase] persistência offline não disponível:", err.code);
+        });
+        firebase.auth().signInAnonymously().then(function () {
+          resolve(true);
+        }).catch(function (err) {
+          console.error("[firebase] falha no login anônimo:", err);
+          resolve(false);
+        });
+      } catch (err) {
+        console.error("[firebase] falha ao iniciar:", err);
+        resolve(false);
+      }
+    });
+    return firebaseProntoP;
+  }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   // Antes usava toISOString(), que sempre devolve em UTC. Como o Brasil é
@@ -986,6 +1026,53 @@
       return false;
     }
   }
+
+  // ---- Bombeamento via Firestore (tempo real, sem passar pela planilha) ----
+  var bombListenerAtivo = false;
+  function iniciarListenerBombeamento_() {
+    if (bombListenerAtivo || !db) return;
+    bombListenerAtivo = true;
+    db.collection("bombeamento").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, data: d.data, bomba: d.bomba,
+          horarioInicio: d.horarioInicio || "", horarioFim: d.horarioFim || "",
+          leituraInicial: d.leituraInicial !== undefined ? d.leituraInicial : "",
+          leituraFinal: d.leituraFinal !== undefined ? d.leituraFinal : "",
+          fotoInicio: d.fotoInicio || "", fotoFim: d.fotoFim || "", observacao: d.observacao || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
+          _pendingDelete: false
+        });
+      });
+      bombRecords = novos;
+      saveBombRecords(); // cache local, só pra abrir rápido da próxima vez
+      try { if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento(); } catch (e) {}
+      try { updateBadge(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de bombeamento:", err);
+    });
+  }
+  function salvarBombeamentoFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var ref = db.collection("bombeamento").doc(id);
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    ref.set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar bombeamento:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+    });
+  }
+  function apagarBombeamentoFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("bombeamento").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar bombeamento:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
   function loadRondaRecords() {
     try {
       var raw = localStorage.getItem(RONDA_KEY);
@@ -4904,25 +4991,16 @@
       var observacao = document.getElementById("bomb-observacao").value.trim();
       if (!horarioInicio) { showToast("Preencha o horário de início."); return; }
 
-      if (editingBombId) {
-        var rec = bombRecords.find(function (r) { return r.id === editingBombId; });
-        if (rec) {
-          rec.data = dataReg;
-          rec.horarioInicio = horarioInicio; rec.horarioFim = horarioFim;
-          rec.leituraInicial = leituraInicial; rec.leituraFinal = leituraFinal;
-          rec.observacao = observacao; rec.fotoInicio = pendingFotoBombInicio; rec.fotoFim = pendingFotoBombFim;
-          if (rec._synced) rec._pendingUpdate = true;
-        }
-      } else {
-        bombRecords.unshift({
-          id: uid(), data: dataReg, bomba: editingBombBomba,
-          horarioInicio: horarioInicio, horarioFim: horarioFim,
-          leituraInicial: leituraInicial, leituraFinal: leituraFinal,
-          fotoInicio: pendingFotoBombInicio, fotoFim: pendingFotoBombFim, observacao: observacao,
-          _synced: false, _pendingDelete: false
-        });
-      }
-      if (!saveBombRecords()) return;
+      var campos = {
+        data: dataReg, bomba: editingBombBomba,
+        horarioInicio: horarioInicio, horarioFim: horarioFim,
+        leituraInicial: leituraInicial, leituraFinal: leituraFinal,
+        fotoInicio: pendingFotoBombInicio || "", fotoFim: pendingFotoBombFim || "",
+        observacao: observacao, excluido: false
+      };
+      var idAlvo = editingBombId || uid();
+      salvarBombeamentoFirestore_(idAlvo, campos, !editingBombId);
+
       if (dataReg !== bombData) {
         // registro foi movido pra outro dia - leva a tela junto, senão ele
         // "some" e a pessoa acha que perdeu
@@ -4934,17 +5012,14 @@
         showToast("Bomba " + editingBombBomba + " registrada.");
       }
       closeBombModal();
-      renderBombeamento();
-      trySync();
     } catch (err) {
       showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     }
   }
 
   function deleteBombRecord(id) {
-    bombRecords = bombRecords.filter(function (r) { return r.id !== id; });
-    saveBombRecords();
-    renderBombeamento();
+    if (!confirm("Excluir esse registro de bombeamento?")) return;
+    apagarBombeamentoFirestore_(id);
   }
   // ================= FIM BOMBEAMENTO =================
 
@@ -5207,7 +5282,7 @@
     var toUpdateFull = records.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toDelete = records.filter(function (r) { return r._pendingDelete; });
     var toCreateManut = manutRecords.filter(function (r) { return !r._synced; });
-    var toCreateBomb = bombRecords.filter(function (r) { return !r._synced; });
+    var toCreateBomb = []; // Bombeamento migrou pro Firebase - não passa mais por aqui
     var toCreateRonda = rondaRecords.filter(function (r) { return !r._synced; });
     var toUpdateRonda = rondaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toCreateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return !r._synced; });
@@ -5218,7 +5293,7 @@
     var toUpdateAnotacao = anotacoesRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toCreateEscala = escalaRecords.filter(function (r) { return !r._synced; });
     var toUpdateEscala = escalaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
-    var toUpdateBomb = bombRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toUpdateBomb = []; // idem
     var syncErrors = [];
 
     var chain = Promise.resolve();
@@ -5711,7 +5786,11 @@
           });
           saveEscalaRecords();
         }
-        if (res.bombeamentos) {
+        if (false && res.bombeamentos) {
+          // Bombeamento migrou pro Firebase - esse bloco antigo fica
+          // desativado (não apagado, pra servir de referência se um dia
+          // precisar reverter), já que agora quem atualiza bombRecords é
+          // o listener em tempo real do Firestore, não mais a planilha.
           // Igual à Irrigação: reconcilia (atualiza quem já existe, não só
           // adiciona novo) - Bombeamento é editável (registra início, volta
           // depois pra registrar fim), então uma correção feita por outro
@@ -5912,6 +5991,10 @@
       loadRecords();
       loadManutRecords();
       loadBombRecords();
+      iniciarFirebase_().then(function (ok) {
+        if (ok) iniciarListenerBombeamento_();
+        else showToast("Não consegui conectar no Firebase - Bombeamento pode ficar desatualizado.");
+      });
       loadRondaRecords();
       loadLeiturasPressao();
       loadGeradorRecords();
