@@ -869,7 +869,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v67';
+  var APP_CACHE_NAME = 'registro-irrigacao-v68';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1063,6 +1063,49 @@
       return false;
     }
   }
+
+  // ---- Manutenção via Firestore (tempo real, sem passar pela planilha) ----
+  var manutListenerAtivo = false;
+  function iniciarListenerManutencao_() {
+    if (manutListenerAtivo || !db) return;
+    manutListenerAtivo = true;
+    db.collection("manutencao").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, setor: d.setor, data: d.data, encarregado: d.encarregado || "", observacao: d.observacao || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
+          _pendingDelete: false
+        });
+      });
+      manutRecords = novos;
+      saveManutRecords();
+      try { if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao(); } catch (e) {}
+      try { updateBadge(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de manutenção:", err);
+    });
+  }
+  function salvarManutencaoFirestore_(id, campos) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var dados = Object.assign({}, campos, {
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    db.collection("manutencao").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar manutenção:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+    });
+  }
+  function apagarManutencaoFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("manutencao").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar manutenção:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
   function loadBombRecords() {
     try {
       var raw = localStorage.getItem(BOMB_KEY);
@@ -2711,7 +2754,26 @@
     if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
     if (!navigator.onLine) { resultEl.className = "test-result fail"; resultEl.textContent = "Precisa de internet para excluir."; return; }
     resultEl.textContent = "Excluindo...";
-    var action = pendingDeleteKind === "ocorrencia" ? "delete" : (pendingDeleteKind === "bombeamento" ? "delete_bombeamento" : "delete_manutencao");
+    if (pendingDeleteKind === "manutencao") {
+      // Manutenção já migrou pro Firebase - a senha continua sendo
+      // verificada pela planilha (é de lá que ela vem), mas quem apaga
+      // o registro de verdade agora é o Firestore.
+      postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
+        if (res && res.ok) {
+          apagarManutencaoFirestore_(pendingDeleteManutId);
+          showToast("Registro excluído.");
+          closeDeleteManutModal();
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Senha incorreta.";
+        }
+      }).catch(function (err) {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão: " + (err && err.message ? err.message : String(err));
+      });
+      return;
+    }
+    var action = pendingDeleteKind === "ocorrencia" ? "delete" : "delete_manutencao";
     postToBackend({ action: action, adminToken: pass, id: pendingDeleteManutId }).then(function (res) {
       if (res && res.ok) {
         if (pendingDeleteKind === "ocorrencia") {
@@ -2720,16 +2782,6 @@
           showToast("Ocorrência excluída.");
           closeDeleteManutModal();
           renderHistorico();
-        } else if (pendingDeleteKind === "bombeamento") {
-          deleteBombRecord(pendingDeleteManutId);
-          showToast("Registro de bombeamento excluído.");
-          closeDeleteManutModal();
-        } else {
-          manutRecords = manutRecords.filter(function (r) { return r.id !== pendingDeleteManutId; });
-          saveManutRecords();
-          showToast("Registro excluído.");
-          closeDeleteManutModal();
-          renderManutencao();
         }
         updateBadge();
       } else {
@@ -2816,17 +2868,11 @@
         showToast("Preencha o nome do encarregado.");
         return;
       }
-      var rec = {
-        id: uid(), setor: setorSelecionado, data: data, encarregado: encarregado, observacao: observacao,
-        _synced: false, _pendingDelete: false
-      };
-      manutRecords.unshift(rec);
-      if (!saveManutRecords()) return;
+      salvarManutencaoFirestore_(uid(), {
+        setor: setorSelecionado, data: data, encarregado: encarregado, observacao: observacao, excluido: false
+      });
       showToast("Manutenção registrada.");
       closeManutModal();
-      renderManutencao();
-      updateBadge();
-      trySync();
     } catch (err) {
       showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     }
@@ -3924,7 +3970,7 @@
               '</span>' +
               '<span style="display:flex;gap:10px;">' +
                 '<button class="del-btn" data-edit-rodada="' + rec.id + '" title="Editar">✏️</button>' +
-                '<button class="del-btn" data-del-bomb="' + rec.id + '" title="Excluir (admin)">🗑</button>' +
+                '<button class="del-btn" data-del-bomb="' + rec.id + '" title="Excluir">🗑</button>' +
               '</span>' +
             '</div>' +
             '<div style="font-size:12.5px;color:#4A4136;margin-top:3px;">' +
@@ -4110,7 +4156,7 @@
     });
     el.querySelectorAll("[data-del-bomb]").forEach(function (b) {
       b.addEventListener("click", function () {
-        openDeleteManutModal(b.getAttribute("data-del-bomb"), "bombeamento");
+        deleteBombRecord(b.getAttribute("data-del-bomb"));
       });
     });
   }
@@ -5461,7 +5507,7 @@
     var toUpdateStatus = records.filter(function (r) { return r._synced && r._pendingStatus && !r._pendingDelete; });
     var toUpdateFull = records.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toDelete = records.filter(function (r) { return r._pendingDelete; });
-    var toCreateManut = manutRecords.filter(function (r) { return !r._synced; });
+    var toCreateManut = []; // Manutenção migrou pro Firebase - não passa mais por aqui
     var toCreateBomb = []; // Bombeamento migrou pro Firebase - não passa mais por aqui
     var toCreateRonda = []; // Rondas migrou pro Firebase - não passa mais por aqui
     var toUpdateRonda = []; // idem
@@ -5827,7 +5873,9 @@
           localStorage.setItem(TALHOES_CACHE_KEY, JSON.stringify(currentTalhoes));
           if (!editingId) populateOcorrenciaSetorSelect(document.getElementById("f-cultura").value);
         }
-        if (res.manutencoes) {
+        if (false && res.manutencoes) {
+          // Manutenção migrou pro Firebase - bloco antigo desativado
+          // (mantido como referência).
           var localManutIds = {};
           manutRecords.forEach(function (r) { localManutIds[r.id] = true; });
           res.manutencoes.forEach(function (row) {
@@ -6186,6 +6234,7 @@
         if (resultado === true) {
           iniciarListenerBombeamento_();
           iniciarListenerRondas_();
+          iniciarListenerManutencao_();
         } else {
           var msg = (resultado && resultado.erro) ? resultado.erro : "motivo desconhecido";
           console.error("[firebase] não conectou:", msg);
