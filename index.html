@@ -875,7 +875,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v69';
+  var APP_CACHE_NAME = 'registro-irrigacao-v70';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1179,6 +1179,22 @@
         };
       });
 
+      await importarColecao("gerador", res.gerador, function (row) {
+        return {
+          data: row.data, horasOperacao: row.horas_operacao || "", litrosCombustivel: row.litros_combustivel || "",
+          energiaKwh: row.energia_kwh || "", tensaoBateria: row.tensao_bateria || "", foto: row.foto_url || "",
+          responsavel: row.responsavel || "", observacao: row.observacao || "",
+          excluido: !!row.excluido, importadoDaPlanilha: true
+        };
+      });
+
+      await importarColecao("anotacoes", res.anotacoes, function (row) {
+        return {
+          dataHora: row.data_hora, texto: row.texto || "", foto: row.foto_url || "", responsavel: row.responsavel || "",
+          excluido: !!row.excluido, importadoDaPlanilha: true
+        };
+      });
+
       alert("Importação concluída:\n\n" + resumo.join("\n"));
     } catch (err) {
       console.error("[firebase] erro na importação do histórico:", err);
@@ -1328,6 +1344,49 @@
     try { localStorage.setItem(GERADOR_KEY, JSON.stringify(geradorRecords)); return true; }
     catch (e) { showToast("Armazenamento cheio."); return false; }
   }
+
+  // ---- Gerador via Firestore (tempo real, sem passar pela planilha) ----
+  var geradorListenerAtivo = false;
+  function iniciarListenerGerador_() {
+    if (geradorListenerAtivo || !db) return;
+    geradorListenerAtivo = true;
+    db.collection("gerador").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, data: d.data, horasOperacao: d.horasOperacao || "", litrosCombustivel: d.litrosCombustivel || "",
+          energiaKwh: d.energiaKwh || "", tensaoBateria: d.tensaoBateria || "", foto: d.foto || "",
+          responsavel: d.responsavel || "", observacao: d.observacao || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
+          _pendingDelete: false
+        });
+      });
+      geradorRecords = novos;
+      saveGeradorRecords();
+      try { if (document.getElementById("tab-gerador").classList.contains("active")) renderGerador(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de gerador:", err);
+    });
+  }
+  function salvarGeradorFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection("gerador").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar gerador:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+    });
+  }
+  function apagarGeradorFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("gerador").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar gerador:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
   function loadAnotacoesRecords() {
     try {
       var raw = localStorage.getItem(ANOTACOES_KEY);
@@ -1338,6 +1397,47 @@
     try { localStorage.setItem(ANOTACOES_KEY, JSON.stringify(anotacoesRecords)); return true; }
     catch (e) { showToast("Armazenamento cheio."); return false; }
   }
+
+  // ---- Notas via Firestore (tempo real, sem passar pela planilha) ----
+  var anotacoesListenerAtivo = false;
+  function iniciarListenerAnotacoes_() {
+    if (anotacoesListenerAtivo || !db) return;
+    anotacoesListenerAtivo = true;
+    db.collection("anotacoes").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, dataHora: d.dataHora, texto: d.texto || "", foto: d.foto || "", responsavel: d.responsavel || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
+          _pendingDelete: false
+        });
+      });
+      anotacoesRecords = novos;
+      saveAnotacoesRecords();
+      try { if (document.getElementById("tab-anotacoes").classList.contains("active") && anotacoesLiberado) renderAnotacoes(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de anotações:", err);
+    });
+  }
+  function salvarAnotacaoFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection("anotacoes").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar anotação:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+    });
+  }
+  function apagarAnotacaoFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("anotacoes").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar anotação:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
   function loadEscalaRecords() {
     try {
       var raw = localStorage.getItem(ESCALA_KEY);
@@ -3500,45 +3600,25 @@
   function salvarAnotacao_() {
     var texto = document.getElementById("nova-anotacao-texto").value.trim();
     if (!texto) { showToast("Escreve alguma coisa antes de salvar."); return; }
+    var campos = { texto: texto, foto: pendingFotoAnotacao || "", excluido: false };
+    var idAlvo, ehNovo;
     if (editingAnotacaoId) {
-      var r = anotacoesRecords.find(function (x) { return x.id === editingAnotacaoId; });
-      r.texto = texto; r.foto = pendingFotoAnotacao || "";
-      if (r._synced) r._pendingUpdate = true;
+      idAlvo = editingAnotacaoId; ehNovo = false;
       editingAnotacaoId = null;
     } else {
-      anotacoesRecords.unshift({
-        id: uid(), dataHora: new Date().toISOString(), texto: texto, foto: pendingFotoAnotacao || "",
-        responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
-        _synced: false, _pendingUpdate: false, _pendingDelete: false
-      });
+      idAlvo = uid(); ehNovo = true;
+      campos.dataHora = new Date().toISOString();
+      campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
     }
+    salvarAnotacaoFirestore_(idAlvo, campos, ehNovo);
     pendingFotoAnotacao = null;
-    saveAnotacoesRecords();
-    renderAnotacoes();
     showToast("Anotação salva.");
-    trySync();
   }
   function apagarAnotacao_(id) {
     var r = anotacoesRecords.find(function (x) { return x.id === id; });
     if (!r) return;
     if (!confirm("Excluir essa anotação?")) return;
-    if (!r._synced) {
-      anotacoesRecords = anotacoesRecords.filter(function (x) { return x.id !== id; });
-      saveAnotacoesRecords();
-      renderAnotacoes();
-      showToast("Anotação removida.");
-      return;
-    }
-    postToBackend({ token: config.token, action: "delete_anotacao", id: id }).then(function (res) {
-      if (res && res.ok) {
-        anotacoesRecords = anotacoesRecords.filter(function (x) { return x.id !== id; });
-        saveAnotacoesRecords();
-        renderAnotacoes();
-        showToast("Anotação excluída.");
-      } else {
-        showToast((res && res.error) || "Não consegui excluir.");
-      }
-    }).catch(function () { showToast("Erro de conexão."); });
+    apagarAnotacaoFirestore_(id);
   }
 
   function renderGerador() {
@@ -3671,50 +3751,21 @@
     if (!data) { showToast("Escolha a data da leitura."); return; }
     if (!horas && !litros && !kwh) { showToast("Preencha ao menos um dos três valores."); return; }
 
-    if (editingGeradorId) {
-      var rec = geradorRecords.find(function (r) { return r.id === editingGeradorId; });
-      Object.assign(rec, {
-        data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
-        tensaoBateria: bateria, foto: pendingFotoGerador || "", observacao: obs
-      });
-      if (rec._synced) rec._pendingUpdate = true;
-    } else {
-      geradorRecords.push({
-        id: uid(), data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
-        tensaoBateria: bateria, foto: pendingFotoGerador || "",
-        responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
-        observacao: obs, _synced: false, _pendingUpdate: false, _pendingDelete: false
-      });
-    }
-    saveGeradorRecords();
+    var campos = {
+      data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
+      tensaoBateria: bateria, foto: pendingFotoGerador || "", observacao: obs, excluido: false
+    };
+    if (!editingGeradorId) campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
+    var idAlvo = editingGeradorId || uid();
+    salvarGeradorFirestore_(idAlvo, campos, !editingGeradorId);
     fecharModalGerador_();
-    renderGerador();
     showToast("Leitura do gerador salva.");
-    trySync();
   }
   function apagarGerador_(id) {
     var rec = geradorRecords.find(function (r) { return r.id === id; });
     if (!rec) return;
     if (!confirm("Excluir essa leitura do gerador?")) return;
-    if (!rec._synced) {
-      geradorRecords = geradorRecords.filter(function (r) { return r.id !== id; });
-      saveGeradorRecords();
-      renderGerador();
-      showToast("Leitura removida.");
-      return;
-    }
-    var senha = prompt("Senha de administrador:");
-    if (senha === null) return;
-    postToBackend({ action: "delete_gerador", id: id, adminToken: senha }).then(function (res) {
-      if (res && res.ok) {
-        geradorRecords = geradorRecords.filter(function (r) { return r.id !== id; });
-        saveGeradorRecords();
-        renderGerador();
-        showToast("Leitura excluída.");
-      } else {
-        showToast((res && res.error) || "Não consegui excluir.");
-      }
-    }).catch(function () { showToast("Erro de conexão."); });
+    apagarGeradorFirestore_(id);
   }
 
   function renderPressaoIdeal() {
@@ -5593,10 +5644,10 @@
     var toUpdateRonda = []; // idem
     var toCreateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return !r._synced; });
     var toUpdateLeituraPressao = leiturasPressaoRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
-    var toCreateGerador = geradorRecords.filter(function (r) { return !r._synced; });
-    var toUpdateGerador = geradorRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
-    var toCreateAnotacao = anotacoesRecords.filter(function (r) { return !r._synced; });
-    var toUpdateAnotacao = anotacoesRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toCreateGerador = []; // Gerador migrou pro Firebase - não passa mais por aqui
+    var toUpdateGerador = []; // idem
+    var toCreateAnotacao = []; // Notas migrou pro Firebase - não passa mais por aqui
+    var toUpdateAnotacao = []; // idem
     var toCreateEscala = escalaRecords.filter(function (r) { return !r._synced; });
     var toUpdateEscala = escalaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
     var toUpdateBomb = []; // idem
@@ -6040,7 +6091,8 @@
           });
           saveLeiturasPressao();
         }
-        if (res.gerador) {
+        if (false && res.gerador) {
+          // Gerador migrou pro Firebase - bloco antigo desativado (mantido como referência).
           var localGeradorById = {};
           geradorRecords.forEach(function (r) { localGeradorById[r.id] = r; });
           res.gerador.forEach(function (row) {
@@ -6064,7 +6116,8 @@
           });
           saveGeradorRecords();
         }
-        if (res.anotacoes) {
+        if (false && res.anotacoes) {
+          // Notas migrou pro Firebase - bloco antigo desativado (mantido como referência).
           var localAnotById = {};
           anotacoesRecords.forEach(function (r) { localAnotById[r.id] = r; });
           res.anotacoes.forEach(function (row) {
@@ -6315,6 +6368,8 @@
           iniciarListenerBombeamento_();
           iniciarListenerRondas_();
           iniciarListenerManutencao_();
+          iniciarListenerGerador_();
+          iniciarListenerAnotacoes_();
         } else {
           var msg = (resultado && resultado.erro) ? resultado.erro : "motivo desconhecido";
           console.error("[firebase] não conectou:", msg);
