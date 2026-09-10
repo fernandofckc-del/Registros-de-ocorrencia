@@ -506,6 +506,25 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-enviar-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-enviar">✕</button>
+    <div class="modal-title">Enviar Ocorrência</div>
+    <div class="modal-sub" id="enviar-resumo-ocorrencia">—</div>
+    <div class="field">
+      <span class="field-label">Quem recebe?</span>
+      <div id="enviar-lista-contatos"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Por onde?</span>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><input type="checkbox" id="enviar-canal-whatsapp" checked style="width:auto;"> WhatsApp</label>
+      <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="enviar-canal-email" style="width:auto;"> E-mail</label>
+    </div>
+    <button class="save-btn" id="btn-confirmar-enviar" style="background:#2F6B1F;">Enviar</button>
+    <div id="enviar-result" class="test-result"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-pressao-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-pressao">✕</button>
@@ -715,6 +734,37 @@
 
     <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
 
+    <div class="modal-title" style="font-size:15px;">🔒 Contatos para Avisar (administrador)</div>
+    <div class="modal-sub">Usados no botão "Enviar" das ocorrências operacionais (Histórico). Preenche só o que tiver - o que ficar em branco não aparece na hora de escolher.</div>
+    <div class="field">
+      <span class="field-label">Responsável Coco — nome</span>
+      <input id="admin-contato-coco-nome" type="text" placeholder="Ex.: Fernando">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="field"><span class="field-label">WhatsApp (com DDD)</span><input id="admin-contato-coco-whatsapp" type="text" placeholder="11999999999"></div>
+      <div class="field"><span class="field-label">E-mail</span><input id="admin-contato-coco-email" type="email" placeholder="nome@exemplo.com"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Responsável Cacau — nome</span>
+      <input id="admin-contato-cacau-nome" type="text" placeholder="Ex.: Jaínon">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="field"><span class="field-label">WhatsApp (com DDD)</span><input id="admin-contato-cacau-whatsapp" type="text" placeholder="11999999999"></div>
+      <div class="field"><span class="field-label">E-mail</span><input id="admin-contato-cacau-email" type="email" placeholder="nome@exemplo.com"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Responsável Máquina — nome</span>
+      <input id="admin-contato-maquina-nome" type="text" placeholder="Ex.: Josias">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="field"><span class="field-label">WhatsApp (com DDD)</span><input id="admin-contato-maquina-whatsapp" type="text" placeholder="11999999999"></div>
+      <div class="field"><span class="field-label">E-mail</span><input id="admin-contato-maquina-email" type="email" placeholder="nome@exemplo.com"></div>
+    </div>
+    <button class="photo-btn" id="btn-save-contatos" style="background:#8A5A44">Salvar Contatos</button>
+    <div id="admin-contatos-result" class="test-result"></div>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
     <div class="modal-title" style="font-size:15px;">🔒 Culturas (administrador)</div>
     <div class="modal-sub">Mesma senha de administrador. Uma cultura por linha, formato: <b>Nome, dias, Kc, modo</b> (modo = gotejo ou microaspersor). Ex.: Coco, 15, 1.15, microaspersor</div>
     <div class="field">
@@ -807,6 +857,8 @@
   var currentTipos = TIPOS.slice();
   var currentCausas = CAUSAS.slice();
   var currentOperacoesCausadoras = ["Roçagem", "Roçadeira", "Trator/Colheita", "Poda", "Capina", "Aplicação de Defensivo", "Adubação", "Outra"];
+  var currentContatosAviso = { coco: { nome: "", whatsapp: "", email: "" }, cacau: { nome: "", whatsapp: "", email: "" }, maquina: { nome: "", whatsapp: "", email: "" } };
+  var CONTATOS_AVISO_CACHE_KEY = "contatos_aviso_cache_v1";
   var OPERACOES_CAUSADORAS_CACHE_KEY = "operacoes_causadoras_cache_v1";
 
   var CULTURAS_PADRAO = [{ nome: "Coco", intervalo: 15, kc: 1.15, modo: "microaspersor" }, { nome: "Cacau", intervalo: 20, kc: 0.94, modo: "gotejo" }];
@@ -817,7 +869,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v65';
+  var APP_CACHE_NAME = 'registro-irrigacao-v66';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1351,6 +1403,81 @@
     atualizarVisibilidadeOperacaoCausadora_();
   }
 
+  var enviarOcorrenciaAtualId = null;
+  function abrirModalEnviarOcorrencia_(id) {
+    var r = records.find(function (x) { return x.id === id; });
+    if (!r) return;
+    enviarOcorrenciaAtualId = id;
+    document.getElementById("enviar-resumo-ocorrencia").textContent =
+      r.setor + " · " + escapeHtml(r.tipo) + (r.operacaoCausadora ? " (" + r.operacaoCausadora + ")" : "");
+
+    var listaEl = document.getElementById("enviar-lista-contatos");
+    var opcoes = [
+      { chave: "coco", label: "Responsável Coco", marcarPadrao: r.cultura === "Coco" },
+      { chave: "cacau", label: "Responsável Cacau", marcarPadrao: r.cultura === "Cacau" },
+      { chave: "maquina", label: "Responsável Máquina", marcarPadrao: r.operacaoCausadora === "Trator/Colheita" || r.operacaoCausadora === "Roçadeira" }
+    ];
+    var html = "";
+    opcoes.forEach(function (op) {
+      var c = currentContatosAviso[op.chave] || {};
+      if (!c.nome && !c.whatsapp && !c.email) return; // não cadastrado - não aparece
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+        '<input type="checkbox" data-contato-enviar="' + op.chave + '" ' + (op.marcarPadrao ? "checked" : "") + ' style="width:auto;"> ' +
+        op.label + (c.nome ? " (" + escapeHtml(c.nome) + ")" : "") +
+      '</label>';
+    });
+    if (!html) html = '<div style="font-size:12px;color:#B4442E;">Nenhum contato cadastrado ainda - configure em ⚙️ Configurações → Contatos para Avisar.</div>';
+    listaEl.innerHTML = html;
+    document.getElementById("enviar-result").style.display = "none";
+    document.getElementById("modal-enviar-overlay").classList.add("active");
+  }
+  function fecharModalEnviarOcorrencia_() {
+    document.getElementById("modal-enviar-overlay").classList.remove("active");
+    enviarOcorrenciaAtualId = null;
+  }
+  function confirmarEnvioOcorrencia_() {
+    var r = records.find(function (x) { return x.id === enviarOcorrenciaAtualId; });
+    if (!r) return;
+    var resultEl = document.getElementById("enviar-result");
+    resultEl.className = "test-result"; resultEl.style.display = "block";
+
+    var chavesMarcadas = [];
+    document.querySelectorAll("[data-contato-enviar]:checked").forEach(function (chk) {
+      chavesMarcadas.push(chk.getAttribute("data-contato-enviar"));
+    });
+    if (!chavesMarcadas.length) { resultEl.className = "test-result fail"; resultEl.textContent = "Marca pelo menos um responsável."; return; }
+    var querWhatsapp = document.getElementById("enviar-canal-whatsapp").checked;
+    var querEmail = document.getElementById("enviar-canal-email").checked;
+    if (!querWhatsapp && !querEmail) { resultEl.className = "test-result fail"; resultEl.textContent = "Marca pelo menos um canal (WhatsApp ou e-mail)."; return; }
+
+    var linkFoto = (r.fotos && r.fotos.length) ? urlFoto_(r.fotos[0]) : "";
+    var textoMsg = "🌱 Ocorrência Operacional\n" +
+      "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
+      "Tipo: " + r.tipo + "\n" +
+      (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
+      "Data: " + fmtDate(r.data) + "\n" +
+      "Descrição: " + r.descricao +
+      (linkFoto ? "\nFoto: " + linkFoto : "");
+
+    var emailsDestino = [];
+    chavesMarcadas.forEach(function (chave) {
+      var c = currentContatosAviso[chave] || {};
+      if (querWhatsapp && c.whatsapp) {
+        var numero = c.whatsapp.replace(/\D/g, "");
+        if (numero.length <= 11) numero = "55" + numero; // adiciona código do Brasil se não tiver
+        window.open("https://wa.me/" + numero + "?text=" + encodeURIComponent(textoMsg), "_blank");
+      }
+      if (querEmail && c.email) emailsDestino.push(c.email);
+    });
+    if (querEmail && emailsDestino.length) {
+      var assunto = "Ocorrência Operacional - " + r.setor + " - " + r.tipo;
+      window.open("mailto:" + emailsDestino.join(",") + "?subject=" + encodeURIComponent(assunto) + "&body=" + encodeURIComponent(textoMsg), "_blank");
+    }
+    resultEl.className = "test-result ok";
+    resultEl.textContent = "Abrindo... se pedir permissão de pop-up, permite.";
+    setTimeout(fecharModalEnviarOcorrencia_, 1400);
+  }
+
   function startEdit(id) {
     var r = records.find(function (x) { return x.id === id; });
     if (!r) return;
@@ -1737,6 +1864,7 @@
           '<div class="tag-footer">' +
             '<span class="tag-enc">' + escapeHtml(r.encarregado) + '</span>' +
             '<span style="display:flex;gap:10px;align-items:center;">' +
+              (r.causa === "Operacional" ? '<button class="del-btn" data-enviar="' + r.id + '" title="Enviar pro responsável" style="color:#2F6B1F;">📤 Enviar</button>' : '') +
               '<button class="del-btn" data-edit="' + r.id + '" title="Editar">✏️</button>' +
               '<button class="del-btn" data-del="' + r.id + '" title="Excluir (admin)">🗑</button>' +
             '</span>' +
@@ -1755,6 +1883,9 @@
     });
     el.querySelectorAll("[data-edit]").forEach(function (b) {
       b.addEventListener("click", function () { startEdit(b.getAttribute("data-edit")); });
+    });
+    el.querySelectorAll("[data-enviar]").forEach(function (b) {
+      b.addEventListener("click", function () { abrirModalEnviarOcorrencia_(b.getAttribute("data-enviar")); });
     });
     wireFiltrosHistorico_();
   }
@@ -5633,6 +5764,10 @@
           localStorage.setItem(OPERACOES_CAUSADORAS_CACHE_KEY, JSON.stringify(currentOperacoesCausadoras));
           populateSelect("f-operacao-causadora", currentOperacoesCausadoras);
         }
+        if (res.contatosAviso) {
+          currentContatosAviso = res.contatosAviso;
+          localStorage.setItem(CONTATOS_AVISO_CACHE_KEY, JSON.stringify(currentContatosAviso));
+        }
         if (res.culturas && res.culturas.length) {
           currentCulturas = res.culturas;
           localStorage.setItem(CULTURAS_CACHE_KEY, JSON.stringify(currentCulturas));
@@ -5928,6 +6063,10 @@
       if (cachedOperacoes) currentOperacoesCausadoras = JSON.parse(cachedOperacoes);
     } catch (e) {}
     try {
+      var cachedContatos = localStorage.getItem(CONTATOS_AVISO_CACHE_KEY);
+      if (cachedContatos) currentContatosAviso = JSON.parse(cachedContatos);
+    } catch (e) {}
+    try {
       var cachedCulturas = localStorage.getItem(CULTURAS_CACHE_KEY);
       if (cachedCulturas) currentCulturas = JSON.parse(cachedCulturas);
     } catch (e) {}
@@ -6108,6 +6247,8 @@
     document.getElementById("btn-save-ronda").addEventListener("click", salvarRonda);
     document.getElementById("btn-save-pressao").addEventListener("click", salvarLeituraPressao_);
     document.getElementById("btn-close-pressao").addEventListener("click", fecharModalLeituraPressao_);
+    document.getElementById("btn-close-enviar").addEventListener("click", fecharModalEnviarOcorrencia_);
+    document.getElementById("btn-confirmar-enviar").addEventListener("click", confirmarEnvioOcorrencia_);
     document.getElementById("modal-pressao-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-pressao-overlay") fecharModalLeituraPressao_();
     });
@@ -6215,6 +6356,13 @@
       document.getElementById("admin-causas-result").style.display = "none";
       document.getElementById("admin-operacoes-causadoras").value = currentOperacoesCausadoras.join("\n");
       document.getElementById("admin-operacoes-causadoras-result").style.display = "none";
+      ["coco", "cacau", "maquina"].forEach(function (chave) {
+        var c = currentContatosAviso[chave] || {};
+        document.getElementById("admin-contato-" + chave + "-nome").value = c.nome || "";
+        document.getElementById("admin-contato-" + chave + "-whatsapp").value = c.whatsapp || "";
+        document.getElementById("admin-contato-" + chave + "-email").value = c.email || "";
+      });
+      document.getElementById("admin-contatos-result").style.display = "none";
       document.getElementById("admin-culturas").value = currentCulturas.map(function (c) { return c.nome + ", " + c.intervalo + ", " + (c.kc !== undefined ? c.kc : 0.85) + ", " + (c.modo || "gotejo"); }).join("\n");
       document.getElementById("admin-culturas-result").style.display = "none";
       document.getElementById("admin-talhoes").value = currentTalhoes.map(function (t) {
@@ -6343,6 +6491,39 @@
       }).catch(function () {
         resultEl.className = "test-result fail";
         resultEl.textContent = "Erro de conexão. Verifique a internet.";
+      });
+    });
+
+    document.getElementById("btn-save-contatos").addEventListener("click", function () {
+      var pass = document.getElementById("admin-pass").value.trim();
+      var resultEl = document.getElementById("admin-contatos-result");
+      resultEl.className = "test-result";
+      resultEl.style.display = "block";
+      if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a URL de sincronização primeiro."; return; }
+      if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha de administrador."; return; }
+      var contatos = {};
+      ["coco", "cacau", "maquina"].forEach(function (chave) {
+        contatos[chave] = {
+          nome: document.getElementById("admin-contato-" + chave + "-nome").value.trim(),
+          whatsapp: document.getElementById("admin-contato-" + chave + "-whatsapp").value.trim(),
+          email: document.getElementById("admin-contato-" + chave + "-email").value.trim()
+        };
+      });
+      resultEl.textContent = "Salvando...";
+      postToBackend({ action: "update_contatos_aviso", adminToken: pass, contatos: contatos }).then(function (res) {
+        if (res && res.ok) {
+          currentContatosAviso = res.contatos || contatos;
+          localStorage.setItem(CONTATOS_AVISO_CACHE_KEY, JSON.stringify(currentContatosAviso));
+          resultEl.className = "test-result ok";
+          resultEl.textContent = "Contatos atualizados! Já valem para todos os celulares.";
+          document.getElementById("admin-pass").value = "";
+        } else {
+          resultEl.className = "test-result fail";
+          resultEl.textContent = (res && res.error) ? res.error : "Não consegui salvar.";
+        }
+      }).catch(function () {
+        resultEl.className = "test-result fail";
+        resultEl.textContent = "Erro de conexão.";
       });
     });
 
