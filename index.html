@@ -734,6 +734,12 @@
 
     <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
 
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔥 Migração pro Firebase</div>
+    <div class="modal-sub">Manutenção, Bombeamento e Rondas já usam o Firebase - eles começaram vazios. Esse botão traz o histórico antigo da planilha pra dentro, sem duplicar o que já estiver lá. Pode rodar mais de uma vez sem problema.</div>
+    <button class="photo-btn" id="btn-importar-historico" style="background:#8A5A44">📥 Importar Histórico Antigo</button>
+
     <div class="modal-title" style="font-size:15px;">🔒 Contatos para Avisar (administrador)</div>
     <div class="modal-sub">Usados no botão "Enviar" das ocorrências operacionais (Histórico). Preenche só o que tiver - o que ficar em branco não aparece na hora de escolher.</div>
     <div class="field">
@@ -869,7 +875,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v68';
+  var APP_CACHE_NAME = 'registro-irrigacao-v69';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1104,6 +1110,80 @@
       console.error("[firebase] erro ao apagar manutenção:", err);
       showToast("Erro ao apagar - tenta de novo.");
     });
+  }
+
+  // ---- Importação única do histórico antigo (planilha → Firebase) ----
+  // Quando uma parte migra pro Firebase, ela começa VAZIA - o histórico
+  // antigo continua intacto na planilha, só não aparece mais sozinho no
+  // celular. Essa função traz esse histórico pro Firebase de uma vez,
+  // sem duplicar o que já estiver lá (compara pelos ids).
+  async function importarHistoricoAntigo_() {
+    if (!db) { showToast("Firebase ainda não conectou - tenta de novo em instantes."); return; }
+    if (!config.url) { showToast("Configure a sincronização primeiro."); return; }
+    if (!confirm("Isso vai trazer o histórico antigo da planilha (Manutenção, Bombeamento e Rondas) pro Firebase, sem duplicar o que já existe. Pode demorar um pouco. Continuar?")) return;
+    showToast("Buscando dados antigos da planilha...");
+    try {
+      var texto = await fetch(config.url + "?t=" + Date.now()).then(function (r) { return r.text(); });
+      var res = JSON.parse(texto);
+      if (!res || !res.ok) { alert("Erro ao buscar dados: " + ((res && res.error) || "resposta inesperada")); return; }
+
+      var resumo = [];
+
+      async function importarColecao(nomeColecao, linhas, mapeador) {
+        if (!linhas || !linhas.length) { resumo.push(nomeColecao + ": planilha não tinha nada"); return; }
+        var existentesSnap = await db.collection(nomeColecao).get();
+        var jaExiste = {};
+        existentesSnap.forEach(function (doc) { jaExiste[doc.id] = true; });
+        var novos = linhas.filter(function (row) { return row.id && !jaExiste[row.id]; });
+        if (!novos.length) { resumo.push(nomeColecao + ": 0 novos (já estava tudo importado)"); return; }
+        // Firestore só aceita até 500 operações por lote - divide em pedaços.
+        for (var i = 0; i < novos.length; i += 400) {
+          var pedaco = novos.slice(i, i + 400);
+          var batch = db.batch();
+          pedaco.forEach(function (row) {
+            var ref = db.collection(nomeColecao).doc(row.id);
+            batch.set(ref, mapeador(row), { merge: true });
+          });
+          await batch.commit();
+        }
+        resumo.push(nomeColecao + ": " + novos.length + " importados");
+      }
+
+      await importarColecao("manutencao", res.manutencoes, function (row) {
+        return {
+          setor: row.setor, data: row.data, encarregado: row.encarregado || "",
+          observacao: row.observacao || "", excluido: !!row.excluido,
+          importadoDaPlanilha: true
+        };
+      });
+
+      await importarColecao("bombeamento", res.bombeamentos, function (row) {
+        return {
+          data: row.data, bomba: row.bomba, horarioInicio: row.horario_inicio || "", horarioFim: row.horario_fim || "",
+          leituraInicial: row.leitura_inicial !== undefined && row.leitura_inicial !== "" ? row.leitura_inicial : "",
+          leituraFinal: row.leitura_final !== undefined && row.leitura_final !== "" ? row.leitura_final : "",
+          fotoInicio: row.foto_url_inicio || "", fotoFim: row.foto_url_fim || "", observacao: row.observacao || "",
+          excluido: !!row.excluido, importadoDaPlanilha: true
+        };
+      });
+
+      await importarColecao("rondas", res.rondasNoturnas, function (row) {
+        return {
+          data: row.data, horarioPrevisto: row.horario_previsto || "", horarioReal: row.horario_real || "",
+          plantonista: row.plantonista || "", bomba: row.bomba,
+          bombaLigada: !!row.bomba_ligada, nivelReservatorio: row.nivel_reservatorio || "",
+          painelTipo: row.painel_tipo || "", painelStatus: row.painel_status || "",
+          corrente: row.corrente || "", tensao: row.tensao || "", horimetro: row.horimetro || "",
+          fotoPainel: row.foto_painel_url || "", motivoParada: row.motivo_parada || "",
+          observacao: row.observacao || "", excluido: !!row.excluido, importadoDaPlanilha: true
+        };
+      });
+
+      alert("Importação concluída:\n\n" + resumo.join("\n"));
+    } catch (err) {
+      console.error("[firebase] erro na importação do histórico:", err);
+      alert("Erro na importação: " + (err && err.message ? err.message : String(err)));
+    }
   }
 
   function loadBombRecords() {
@@ -6568,6 +6648,7 @@
       });
     });
 
+    document.getElementById("btn-importar-historico").addEventListener("click", importarHistoricoAntigo_);
     document.getElementById("btn-save-operacoes-causadoras").addEventListener("click", function () {
       var pass = document.getElementById("admin-pass").value.trim();
       var lines = document.getElementById("admin-operacoes-causadoras").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
