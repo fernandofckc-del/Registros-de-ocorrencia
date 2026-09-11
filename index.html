@@ -880,7 +880,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v75';
+  var APP_CACHE_NAME = 'registro-irrigacao-v77';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -999,6 +999,13 @@
   }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  // Enquanto um modal estiver aberto, os listeners do Firebase NÃO devem
+  // redesenhar a lista por trás - foi exatamente isso que bagunçava a tela
+  // de editar bomba: a lista se atualizava sozinha no meio da edição
+  // (assim que a sincronização terminava) e derrubava o layout do modal.
+  function algumModalAberto_() {
+    return !!document.querySelector(".modal-overlay.active");
+  }
   // Antes usava toISOString(), que sempre devolve em UTC. Como o Brasil é
   // UTC-3, a partir das 21h a data já virava "amanhã" no app, três horas
   // adiantado do relógio de parede - foi isso que causou os hidrômetros
@@ -1086,9 +1093,9 @@
       records = novos;
       saveRecords();
       try {
-        if (document.getElementById("tab-historico").classList.contains("active")) renderHistorico();
-        if (document.getElementById("tab-painel").classList.contains("active")) renderPainel();
-        if (document.getElementById("tab-resumo").classList.contains("active")) renderResumo();
+        if (document.getElementById("tab-historico").classList.contains("active") && !algumModalAberto_()) renderHistorico();
+        if (document.getElementById("tab-painel").classList.contains("active") && !algumModalAberto_()) renderPainel();
+        if (document.getElementById("tab-resumo").classList.contains("active") && !algumModalAberto_()) renderResumo();
       } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
@@ -1136,6 +1143,13 @@
       return fotos;
     });
   }
+  // Mesma função de cima, só que pra UMA foto só (Bombeamento e Rondas
+  // guardam foto única por campo, não um array como Ocorrências) - reusa
+  // o mesmo caminho de upload, sem duplicar lógica.
+  function resolverUmaFoto_(foto) {
+    if (!foto) return Promise.resolve("");
+    return resolverFotosOcorrencia_([foto]).then(function (urls) { return (urls && urls[0]) || foto; });
+  }
 
   function loadManutRecords() {
     try {
@@ -1171,7 +1185,7 @@
       });
       manutRecords = novos;
       saveManutRecords();
-      try { if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao(); } catch (e) {}
+      try { if (document.getElementById("tab-manutencao").classList.contains("active") && !algumModalAberto_()) renderManutencao(); } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
       console.error("[firebase] erro no listener de manutenção:", err);
@@ -1350,7 +1364,7 @@
       });
       bombRecords = novos;
       saveBombRecords(); // cache local, só pra abrir rápido da próxima vez
-      try { if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento(); } catch (e) {}
+      try { if (document.getElementById("tab-bombeamento").classList.contains("active") && !algumModalAberto_()) renderBombeamento(); } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
       console.error("[firebase] erro no listener de bombeamento:", err);
@@ -1409,8 +1423,8 @@
       rondaRecords = novos;
       saveRondaRecords();
       try {
-        if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento();
-        if (document.getElementById("tab-resumo").classList.contains("active")) renderResumo();
+        if (document.getElementById("tab-bombeamento").classList.contains("active") && !algumModalAberto_()) renderBombeamento();
+        if (document.getElementById("tab-resumo").classList.contains("active") && !algumModalAberto_()) renderResumo();
       } catch (e) {}
     }, function (err) {
       console.error("[firebase] erro no listener de rondas:", err);
@@ -1466,7 +1480,7 @@
       });
       leiturasPressaoRecords = novos;
       saveLeiturasPressao();
-      try { if (document.getElementById("tab-pressao").classList.contains("active")) renderPressaoIdeal(); } catch (e) {}
+      try { if (document.getElementById("tab-pressao").classList.contains("active") && !algumModalAberto_()) renderPressaoIdeal(); } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
       console.error("[firebase] erro no listener de pressão:", err);
@@ -1520,7 +1534,7 @@
       });
       geradorRecords = novos;
       saveGeradorRecords();
-      try { if (document.getElementById("tab-gerador").classList.contains("active")) renderGerador(); } catch (e) {}
+      try { if (document.getElementById("tab-gerador").classList.contains("active") && !algumModalAberto_()) renderGerador(); } catch (e) {}
     }, function (err) {
       console.error("[firebase] erro no listener de gerador:", err);
     });
@@ -1622,7 +1636,7 @@
       });
       escalaRecords = novos;
       saveEscalaRecords();
-      try { if (document.getElementById("tab-escala").classList.contains("active")) renderEscala(); } catch (e) {}
+      try { if (document.getElementById("tab-escala").classList.contains("active") && !algumModalAberto_()) renderEscala(); } catch (e) {}
     }, function (err) {
       console.error("[firebase] erro no listener de escala:", err);
     });
@@ -3211,6 +3225,7 @@
   }
   function closeManutModal() {
     document.getElementById("modal-manut-overlay").classList.remove("active");
+    try { if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao(); } catch (e) {}
   }
 
   function handleSaveManutencao() {
@@ -3757,19 +3772,25 @@
   function salvarAnotacao_() {
     var texto = document.getElementById("nova-anotacao-texto").value.trim();
     if (!texto) { showToast("Escreve alguma coisa antes de salvar."); return; }
-    var campos = { texto: texto, foto: pendingFotoAnotacao || "", excluido: false };
     var idAlvo, ehNovo;
+    var fotoParaSalvar = pendingFotoAnotacao;
     if (editingAnotacaoId) {
       idAlvo = editingAnotacaoId; ehNovo = false;
       editingAnotacaoId = null;
     } else {
       idAlvo = uid(); ehNovo = true;
-      campos.dataHora = new Date().toISOString();
-      campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
     }
-    salvarAnotacaoFirestore_(idAlvo, campos, ehNovo);
-    pendingFotoAnotacao = null;
-    showToast("Anotação salva.");
+    showToast("Salvando...");
+    resolverUmaFoto_(fotoParaSalvar).then(function (urlFoto) {
+      var campos = { texto: texto, foto: urlFoto || "", excluido: false };
+      if (ehNovo) {
+        campos.dataHora = new Date().toISOString();
+        campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
+      }
+      salvarAnotacaoFirestore_(idAlvo, campos, ehNovo);
+      pendingFotoAnotacao = null;
+      showToast("Anotação salva.");
+    });
   }
   function apagarAnotacao_(id) {
     var r = anotacoesRecords.find(function (x) { return x.id === id; });
@@ -3870,6 +3891,7 @@
   function fecharModalGerador_() {
     document.getElementById("modal-gerador-overlay").classList.remove("active");
     editingGeradorId = null;
+    try { if (document.getElementById("tab-gerador").classList.contains("active")) renderGerador(); } catch (e) {}
   }
   function atualizarPreviewGerador_() {
     var el = document.getElementById("gerador-preview");
@@ -3908,15 +3930,19 @@
     if (!data) { showToast("Escolha a data da leitura."); return; }
     if (!horas && !litros && !kwh) { showToast("Preencha ao menos um dos três valores."); return; }
 
-    var campos = {
-      data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
-      tensaoBateria: bateria, foto: pendingFotoGerador || "", observacao: obs, excluido: false
-    };
-    if (!editingGeradorId) campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
     var idAlvo = editingGeradorId || uid();
-    salvarGeradorFirestore_(idAlvo, campos, !editingGeradorId);
-    fecharModalGerador_();
-    showToast("Leitura do gerador salva.");
+    var ehNovo = !editingGeradorId;
+    showToast("Salvando...");
+    resolverUmaFoto_(pendingFotoGerador).then(function (urlFoto) {
+      var campos = {
+        data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
+        tensaoBateria: bateria, foto: urlFoto || "", observacao: obs, excluido: false
+      };
+      if (ehNovo) campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
+      salvarGeradorFirestore_(idAlvo, campos, ehNovo);
+      fecharModalGerador_();
+      showToast("Leitura do gerador salva.");
+    });
   }
   function apagarGerador_(id) {
     var rec = geradorRecords.find(function (r) { return r.id === id; });
@@ -4118,6 +4144,7 @@
   function fecharModalLeituraPressao_() {
     document.getElementById("modal-pressao-overlay").classList.remove("active");
     editingLeituraId = null;
+    try { if (document.getElementById("tab-pressao").classList.contains("active")) renderPressaoIdeal(); } catch (e) {}
   }
   function atualizarAvaliacaoPressao_() {
     var el = document.getElementById("pressao-avaliacao");
@@ -5326,6 +5353,7 @@
     document.getElementById("modal-ronda-overlay").classList.remove("active");
     rondaAberta = null; rondaAbertaData = null;
     pendingFotosPainel = {};
+    try { if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento(); } catch (e) {}
   }
 
   function salvarRonda() {
@@ -5347,40 +5375,49 @@
     }
 
     var agora = horaAgora_();
-    var houveParada = false;
-    var itensParaSalvar = [];
-    for (var n = 1; n <= 4; n++) {
-      var ligada = cont.querySelector('[data-ronda-ligada="' + n + '"]').value === "sim";
-      var motivo = cont.querySelector('[data-ronda-motivo="' + n + '"]').value.trim();
-      var painelStatus = cont.querySelector('[data-ronda-painel="' + n + '"]').value;
-      var tipo = tipoPainelDaBomba_(n);
-      var corrEl = cont.querySelector('[data-ronda-corrente="' + n + '"]');
-      var tensEl = cont.querySelector('[data-ronda-tensao="' + n + '"]');
-      var horiEl = cont.querySelector('[data-ronda-horimetro="' + n + '"]');
-      if (!ligada) houveParada = true;
+    showToast("Salvando...");
 
-      var existente = getRondaBomba_(rondaAbertaData, rondaAberta, n);
-      var campos = {
-        data: rondaAbertaData, horarioPrevisto: rondaAberta, plantonista: plantonista,
-        bomba: n, bombaLigada: ligada, nivelReservatorio: nivel,
-        painelTipo: tipo, painelStatus: painelStatus,
-        corrente: corrEl ? corrEl.value : "", tensao: tensEl ? tensEl.value : "",
-        horimetro: horiEl ? horiEl.value : "",
-        fotoPainel: pendingFotosPainel[n] || "",
-        motivoParada: ligada ? "" : motivo, observacao: observacao, excluido: false
-      };
-      if (existente) {
-        itensParaSalvar.push({ id: existente.id, campos: campos, novo: false });
-      } else {
-        // horarioReal só é gravado na CRIAÇÃO - é o carimbo de quando a
-        // conferência realmente aconteceu, e não deve mudar numa correção.
-        campos.horarioReal = agora;
-        itensParaSalvar.push({ id: uid(), campos: campos, novo: true });
+    Promise.all([
+      resolverUmaFoto_(pendingFotosPainel[1]),
+      resolverUmaFoto_(pendingFotosPainel[2]),
+      resolverUmaFoto_(pendingFotosPainel[3]),
+      resolverUmaFoto_(pendingFotosPainel[4])
+    ]).then(function (fotosResolvidas) {
+      var houveParada = false;
+      var itensParaSalvar = [];
+      for (var n = 1; n <= 4; n++) {
+        var ligada = cont.querySelector('[data-ronda-ligada="' + n + '"]').value === "sim";
+        var motivo = cont.querySelector('[data-ronda-motivo="' + n + '"]').value.trim();
+        var painelStatus = cont.querySelector('[data-ronda-painel="' + n + '"]').value;
+        var tipo = tipoPainelDaBomba_(n);
+        var corrEl = cont.querySelector('[data-ronda-corrente="' + n + '"]');
+        var tensEl = cont.querySelector('[data-ronda-tensao="' + n + '"]');
+        var horiEl = cont.querySelector('[data-ronda-horimetro="' + n + '"]');
+        if (!ligada) houveParada = true;
+
+        var existente = getRondaBomba_(rondaAbertaData, rondaAberta, n);
+        var campos = {
+          data: rondaAbertaData, horarioPrevisto: rondaAberta, plantonista: plantonista,
+          bomba: n, bombaLigada: ligada, nivelReservatorio: nivel,
+          painelTipo: tipo, painelStatus: painelStatus,
+          corrente: corrEl ? corrEl.value : "", tensao: tensEl ? tensEl.value : "",
+          horimetro: horiEl ? horiEl.value : "",
+          fotoPainel: fotosResolvidas[n - 1] || "",
+          motivoParada: ligada ? "" : motivo, observacao: observacao, excluido: false
+        };
+        if (existente) {
+          itensParaSalvar.push({ id: existente.id, campos: campos, novo: false });
+        } else {
+          // horarioReal só é gravado na CRIAÇÃO - é o carimbo de quando a
+          // conferência realmente aconteceu, e não deve mudar numa correção.
+          campos.horarioReal = agora;
+          itensParaSalvar.push({ id: uid(), campos: campos, novo: true });
+        }
       }
-    }
-    salvarRondasFirestoreLote_(itensParaSalvar);
-    fecharModalRonda();
-    showToast(houveParada ? "⚠ Ronda salva COM bomba parada." : "Ronda registrada.");
+      salvarRondasFirestoreLote_(itensParaSalvar);
+      fecharModalRonda();
+      showToast(houveParada ? "⚠ Ronda salva COM bomba parada." : "Ronda registrada.");
+    });
   }
 
   // Maior leitura já registrada desta bomba (fora o registro que está sendo
@@ -5477,6 +5514,7 @@
   function closeBombModal() {
     document.getElementById("modal-bomb-overlay").classList.remove("active");
     editingBombId = null;
+    try { if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento(); } catch (e) {}
   }
 
   function handleSaveBomb() {
@@ -5489,27 +5527,36 @@
       var observacao = document.getElementById("bomb-observacao").value.trim();
       if (!horarioInicio) { showToast("Preencha o horário de início."); return; }
 
-      var campos = {
-        data: dataReg, bomba: editingBombBomba,
-        horarioInicio: horarioInicio, horarioFim: horarioFim,
-        leituraInicial: leituraInicial, leituraFinal: leituraFinal,
-        fotoInicio: pendingFotoBombInicio || "", fotoFim: pendingFotoBombFim || "",
-        observacao: observacao, excluido: false
-      };
       var idAlvo = editingBombId || uid();
-      salvarBombeamentoFirestore_(idAlvo, campos, !editingBombId);
+      var ehNovo = !editingBombId;
+      var bombaAlvo = editingBombBomba;
+      showToast("Salvando...");
 
-      if (dataReg !== bombData) {
-        // registro foi movido pra outro dia - leva a tela junto, senão ele
-        // "some" e a pessoa acha que perdeu
-        bombData = dataReg;
-        var pk = document.getElementById("bomb-data-picker");
-        if (pk) pk.value = bombData;
-        showToast("Registro movido para " + fmtDate(dataReg) + ".");
-      } else {
-        showToast("Bomba " + editingBombBomba + " registrada.");
-      }
-      closeBombModal();
+      Promise.all([
+        resolverUmaFoto_(pendingFotoBombInicio),
+        resolverUmaFoto_(pendingFotoBombFim)
+      ]).then(function (resultado) {
+        var campos = {
+          data: dataReg, bomba: bombaAlvo,
+          horarioInicio: horarioInicio, horarioFim: horarioFim,
+          leituraInicial: leituraInicial, leituraFinal: leituraFinal,
+          fotoInicio: resultado[0] || "", fotoFim: resultado[1] || "",
+          observacao: observacao, excluido: false
+        };
+        salvarBombeamentoFirestore_(idAlvo, campos, ehNovo);
+
+        if (dataReg !== bombData) {
+          // registro foi movido pra outro dia - leva a tela junto, senão ele
+          // "some" e a pessoa acha que perdeu
+          bombData = dataReg;
+          var pk = document.getElementById("bomb-data-picker");
+          if (pk) pk.value = bombData;
+          showToast("Registro movido para " + fmtDate(dataReg) + ".");
+        } else {
+          showToast("Bomba " + bombaAlvo + " registrada.");
+        }
+        closeBombModal();
+      });
     } catch (err) {
       showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     }
@@ -6372,9 +6419,9 @@
       if (syncErrors.length) {
         showToast("Erro ao sincronizar: " + syncErrors[0]);
       }
-      if (document.getElementById("tab-historico").classList.contains("active")) renderHistorico();
-      if (document.getElementById("tab-painel").classList.contains("active")) renderPainel();
-      if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao();
+      if (document.getElementById("tab-historico").classList.contains("active") && !algumModalAberto_()) renderHistorico();
+      if (document.getElementById("tab-painel").classList.contains("active") && !algumModalAberto_()) renderPainel();
+      if (document.getElementById("tab-manutencao").classList.contains("active") && !algumModalAberto_()) renderManutencao();
     }).catch(function (err) {
       syncing = false;
       refreshSyncPill();
@@ -6922,7 +6969,7 @@
           resultEl.className = "test-result ok";
           resultEl.textContent = "Culturas atualizadas! Já valem para todos os celulares.";
           document.getElementById("admin-pass").value = "";
-          if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao();
+          if (document.getElementById("tab-manutencao").classList.contains("active") && !algumModalAberto_()) renderManutencao();
           updateBadge();
         } else {
           resultEl.className = "test-result fail";
@@ -7037,7 +7084,7 @@
           resultEl.className = "test-result ok";
           resultEl.textContent = "Talhões atualizados! Já valem para todos os celulares.";
           document.getElementById("admin-pass").value = "";
-          if (document.getElementById("tab-manutencao").classList.contains("active")) renderManutencao();
+          if (document.getElementById("tab-manutencao").classList.contains("active") && !algumModalAberto_()) renderManutencao();
           updateBadge();
         } else {
           resultEl.className = "test-result fail";
