@@ -875,7 +875,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v72';
+  var APP_CACHE_NAME = 'registro-irrigacao-v73';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1054,6 +1054,84 @@
       return false;
     }
   }
+
+  // ---- Ocorrências via Firestore (tempo real, sem passar pela planilha) ----
+  // As fotos continuam subindo pro Google Drive através do Apps Script
+  // (função "upload_fotos_ocorrencia", isolada e nova) - só o TEXTO do
+  // registro (setor, tipo, causa, status etc.) vive no Firestore agora.
+  var ocorrenciasListenerAtivo = false;
+  function iniciarListenerOcorrencias_() {
+    if (ocorrenciasListenerAtivo || !db) return;
+    ocorrenciasListenerAtivo = true;
+    db.collection("ocorrencias").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, data: d.data, setor: d.setor, tipo: d.tipo, causa: d.causa,
+          operacaoCausadora: d.operacaoCausadora || "", quantidade: d.quantidade || 1,
+          encarregado: d.encarregado || "", descricao: d.descricao || "", acao: d.acao || "",
+          status: d.status || "Aberto", fotos: d.fotos || [], cultura: d.cultura || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
+          _pendingDelete: false
+        });
+      });
+      novos.sort(function (a, b) { return (b.data || "").localeCompare(a.data || ""); });
+      records = novos;
+      saveRecords();
+      try {
+        if (document.getElementById("tab-historico").classList.contains("active")) renderHistorico();
+        if (document.getElementById("tab-painel").classList.contains("active")) renderPainel();
+        if (document.getElementById("tab-resumo").classList.contains("active")) renderResumo();
+      } catch (e) {}
+      try { updateBadge(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de ocorrências:", err);
+    });
+  }
+  function salvarOcorrenciaFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return Promise.reject("sem firebase"); }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    return db.collection("ocorrencias").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar ocorrência:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      throw err;
+    });
+  }
+  function atualizarStatusOcorrenciaFirestore_(id, status) {
+    if (!db) { showToast("Firebase ainda não carregou."); return; }
+    db.collection("ocorrencias").doc(id).update({ status: status }).catch(function (err) {
+      console.error("[firebase] erro ao mudar status:", err);
+      showToast("Erro ao mudar status - tenta de novo.");
+    });
+  }
+  function apagarOcorrenciaFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou."); return; }
+    db.collection("ocorrencias").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar ocorrência:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+  // Sobe as fotos novas (base64) pro Drive via Apps Script, devolve a
+  // lista final de URLs (fotos que já eram URL passam direto). Se não tem
+  // internet ou o Apps Script falhar, guarda a foto em base64 mesmo -
+  // melhor mostrar a foto localmente do que perder o registro todo.
+  function resolverFotosOcorrencia_(fotos) {
+    if (!fotos || !fotos.length) return Promise.resolve([]);
+    var temBase64 = fotos.some(function (f) { return String(f).indexOf("data:image") === 0; });
+    if (!temBase64) return Promise.resolve(fotos);
+    return postToBackend({ action: "upload_fotos_ocorrencia", fotos: fotos, id: uid() }).then(function (res) {
+      if (res && res.ok && res.urls) return res.urls;
+      showToast("Não consegui subir a foto agora - vai continuar tentando.");
+      return fotos; // mantém base64 por enquanto, tenta de novo depois
+    }).catch(function () {
+      showToast("Sem internet pra subir a foto agora - salvo localmente, tenta de novo depois.");
+      return fotos;
+    });
+  }
+
   function loadManutRecords() {
     try {
       var raw = localStorage.getItem(MANUT_KEY);
@@ -1208,6 +1286,16 @@
       await importarColecao("escala", res.escalaSemanal, function (row) {
         return {
           data: row.data, texto: row.texto || "", responsavel: row.responsavel || "",
+          excluido: !!row.excluido, importadoDaPlanilha: true
+        };
+      });
+
+      await importarColecao("ocorrencias", res.rows, function (row) {
+        return {
+          data: row.data, setor: row.setor, tipo: row.tipo, causa: row.causa,
+          operacaoCausadora: row.operacao_causadora || "", quantidade: parseInt(row.quantidade, 10) || 1,
+          encarregado: row.encarregado || "", descricao: row.descricao || "", acao: row.acao || "",
+          status: row.status || "Aberto", fotos: row.fotos || [], cultura: row.cultura || "",
           excluido: !!row.excluido, importadoDaPlanilha: true
         };
       });
@@ -1970,27 +2058,14 @@
     var i = records.findIndex(function (r) { return r.id === id; });
     if (i === -1) return;
     var idx = STATUSES.indexOf(records[i].status);
-    records[i].status = STATUSES[(idx + 1) % STATUSES.length];
-    records[i]._pendingStatus = true;
-    saveRecords();
-    renderHistorico();
-    trySync();
+    var novoStatus = STATUSES[(idx + 1) % STATUSES.length];
+    atualizarStatusOcorrenciaFirestore_(id, novoStatus);
   }
 
   function doDelete(id) {
     var i = records.findIndex(function (r) { return r.id === id; });
     if (i === -1) return;
     confirmDelId = null;
-    if (!records[i]._synced) {
-      // nunca foi enviado pro servidor - pode apagar local sem senha, não tem risco
-      records = records.filter(function (r) { return r.id !== id; });
-      saveRecords();
-      showToast("Ocorrência removida.");
-      renderHistorico();
-      updateBadge();
-      return;
-    }
-    // já está no servidor - exige senha de administrador
     openDeleteManutModal(id, "ocorrencia");
   }
 
@@ -3056,20 +3131,16 @@
       });
       return;
     }
-    var action = pendingDeleteKind === "ocorrencia" ? "delete" : "delete_manutencao";
-    postToBackend({ action: action, adminToken: pass, id: pendingDeleteManutId }).then(function (res) {
+    // Só sobra "ocorrencia" chegando até aqui (manutencao já retornou
+    // acima) - ocorrência também já migrou pro Firebase, mesmo padrão.
+    postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
       if (res && res.ok) {
-        if (pendingDeleteKind === "ocorrencia") {
-          records = records.filter(function (r) { return r.id !== pendingDeleteManutId; });
-          saveRecords();
-          showToast("Ocorrência excluída.");
-          closeDeleteManutModal();
-          renderHistorico();
-        }
-        updateBadge();
+        apagarOcorrenciaFirestore_(pendingDeleteManutId);
+        showToast("Ocorrência excluída.");
+        closeDeleteManutModal();
       } else {
         resultEl.className = "test-result fail";
-        resultEl.textContent = (res && res.error) ? res.error : "Não consegui excluir.";
+        resultEl.textContent = (res && res.error) ? res.error : "Senha incorreta.";
       }
     }).catch(function (err) {
       resultEl.className = "test-result fail";
@@ -5462,39 +5533,25 @@
       return;
     }
 
-    if (editingId) {
-      var i = records.findIndex(function (r) { return r.id === editingId; });
-      if (i === -1) { resetForm(); return; }
-      var rec = records[i];
-      rec.cultura = cultura; rec.setor = setor; rec.data = data; rec.tipo = tipo; rec.causa = causa;
-      rec.operacaoCausadora = operacaoCausadora;
-      rec.quantidade = quantidade;
-      rec.encarregado = encarregado; rec.descricao = descricao; rec.acao = acao;
-      rec.fotos = pendingFotos.slice();
+    var idAlvo = editingId || uid();
+    var ehNovo = !editingId;
+    var fotosParaSalvar = pendingFotos.slice();
+    showToast(ehNovo ? "Salvando..." : "Atualizando...");
 
-      if (rec._synced) rec._pendingUpdate = true;
-      saveRecords();
-      showToast("Ocorrência atualizada.");
+    resolverFotosOcorrencia_(fotosParaSalvar).then(function (urls) {
+      var campos = {
+        cultura: cultura, setor: setor, data: data, tipo: tipo, causa: causa,
+        operacaoCausadora: operacaoCausadora, quantidade: quantidade,
+        encarregado: encarregado, descricao: descricao, acao: acao, fotos: urls,
+        excluido: false
+      };
+      if (ehNovo) campos.status = "Aberto";
+      return salvarOcorrenciaFirestore_(idAlvo, campos, ehNovo);
+    }).then(function () {
+      showToast(ehNovo ? "Ocorrência registrada." : "Ocorrência atualizada.");
       resetForm();
       switchTab("historico");
-      trySync();
-      return;
-    }
-
-    var newRec = {
-      id: uid(), status: "Aberto", cultura: cultura, data: data, setor: setor, tipo: tipo, causa: causa,
-      operacaoCausadora: operacaoCausadora,
-      quantidade: quantidade,
-      encarregado: encarregado, descricao: descricao, acao: acao, fotos: pendingFotos.slice(),
-      _synced: false, _pendingStatus: false, _pendingDelete: false, _pendingUpdate: false
-    };
-    records.unshift(newRec);
-    if (saveRecords()) {
-      showToast("Ocorrência registrada.");
-      resetForm();
-      switchTab("historico");
-      trySync();
-    }
+    }).catch(function () { /* erro já avisado dentro das funções acima */ });
   }
 
   // ---------- sincronização ----------
@@ -5699,9 +5756,9 @@
     syncing = true;
     updateSyncUI("busy", "Sincronizando...");
 
-    var toCreate = records.filter(function (r) { return !r._synced; });
-    var toUpdateStatus = records.filter(function (r) { return r._synced && r._pendingStatus && !r._pendingDelete; });
-    var toUpdateFull = records.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toCreate = []; // Ocorrências migrou pro Firebase - não passa mais por aqui
+    var toUpdateStatus = []; // idem
+    var toUpdateFull = []; // idem
     var toDelete = records.filter(function (r) { return r._pendingDelete; });
     var toCreateManut = []; // Manutenção migrou pro Firebase - não passa mais por aqui
     var toCreateBomb = []; // Bombeamento migrou pro Firebase - não passa mais por aqui
@@ -6267,7 +6324,7 @@
           });
           saveBombRecords();
         }
-        if (!res.rows) return;
+        if (true) return; // Ocorrências migrou pro Firebase - bloco antigo desativado (mantido como referência)
         // Antes: só ADICIONAVA ocorrência nova, nunca ATUALIZAVA uma que já
         // conhecia. Resultado: se alguém resolve uma ocorrência em outro
         // celular (ou direto na planilha), o seu continuava mostrando
@@ -6439,6 +6496,7 @@
           iniciarListenerAnotacoes_();
           iniciarListenerPressao_();
           iniciarListenerEscala_();
+          iniciarListenerOcorrencias_();
         } else {
           var msg = (resultado && resultado.erro) ? resultado.erro : "motivo desconhecido";
           console.error("[firebase] não conectou:", msg);
