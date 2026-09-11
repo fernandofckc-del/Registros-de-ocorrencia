@@ -875,7 +875,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v71';
+  var APP_CACHE_NAME = 'registro-irrigacao-v72';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1205,6 +1205,13 @@
         };
       });
 
+      await importarColecao("escala", res.escalaSemanal, function (row) {
+        return {
+          data: row.data, texto: row.texto || "", responsavel: row.responsavel || "",
+          excluido: !!row.excluido, importadoDaPlanilha: true
+        };
+      });
+
       alert("Importação concluída:\n\n" + resumo.join("\n"));
     } catch (err) {
       console.error("[firebase] erro na importação do histórico:", err);
@@ -1503,6 +1510,47 @@
     try { localStorage.setItem(ESCALA_KEY, JSON.stringify(escalaRecords)); return true; }
     catch (e) { showToast("Armazenamento cheio."); return false; }
   }
+
+  // ---- Escala Semanal via Firestore (tempo real, sem passar pela planilha) ----
+  var escalaListenerAtivo = false;
+  function iniciarListenerEscala_() {
+    if (escalaListenerAtivo || !db) return;
+    escalaListenerAtivo = true;
+    db.collection("escala").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, data: d.data, texto: d.texto || "", responsavel: d.responsavel || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
+          _pendingDelete: false
+        });
+      });
+      escalaRecords = novos;
+      saveEscalaRecords();
+      try { if (document.getElementById("tab-escala").classList.contains("active")) renderEscala(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de escala:", err);
+    });
+  }
+  function salvarEscalaFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection("escala").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar escala:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+    });
+  }
+  function apagarEscalaFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("escala").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar escala:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
   function loadOperador() {
     try {
       var raw = localStorage.getItem(OPERADOR_KEY);
@@ -3381,15 +3429,12 @@
   function adicionarLinhaEscala_(iso, texto) {
     texto = (texto || "").trim();
     if (!texto) return;
-    escalaRecords.push({
-      id: uid(), data: iso, texto: texto,
+    salvarEscalaFirestore_(uid(), {
+      data: iso, texto: texto,
       responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
-      _synced: false, _pendingUpdate: false, _pendingDelete: false
-    });
+      excluido: false
+    }, true);
     delete escalaRascunhos[iso]; // já foi confirmado - esse campo volta vazio, os outros mantêm o que estava digitado
-    saveEscalaRecords();
-    renderEscala();
-    trySync();
   }
   function editarLinhaEscala_(id) {
     var r = escalaRecords.find(function (x) { return x.id === id; });
@@ -3398,32 +3443,13 @@
     if (novoTexto === null) return;
     novoTexto = novoTexto.trim();
     if (!novoTexto) return;
-    r.texto = novoTexto;
-    if (r._synced) r._pendingUpdate = true;
-    saveEscalaRecords();
-    renderEscala();
-    trySync();
+    salvarEscalaFirestore_(id, { texto: novoTexto }, false);
   }
   function apagarLinhaEscala_(id) {
     var r = escalaRecords.find(function (x) { return x.id === id; });
     if (!r) return;
     if (!confirm("Excluir essa entrada?")) return;
-    if (!r._synced) {
-      escalaRecords = escalaRecords.filter(function (x) { return x.id !== id; });
-      saveEscalaRecords();
-      renderEscala();
-      return;
-    }
-    postToBackend({ token: config.token, action: "delete_escala", id: id }).then(function (res) {
-      if (res && res.ok) {
-        escalaRecords = escalaRecords.filter(function (x) { return x.id !== id; });
-        saveEscalaRecords();
-        renderEscala();
-        showToast("Entrada excluída.");
-      } else {
-        showToast((res && res.error) || "Não consegui excluir.");
-      }
-    }).catch(function () { showToast("Erro de conexão."); });
+    apagarEscalaFirestore_(id);
   }
 
   // Gera o Excel EXATAMENTE no formato do modelo do RH: mesma fonte
@@ -5687,8 +5713,8 @@
     var toUpdateGerador = []; // idem
     var toCreateAnotacao = []; // Notas migrou pro Firebase - não passa mais por aqui
     var toUpdateAnotacao = []; // idem
-    var toCreateEscala = escalaRecords.filter(function (r) { return !r._synced; });
-    var toUpdateEscala = escalaRecords.filter(function (r) { return r._synced && r._pendingUpdate && !r._pendingDelete; });
+    var toCreateEscala = []; // Escala migrou pro Firebase - não passa mais por aqui
+    var toUpdateEscala = []; // idem
     var toUpdateBomb = []; // idem
     var syncErrors = [];
 
@@ -6177,7 +6203,8 @@
           });
           saveAnotacoesRecords();
         }
-        if (res.escalaSemanal) {
+        if (false && res.escalaSemanal) {
+          // Escala migrou pro Firebase - bloco antigo desativado (mantido como referência).
           var localEscById = {};
           escalaRecords.forEach(function (r) { localEscById[r.id] = r; });
           res.escalaSemanal.forEach(function (row) {
@@ -6411,6 +6438,7 @@
           iniciarListenerGerador_();
           iniciarListenerAnotacoes_();
           iniciarListenerPressao_();
+          iniciarListenerEscala_();
         } else {
           var msg = (resultado && resultado.erro) ? resultado.erro : "motivo desconhecido";
           console.error("[firebase] não conectou:", msg);
