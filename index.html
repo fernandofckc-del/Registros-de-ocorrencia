@@ -880,7 +880,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v79';
+  var APP_CACHE_NAME = 'registro-irrigacao-v80';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1006,6 +1006,22 @@
   function algumModalAberto_() {
     return !!document.querySelector(".modal-overlay.active");
   }
+  // Limpeza única do cache antigo (localStorage) das 8 partes que já
+  // migraram pro Firebase - esse cache duplicava o que o Firestore já
+  // guarda sozinho (e de forma bem mais espaçosa), e vinha enchendo o
+  // armazenamento do navegador à toa. Roda uma vez só; depois disso,
+  // essas chaves nunca mais recebem nada (as funções de salvar viraram
+  // no-op) - não tem risco de "voltar a encher".
+  function limparCacheAntigoMigrado_() {
+    if (localStorage.getItem("cache_antigo_limpo_v1")) return;
+    [
+      "oc_records_v2", "manut_records_v1", "bomb_records_v1", "ronda_records_v1",
+      "gerador_records_v1", "anotacoes_records_v1", "escala_records_v1", "leituras_pressao_v1"
+    ].forEach(function (chave) {
+      try { localStorage.removeItem(chave); } catch (e) {}
+    });
+    try { localStorage.setItem("cache_antigo_limpo_v1", "1"); } catch (e) {}
+  }
   // Antes usava toISOString(), que sempre devolve em UTC. Como o Brasil é
   // UTC-3, a partir das 21h a data já virava "amanhã" no app, três horas
   // adiantado do relógio de parede - foi isso que causou os hidrômetros
@@ -1058,13 +1074,11 @@
     } catch (e) { records = []; }
   }
   function saveRecords() {
-    try {
-      localStorage.setItem(RECORDS_KEY, JSON.stringify(records));
-      return true;
-    } catch (e) {
-      showToast("Armazenamento cheio. Apague fotos/ocorrências antigas.");
-      return false;
-    }
+    // Já migrou pro Firebase - o Firestore guarda sua própria cópia
+    // offline (bem mais espaçosa que o localStorage), então parou de
+    // duplicar tudo aqui também. A variável "records" continua normal,
+    // só não grava mais no armazenamento do navegador.
+    return true;
   }
 
   // ---- Ocorrências via Firestore (tempo real, sem passar pela planilha) ----
@@ -1158,13 +1172,7 @@
     } catch (e) { manutRecords = []; }
   }
   function saveManutRecords() {
-    try {
-      localStorage.setItem(MANUT_KEY, JSON.stringify(manutRecords));
-      return true;
-    } catch (e) {
-      showToast("Armazenamento cheio.");
-      return false;
-    }
+    return true; // idem - Manutenção já migrou pro Firebase
   }
 
   // ---- Manutenção via Firestore (tempo real, sem passar pela planilha) ----
@@ -1333,13 +1341,7 @@
     } catch (e) { bombRecords = []; }
   }
   function saveBombRecords() {
-    try {
-      localStorage.setItem(BOMB_KEY, JSON.stringify(bombRecords));
-      return true;
-    } catch (e) {
-      showToast("Armazenamento cheio.");
-      return false;
-    }
+    return true; // idem - Bombeamento já migrou pro Firebase
   }
 
   // ---- Bombeamento via Firestore (tempo real, sem passar pela planilha) ----
@@ -1395,8 +1397,7 @@
     } catch (e) { rondaRecords = []; }
   }
   function saveRondaRecords() {
-    try { localStorage.setItem(RONDA_KEY, JSON.stringify(rondaRecords)); return true; }
-    catch (e) { showToast("Armazenamento cheio."); return false; }
+    return true; // idem - Rondas já migrou pro Firebase
   }
 
   // ---- Rondas Noturnas via Firestore (tempo real, sem passar pela planilha) ----
@@ -1455,8 +1456,7 @@
     } catch (e) { leiturasPressaoRecords = []; }
   }
   function saveLeiturasPressao() {
-    try { localStorage.setItem(LEITURAS_PRESSAO_KEY, JSON.stringify(leiturasPressaoRecords)); return true; }
-    catch (e) { showToast("Armazenamento cheio."); return false; }
+    return true; // idem - Pressão já migrou pro Firebase
   }
 
   // ---- Pressão Ideal via Firestore (tempo real, sem passar pela planilha) ----
@@ -1510,8 +1510,7 @@
     } catch (e) { geradorRecords = []; }
   }
   function saveGeradorRecords() {
-    try { localStorage.setItem(GERADOR_KEY, JSON.stringify(geradorRecords)); return true; }
-    catch (e) { showToast("Armazenamento cheio."); return false; }
+    return true; // idem - Gerador já migrou pro Firebase
   }
 
   // ---- Gerador via Firestore (tempo real, sem passar pela planilha) ----
@@ -1563,8 +1562,7 @@
     } catch (e) { anotacoesRecords = []; }
   }
   function saveAnotacoesRecords() {
-    try { localStorage.setItem(ANOTACOES_KEY, JSON.stringify(anotacoesRecords)); return true; }
-    catch (e) { showToast("Armazenamento cheio."); return false; }
+    return true; // idem - Notas já migrou pro Firebase
   }
 
   // ---- Notas via Firestore (tempo real, sem passar pela planilha) ----
@@ -1614,8 +1612,7 @@
     } catch (e) { escalaRecords = []; }
   }
   function saveEscalaRecords() {
-    try { localStorage.setItem(ESCALA_KEY, JSON.stringify(escalaRecords)); return true; }
-    catch (e) { showToast("Armazenamento cheio."); return false; }
+    return true; // idem - Escala já migrou pro Firebase
   }
 
   // ---- Escala Semanal via Firestore (tempo real, sem passar pela planilha) ----
@@ -6536,6 +6533,7 @@
       document.getElementById("f-data").value = todayStr();
       renderFotoGallery();
 
+      limparCacheAntigoMigrado_();
       loadRecords();
       loadManutRecords();
       loadBombRecords();
