@@ -182,7 +182,7 @@
   .modal-overlay.active { display:flex; }
   .modal-box {
     background:#F3EEE0; width:100%; max-width:480px; border-radius:12px 12px 0 0; padding:20px 18px 26px;
-    max-height:85vh; overflow-y:auto;
+    max-height:85vh; max-height:85dvh; overflow-y:auto;
   }
   .modal-title { font-family:'Oswald', sans-serif; font-size:17px; font-weight:600; margin-bottom:4px; }
   .modal-sub { font-size:12px; color:#6B6153; margin-bottom:16px; line-height:1.4; }
@@ -215,17 +215,17 @@
   </header>
 
   <div style="display:flex; gap:8px; padding:6px 14px 0;">
-    <div id="sync-pill" class="sync-pill" style="cursor:pointer; margin:0; flex:1; justify-content:space-between;">
-      <span style="display:flex; align-items:center; gap:5px; overflow:hidden;">
+    <div id="sync-pill" class="sync-pill" style="cursor:pointer; margin:0; flex:1; min-width:0; justify-content:space-between;">
+      <span style="display:flex; align-items:center; gap:5px; overflow:hidden; min-width:0;">
         <span class="sync-dot" id="sync-dot" style="background:#8A8072; flex-shrink:0;"></span>
-        <span id="sync-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Verificando...</span>
+        <span id="sync-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">Verificando...</span>
       </span>
       <button class="sync-btn" id="btn-sync-now" style="margin-left:4px; flex-shrink:0; padding:3px 7px;" title="Sincronizar agora">⟳</button>
     </div>
-    <div id="offline-pill" class="sync-pill" style="background:#EFE7D3; margin:0; flex:1; justify-content:space-between;">
-      <span style="display:flex; align-items:center; gap:5px; overflow:hidden;">
+    <div id="offline-pill" class="sync-pill" style="background:#EFE7D3; margin:0; flex:1; min-width:0; justify-content:space-between;">
+      <span style="display:flex; align-items:center; gap:5px; overflow:hidden; min-width:0;">
         <span class="sync-dot" id="offline-dot" style="background:#8A8072; flex-shrink:0;"></span>
-        <span id="offline-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Verificando...</span>
+        <span id="offline-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">Verificando...</span>
       </span>
       <button class="sync-btn" id="btn-offline-check" style="background:#2E6690; margin-left:4px; flex-shrink:0; padding:3px 7px;" title="Preparar para uso offline">📶</button>
     </div>
@@ -407,7 +407,7 @@
 
 <!-- VISUALIZADOR DE FOTO (dentro do app, sem abrir o Drive) -->
 <div id="foto-lightbox" style="display:none;position:fixed;inset:0;background:rgba(20,25,20,.93);z-index:90;align-items:center;justify-content:center;flex-direction:column;padding:16px;">
-  <img id="foto-lightbox-img" alt="Foto ampliada" style="max-width:100%;max-height:82vh;border-radius:6px;">
+  <img id="foto-lightbox-img" alt="Foto ampliada" style="max-width:100%;max-height:82vh;max-height:82dvh;border-radius:6px;">
   <div id="foto-lightbox-legenda" style="color:#D6E4C4;font-size:12.5px;margin-top:10px;text-align:center;"></div>
   <button id="foto-lightbox-fechar" style="margin-top:14px;background:#F3EEE0;color:#241F1A;border:none;border-radius:20px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;">Fechar</button>
 </div>
@@ -417,7 +417,7 @@
 <!-- MODAL DE REGISTRAR BOMBEAMENTO -->
 <!-- MODAL DE RONDA NOTURNA -->
 <div class="modal-overlay" id="modal-ronda-overlay">
-  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:90vh;">
+  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:90vh; max-height:90dvh;">
     <div style="overflow-y:auto; padding:20px 18px 6px;">
       <button class="modal-close" id="btn-close-ronda-modal">✕</button>
       <div class="modal-title" id="ronda-modal-title">Ronda</div>
@@ -573,7 +573,7 @@
 </div>
 
 <div class="modal-overlay" id="modal-bomb-overlay">
-  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:88vh;">
+  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:88vh; max-height:88dvh;">
     <div style="overflow-y:auto; padding:20px 18px 6px;">
       <button class="modal-close" id="btn-close-bomb-modal">✕</button>
       <div class="modal-title" id="bomb-modal-title">Bomba 1</div>
@@ -635,7 +635,7 @@
 
 <!-- MODAL DE REGISTRAR MANUTENÇÃO -->
 <div class="modal-overlay" id="modal-manut-overlay">
-  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:85vh;">
+  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:85vh; max-height:85dvh;">
     <div style="overflow-y:auto; padding:20px 18px 6px;">
       <button class="modal-close" id="btn-close-manut-modal">✕</button>
       <div class="modal-title">Registrar Manutenção</div>
@@ -880,7 +880,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v77';
+  var APP_CACHE_NAME = 'registro-irrigacao-v79';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
