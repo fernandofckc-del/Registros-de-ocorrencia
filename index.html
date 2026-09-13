@@ -539,24 +539,7 @@
       <span class="field-label">Data da leitura</span>
       <input id="pressao-data-input" type="date">
     </div>
-    <div class="field">
-      <span class="field-label">Canto do setor (opcional)</span>
-      <div id="pressao-canto-botoes" style="display:flex; gap:6px;">
-        <button type="button" class="del-btn pressao-canto-btn" data-canto="1" style="flex:1;">1</button>
-        <button type="button" class="del-btn pressao-canto-btn" data-canto="2" style="flex:1;">2</button>
-        <button type="button" class="del-btn pressao-canto-btn" data-canto="3" style="flex:1;">3</button>
-        <button type="button" class="del-btn pressao-canto-btn" data-canto="4" style="flex:1;">4</button>
-      </div>
-    </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 10px;">
-      <div class="field">
-        <span class="field-label">Pressão no inversor (kg)</span>
-        <input id="pressao-inversor-input" type="number" step="0.1" placeholder="Ex.: 6,0">
-      </div>
-      <div class="field">
-        <span class="field-label">Depois do filtro (kg)</span>
-        <input id="pressao-depois-filtro-input" type="number" step="0.1" placeholder="Ex.: 5,5">
-      </div>
       <div class="field">
         <span class="field-label">Antes da válvula (kg)</span>
         <input id="pressao-antes-valvula-input" type="number" step="0.1" placeholder="Ex.: 2,0">
@@ -566,15 +549,37 @@
         <input id="pressao-depois-valvula-input" type="number" step="0.1" placeholder="Ex.: 1,8">
       </div>
     </div>
-    <div class="field">
-      <span class="field-label">Pressão na mangueira (kg)</span>
-      <input id="pressao-mangueira-input" type="number" step="0.1" placeholder="Ex.: 1,5">
-    </div>
+    <div id="pressao-mangueira-campos"></div>
     <div class="field">
       <span class="field-label">Observação (opcional)</span>
       <textarea id="pressao-observacao-input" placeholder="Algo a registrar sobre essa leitura"></textarea>
     </div>
     <button class="save-btn" id="btn-save-pressao" style="background:#4C7C59;">Registrar Leitura</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-pressao-setor-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-pressao-setor">✕</button>
+    <div class="modal-title" id="pressao-setor-modal-title">Pressão do Setor</div>
+    <div class="modal-sub">Vale pra todas as válvulas desse setor.</div>
+    <div class="field">
+      <span class="field-label">Data da leitura</span>
+      <input id="pressao-setor-data-input" type="date">
+    </div>
+    <div class="field">
+      <span class="field-label">Pressão no inversor (kg)</span>
+      <input id="pressao-setor-inversor-input" type="number" step="0.1" placeholder="Ex.: 6,0">
+    </div>
+    <div class="field">
+      <span class="field-label">Depois do filtro (kg)</span>
+      <input id="pressao-setor-depois-filtro-input" type="number" step="0.1" placeholder="Ex.: 5,5">
+    </div>
+    <div class="field">
+      <span class="field-label">Observação (opcional)</span>
+      <textarea id="pressao-setor-observacao-input" placeholder="Algo a registrar sobre essa leitura"></textarea>
+    </div>
+    <button class="save-btn" id="btn-save-pressao-setor" style="background:#4C7C59;">Salvar</button>
   </div>
 </div>
 
@@ -585,14 +590,9 @@
     <div class="modal-title">🔒 Configurar Pressão Ideal</div>
     <input type="hidden" id="admin-pressao-senha-oculta">
     <div class="field">
-      <span class="field-label">Setores e válvulas</span>
-      <div class="modal-sub" style="margin-bottom:6px;">Um setor por linha, formato: <b>Setor | válvulas separadas por vírgula</b> — ex.: A3 | V7,V8,V9</div>
-      <textarea id="admin-valvulas-setor" style="min-height:140px;" placeholder="A3 | V7,V8,V9"></textarea>
-    </div>
-    <div class="field">
-      <span class="field-label">Metas de pressão por cultura</span>
-      <div class="modal-sub" style="margin-bottom:6px;">Uma cultura por linha, formato: <b>Cultura | meta na válvula | mínimo na ponta | meta do inversor</b> — ex.: Coco | 1.8 | 1.5 | 6</div>
-      <textarea id="admin-metas-pressao" style="min-height:70px;" placeholder="Coco | 1.8 | 1.5 | 6"></textarea>
+      <span class="field-label">Setores, válvulas e pontos de mangueira</span>
+      <div class="modal-sub" style="margin-bottom:6px;">Um setor por linha, formato: <b>Setor | válvulas separadas por vírgula | nomes dos pontos de mangueira separados por ;</b><br>Setor com ramal no meio (2 pontos) — ex.: B3 | V7,V8,V9 | Linha 5 Ponto 1;Linha 5 Ponto 2<br>Setor com ramal de um lado só (4 pontos) — ex.: TA1 | V1,V2 | Linha 1 Ponto 1;Linha 1 Ponto 2;Linha 66 Ponto 1;Linha 66 Ponto 2</div>
+      <textarea id="admin-valvulas-setor" style="min-height:160px;" placeholder="A3 | V7,V8,V9 | Ponto 1;Ponto 2"></textarea>
     </div>
     <button class="save-btn" id="btn-save-config-pressao" style="background:#8A5A44;">Salvar Configuração</button>
   </div>
@@ -906,7 +906,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v82';
+  var APP_CACHE_NAME = 'registro-irrigacao-v83';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -942,11 +942,11 @@
   var currentTalhoes = TALHOES_PADRAO.slice();
   // ---- Pressão Ideal nas Válvulas ----
   var currentValvulasPorSetor = [
-    { setor: "A3", valvulas: ["V7", "V8", "V9"] },
-    { setor: "A4", valvulas: ["V10", "V11", "V12"] },
-    { setor: "B3", valvulas: ["V7", "V8", "V9"] },
-    { setor: "B4", valvulas: ["V10", "V11", "V12"] },
-    { setor: "C1", valvulas: ["V1", "V2", "V3"] }
+    { setor: "A3", valvulas: ["V7", "V8", "V9"], labelsMangueira: ["Ponto 1", "Ponto 2"] },
+    { setor: "A4", valvulas: ["V10", "V11", "V12"], labelsMangueira: ["Ponto 1", "Ponto 2"] },
+    { setor: "B3", valvulas: ["V7", "V8", "V9"], labelsMangueira: ["Ponto 1", "Ponto 2"] },
+    { setor: "B4", valvulas: ["V10", "V11", "V12"], labelsMangueira: ["Ponto 1", "Ponto 2"] },
+    { setor: "C1", valvulas: ["V1", "V2", "V3"], labelsMangueira: ["Ponto 1", "Ponto 2"] }
   ];
   var currentMetasPressao = [
     { cultura: "Coco", pressaoValvula: 1.8, pressaoPontaMin: 1.5, pressaoInversor: 6 },
@@ -1496,14 +1496,15 @@
         var d = doc.data();
         if (d.excluido) return;
         novos.push({
-          id: doc.id, data: d.data, setor: d.setor, valvula: d.valvula, canto: d.canto || "",
-          pressaoInversor: d.pressaoInversor !== undefined ? d.pressaoInversor : "",
-          pressaoDepoisFiltro: d.pressaoDepoisFiltro !== undefined ? d.pressaoDepoisFiltro : "",
+          id: doc.id, data: d.data, setor: d.setor, valvula: d.valvula,
           pressaoAntesValvula: d.pressaoAntesValvula !== undefined ? d.pressaoAntesValvula : "",
           pressaoDepoisValvula: d.pressaoDepoisValvula !== undefined ? d.pressaoDepoisValvula : "",
-          pressaoMangueira: d.pressaoMangueira !== undefined ? d.pressaoMangueira : "",
-          // Leituras registradas ANTES dessa mudança guardaram só esses 2
-          // campos - preserva pra continuar aparecendo, em vez de sumir.
+          mangueira: Array.isArray(d.mangueira) ? d.mangueira : [], // [{label, valor}, ...]
+          // Leituras registradas ANTES dessa mudança guardaram esses campos
+          // diferentes - preserva pra continuar aparecendo, em vez de sumir.
+          pressaoInversorAntiga: d.pressaoInversor !== undefined ? d.pressaoInversor : "",
+          pressaoDepoisFiltroAntiga: d.pressaoDepoisFiltro !== undefined ? d.pressaoDepoisFiltro : "",
+          pressaoMangueiraAntiga: d.pressaoMangueira !== undefined ? d.pressaoMangueira : "",
           pressaoValvulaAntiga: d.pressaoValvula !== undefined ? d.pressaoValvula : "",
           pressaoPontaAntiga: d.pressaoPonta !== undefined ? d.pressaoPonta : "",
           responsavel: d.responsavel || "", observacao: d.observacao || "",
@@ -1532,6 +1533,55 @@
     if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
     db.collection("pressao").doc(id).update({ excluido: true }).catch(function (err) {
       console.error("[firebase] erro ao apagar pressão:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
+  // ---- Pressão do SETOR (Inversor + Depois do Filtro) - um valor só
+  // vale pra todas as válvulas daquele setor, por isso fica numa coleção
+  // separada da pressão por válvula. ----
+  var pressaoSetorRecords = [];
+  var pressaoSetorListenerAtivo = false;
+  function iniciarListenerPressaoSetor_() {
+    if (pressaoSetorListenerAtivo || !db) return;
+    pressaoSetorListenerAtivo = true;
+    db.collection("pressao_setor").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, setor: d.setor, data: d.data,
+          pressaoInversor: d.pressaoInversor !== undefined ? d.pressaoInversor : "",
+          pressaoDepoisFiltro: d.pressaoDepoisFiltro !== undefined ? d.pressaoDepoisFiltro : "",
+          responsavel: d.responsavel || "", observacao: d.observacao || "",
+          _synced: !doc.metadata.hasPendingWrites, _pendingDelete: false
+        });
+      });
+      pressaoSetorRecords = novos;
+      try { if (document.getElementById("tab-pressao").classList.contains("active") && !algumModalAberto_()) renderPressaoIdeal(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de pressão do setor:", err);
+    });
+  }
+  function getUltimaPressaoSetor_(setor) {
+    var regs = pressaoSetorRecords.filter(function (r) { return r.setor === setor; })
+      .sort(function (a, b) { return String(b.data).localeCompare(String(a.data)); });
+    return regs.length ? regs[0] : null;
+  }
+  function salvarPressaoSetorFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection("pressao_setor").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar pressão do setor:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+    });
+  }
+  function apagarPressaoSetorFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("pressao_setor").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar pressão do setor:", err);
       showToast("Erro ao apagar - tenta de novo.");
     });
   }
@@ -4000,7 +4050,7 @@
     var culturas = Object.keys(porCultura);
     if (!pressaoCulturaAtiva || culturas.indexOf(pressaoCulturaAtiva) === -1) pressaoCulturaAtiva = culturas[0];
 
-    var html = '<div class="modal-sub" style="margin-bottom:12px;">Toque numa válvula pra registrar uma nova medição - agora com 5 pontos de pressão por válvula.</div>';
+    var html = '<div class="modal-sub" style="margin-bottom:12px;">Inversor e depois do filtro são por setor (vale pra todas as válvulas). Antes/depois da válvula e os pontos de mangueira são por válvula.</div>';
 
     // abas por cultura
     html += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
@@ -4012,35 +4062,60 @@
     html += '</div>';
 
     porCultura[pressaoCulturaAtiva].forEach(function (item) {
-      html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
+      html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:10px;">' +
         '<div style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">' + escapeHtml(item.setor) + '</div>';
+
+      // ---- bloco do SETOR: inversor + depois do filtro ----
+      var ultimoSetor = getUltimaPressaoSetor_(item.setor);
+      html += '<div style="background:#F3EEE0;border-radius:5px;padding:7px 9px;margin-bottom:8px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+        '<span style="font-size:11.5px;font-weight:700;color:#4A4136;cursor:pointer;" data-abrir-setor="' + escapeHtml(item.setor) + '">🔧 Pressão do Setor</span>';
+      if (ultimoSetor) html += syncBadgeHtml_(ultimoSetor);
+      html += '</div>';
+      if (ultimoSetor) {
+        html += '<div style="font-size:11px;color:#4A4136;margin-top:3px;">' +
+          'Inversor: <b>' + (ultimoSetor.pressaoInversor || "—") + '</b> kg &nbsp;·&nbsp; ' +
+          'Depois filtro: <b>' + (ultimoSetor.pressaoDepoisFiltro || "—") + '</b> kg ' +
+          '&nbsp;·&nbsp; <span style="color:#8A8072;">' + escapeHtml(fmtDate(ultimoSetor.data)) + '</span>' +
+        '</div>' +
+        '<div style="margin-top:4px;">' +
+          '<button class="del-btn" data-editar-setor="' + ultimoSetor.id + '" style="font-size:10px;padding:2px 6px;">✏️ Editar</button> ' +
+          '<button class="del-btn" data-apagar-setor="' + ultimoSetor.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
+        '</div>';
+      } else {
+        html += '<div style="font-size:11px;color:#8A8072;cursor:pointer;margin-top:2px;" data-abrir-setor="' + escapeHtml(item.setor) + '">Nunca medido</div>';
+      }
+      html += '</div>';
+
+      // ---- válvulas do setor ----
+      var labels = item.labelsMangueira && item.labelsMangueira.length ? item.labelsMangueira : ["Ponto 1", "Ponto 2"];
       item.valvulas.forEach(function (valv) {
         var ultima = getUltimaLeituraValvula_(item.setor, valv);
         html += '<div style="padding:8px 6px;border-top:1px solid #EFEAD9;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-          '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">' +
-            escapeHtml(valv) + (ultima && ultima.canto ? ' <span style="font-weight:400;color:#8A8072;font-size:10.5px;">(canto ' + escapeHtml(ultima.canto) + ')</span>' : '') +
-          '</span>';
-        if (ultima) {
-          html += '<span style="text-align:right;">' + syncBadgeHtml_(ultima) + '</span>';
-        }
+          '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">' + escapeHtml(valv) + '</span>';
+        if (ultima) html += syncBadgeHtml_(ultima);
         html += '</div>';
         if (ultima) {
-          var temFormatoAntigo = ultima.pressaoValvulaAntiga || ultima.pressaoPontaAntiga;
+          var temFormatoAntigo = ultima.pressaoValvulaAntiga || ultima.pressaoPontaAntiga || ultima.pressaoInversorAntiga || ultima.pressaoDepoisFiltroAntiga || ultima.pressaoMangueiraAntiga;
           html += '<div style="font-size:11px;color:#4A4136;margin-top:4px;line-height:1.7;">';
           if (temFormatoAntigo) {
             html += '<span style="color:#8A5A44;">Leitura antiga (formato anterior):</span> ' +
-              'Válvula: <b>' + (ultima.pressaoValvulaAntiga || "—") + '</b> kg' +
-              (ultima.pressaoPontaAntiga ? ' &nbsp;·&nbsp; Ponta: <b>' + ultima.pressaoPontaAntiga + '</b> kg' : '') +
+              (ultima.pressaoValvulaAntiga ? 'Válvula: <b>' + ultima.pressaoValvulaAntiga + '</b> kg &nbsp;·&nbsp; ' : '') +
+              (ultima.pressaoPontaAntiga ? 'Ponta: <b>' + ultima.pressaoPontaAntiga + '</b> kg &nbsp;·&nbsp; ' : '') +
+              (ultima.pressaoInversorAntiga ? 'Inversor: <b>' + ultima.pressaoInversorAntiga + '</b> kg &nbsp;·&nbsp; ' : '') +
+              (ultima.pressaoDepoisFiltroAntiga ? 'Depois filtro: <b>' + ultima.pressaoDepoisFiltroAntiga + '</b> kg &nbsp;·&nbsp; ' : '') +
+              (ultima.pressaoMangueiraAntiga ? 'Mangueira: <b>' + ultima.pressaoMangueiraAntiga + '</b> kg' : '') +
               '<br>';
           }
           html +=
-            'Inversor: <b>' + (ultima.pressaoInversor || "—") + '</b> kg &nbsp;·&nbsp; ' +
-            'Depois filtro: <b>' + (ultima.pressaoDepoisFiltro || "—") + '</b> kg<br>' +
             'Antes válvula: <b>' + (ultima.pressaoAntesValvula || "—") + '</b> kg &nbsp;·&nbsp; ' +
-            'Depois válvula: <b>' + (ultima.pressaoDepoisValvula || "—") + '</b> kg<br>' +
-            'Mangueira: <b>' + (ultima.pressaoMangueira || "—") + '</b> kg' +
-            ' &nbsp;·&nbsp; <span style="color:#8A8072;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
+            'Depois válvula: <b>' + (ultima.pressaoDepoisValvula || "—") + '</b> kg<br>';
+          (ultima.mangueira || []).forEach(function (ponto) {
+            html += escapeHtml(ponto.label) + ': <b>' + (ponto.valor || "—") + '</b> kg &nbsp;·&nbsp; ';
+          });
+          html = html.replace(/ &nbsp;·&nbsp; $/, '');
+          html += ' &nbsp;·&nbsp; <span style="color:#8A8072;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
           '</div>' +
           '<div style="margin-top:5px;">' +
             '<button class="del-btn" data-editar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;">✏️ Editar</button> ' +
@@ -4059,6 +4134,15 @@
     el.innerHTML = html;
     el.querySelectorAll("[data-cultura-pressao]").forEach(function (b) {
       b.addEventListener("click", function () { pressaoCulturaAtiva = b.getAttribute("data-cultura-pressao"); renderPressaoIdeal(); });
+    });
+    el.querySelectorAll("[data-abrir-setor]").forEach(function (b) {
+      b.addEventListener("click", function () { abrirModalPressaoSetor_(b.getAttribute("data-abrir-setor")); });
+    });
+    el.querySelectorAll("[data-editar-setor]").forEach(function (b) {
+      b.addEventListener("click", function (e) { e.stopPropagation(); editarPressaoSetor_(b.getAttribute("data-editar-setor")); });
+    });
+    el.querySelectorAll("[data-apagar-setor]").forEach(function (b) {
+      b.addEventListener("click", function (e) { e.stopPropagation(); apagarPressaoSetor_(b.getAttribute("data-apagar-setor")); });
     });
     el.querySelectorAll("[data-abrir-leitura]").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -4081,32 +4165,89 @@
     document.getElementById("btn-admin-pressao").addEventListener("click", abrirConfigPressao_);
   }
 
-  var editingLeituraId = null, leituraSetorAtual = null, leituraValvulaAtual = null, cantoSelecionado = null;
-  function marcarCantoBotoes_() {
-    document.querySelectorAll(".pressao-canto-btn").forEach(function (b) {
-      var ativo = b.getAttribute("data-canto") === cantoSelecionado;
-      b.style.background = ativo ? "#4C7C59" : "";
-      b.style.color = ativo ? "#fff" : "";
-      b.style.fontWeight = ativo ? "700" : "";
-    });
+  // ---- Modal de Pressão do SETOR (Inversor + Depois do Filtro) ----
+  var editingPressaoSetorId = null, pressaoSetorAtual = null;
+  function abrirModalPressaoSetor_(setor) {
+    editingPressaoSetorId = null;
+    pressaoSetorAtual = setor;
+    document.getElementById("pressao-setor-modal-title").textContent = "Pressão do Setor " + setor;
+    document.getElementById("pressao-setor-data-input").value = todayStr();
+    document.getElementById("pressao-setor-inversor-input").value = "";
+    document.getElementById("pressao-setor-depois-filtro-input").value = "";
+    document.getElementById("pressao-setor-observacao-input").value = "";
+    document.getElementById("btn-save-pressao-setor").textContent = "Salvar";
+    document.getElementById("modal-pressao-setor-overlay").classList.add("active");
   }
-  function limparCamposModalPressao_() {
-    document.getElementById("pressao-data-input").value = todayStr();
-    document.getElementById("pressao-inversor-input").value = "";
-    document.getElementById("pressao-depois-filtro-input").value = "";
-    document.getElementById("pressao-antes-valvula-input").value = "";
-    document.getElementById("pressao-depois-valvula-input").value = "";
-    document.getElementById("pressao-mangueira-input").value = "";
-    document.getElementById("pressao-observacao-input").value = "";
-    cantoSelecionado = null;
-    marcarCantoBotoes_();
+  function editarPressaoSetor_(id) {
+    var r = pressaoSetorRecords.find(function (x) { return x.id === id; });
+    if (!r) return;
+    editingPressaoSetorId = id;
+    pressaoSetorAtual = r.setor;
+    document.getElementById("pressao-setor-modal-title").textContent = "Pressão do Setor " + r.setor + " (editando)";
+    document.getElementById("pressao-setor-data-input").value = r.data;
+    document.getElementById("pressao-setor-inversor-input").value = r.pressaoInversor || "";
+    document.getElementById("pressao-setor-depois-filtro-input").value = r.pressaoDepoisFiltro || "";
+    document.getElementById("pressao-setor-observacao-input").value = r.observacao || "";
+    document.getElementById("btn-save-pressao-setor").textContent = "Salvar Alteração";
+    document.getElementById("modal-pressao-setor-overlay").classList.add("active");
+  }
+  function apagarPressaoSetor_(id) {
+    if (!confirm("Excluir essa leitura do setor?")) return;
+    var senha = prompt("Senha de administrador:");
+    if (senha === null) return;
+    postToBackend({ action: "verificar_admin", adminToken: senha }).then(function (res) {
+      if (res && res.ok) { apagarPressaoSetorFirestore_(id); showToast("Excluído."); }
+      else showToast((res && res.error) || "Senha incorreta.");
+    }).catch(function () { showToast("Erro de conexão."); });
+  }
+  function fecharModalPressaoSetor_() {
+    document.getElementById("modal-pressao-setor-overlay").classList.remove("active");
+    editingPressaoSetorId = null;
+    try { if (document.getElementById("tab-pressao").classList.contains("active")) renderPressaoIdeal(); } catch (e) {}
+  }
+  function salvarPressaoSetor_() {
+    var data = document.getElementById("pressao-setor-data-input").value || todayStr();
+    var inversor = document.getElementById("pressao-setor-inversor-input").value.trim();
+    var depoisFiltro = document.getElementById("pressao-setor-depois-filtro-input").value.trim();
+    var obs = document.getElementById("pressao-setor-observacao-input").value.trim();
+    if (!inversor && !depoisFiltro) { showToast("Preencha ao menos um valor."); return; }
+    var campos = { data: data, pressaoInversor: inversor, pressaoDepoisFiltro: depoisFiltro, observacao: obs, excluido: false };
+    var idAlvo, ehNovo;
+    if (editingPressaoSetorId) { idAlvo = editingPressaoSetorId; ehNovo = false; }
+    else {
+      idAlvo = uid(); ehNovo = true;
+      campos.setor = pressaoSetorAtual;
+      campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
+    }
+    salvarPressaoSetorFirestore_(idAlvo, campos, ehNovo);
+    fecharModalPressaoSetor_();
+    showToast(ehNovo ? "Pressão do setor registrada." : "Atualizado.");
+  }
+
+  var editingLeituraId = null, leituraSetorAtual = null, leituraValvulaAtual = null;
+  function construirCamposMangueira_(setor, valoresExistentes) {
+    var item = currentValvulasPorSetor.find(function (i) { return i.setor === setor; });
+    var labels = (item && item.labelsMangueira && item.labelsMangueira.length) ? item.labelsMangueira : ["Ponto 1", "Ponto 2"];
+    var html = "";
+    labels.forEach(function (label, i) {
+      var valorAtual = (valoresExistentes && valoresExistentes[i]) ? valoresExistentes[i].valor : "";
+      html += '<div class="field">' +
+        '<span class="field-label">Mangueira — ' + escapeHtml(label) + ' (kg)</span>' +
+        '<input type="number" step="0.1" class="pressao-mangueira-ponto-input" data-label="' + escapeHtml(label) + '" value="' + escapeHtml(valorAtual) + '" placeholder="Ex.: 1,5">' +
+      '</div>';
+    });
+    document.getElementById("pressao-mangueira-campos").innerHTML = html;
   }
   function abrirModalLeituraPressao_(setor, valvula) {
     editingLeituraId = null;
     leituraSetorAtual = setor; leituraValvulaAtual = valvula;
     document.getElementById("pressao-modal-title").textContent = setor + " · " + valvula;
     document.getElementById("pressao-modal-meta").textContent = "Nova leitura - escolha a data se não for de hoje.";
-    limparCamposModalPressao_();
+    document.getElementById("pressao-data-input").value = todayStr();
+    document.getElementById("pressao-antes-valvula-input").value = "";
+    document.getElementById("pressao-depois-valvula-input").value = "";
+    document.getElementById("pressao-observacao-input").value = "";
+    construirCamposMangueira_(setor, null);
     document.getElementById("btn-save-pressao").textContent = "Salvar Leitura";
     document.getElementById("modal-pressao-overlay").classList.add("active");
   }
@@ -4118,14 +4259,10 @@
     document.getElementById("pressao-modal-title").textContent = r.setor + " · " + r.valvula + " (editando)";
     document.getElementById("pressao-modal-meta").textContent = "Editando a leitura de " + fmtDate(r.data) + ".";
     document.getElementById("pressao-data-input").value = r.data;
-    document.getElementById("pressao-inversor-input").value = r.pressaoInversor || "";
-    document.getElementById("pressao-depois-filtro-input").value = r.pressaoDepoisFiltro || "";
     document.getElementById("pressao-antes-valvula-input").value = r.pressaoAntesValvula || "";
     document.getElementById("pressao-depois-valvula-input").value = r.pressaoDepoisValvula || "";
-    document.getElementById("pressao-mangueira-input").value = r.pressaoMangueira || "";
     document.getElementById("pressao-observacao-input").value = r.observacao || "";
-    cantoSelecionado = r.canto || null;
-    marcarCantoBotoes_();
+    construirCamposMangueira_(r.setor, r.mangueira);
     document.getElementById("btn-save-pressao").textContent = "Salvar Alteração";
     document.getElementById("modal-pressao-overlay").classList.add("active");
   }
@@ -4151,21 +4288,21 @@
   }
   function salvarLeituraPressao_() {
     var data = document.getElementById("pressao-data-input").value || todayStr();
-    var inversor = document.getElementById("pressao-inversor-input").value.trim();
-    var depoisFiltro = document.getElementById("pressao-depois-filtro-input").value.trim();
     var antesValvula = document.getElementById("pressao-antes-valvula-input").value.trim();
     var depoisValvula = document.getElementById("pressao-depois-valvula-input").value.trim();
-    var mangueira = document.getElementById("pressao-mangueira-input").value.trim();
     var obs = document.getElementById("pressao-observacao-input").value.trim();
-    if (!inversor && !depoisFiltro && !antesValvula && !depoisValvula && !mangueira) {
+    var mangueira = [];
+    document.querySelectorAll(".pressao-mangueira-ponto-input").forEach(function (input) {
+      mangueira.push({ label: input.getAttribute("data-label"), valor: input.value.trim() });
+    });
+    var temAlgumaMangueira = mangueira.some(function (p) { return p.valor; });
+    if (!antesValvula && !depoisValvula && !temAlgumaMangueira) {
       showToast("Preencha ao menos uma das pressões.");
       return;
     }
     var campos = {
-      data: data, canto: cantoSelecionado || "",
-      pressaoInversor: inversor, pressaoDepoisFiltro: depoisFiltro,
-      pressaoAntesValvula: antesValvula, pressaoDepoisValvula: depoisValvula,
-      pressaoMangueira: mangueira, observacao: obs, excluido: false
+      data: data, pressaoAntesValvula: antesValvula, pressaoDepoisValvula: depoisValvula,
+      mangueira: mangueira, observacao: obs, excluido: false
     };
     var idAlvo, ehNovo;
     if (editingLeituraId) {
@@ -4180,15 +4317,11 @@
     showToast(ehNovo ? "Leitura registrada." : "Leitura atualizada.");
   }
 
-
   function abrirConfigPressao_() {
     var senha = prompt("Senha de administrador:");
     if (senha === null) return;
     document.getElementById("admin-valvulas-setor").value = currentValvulasPorSetor.map(function (v) {
-      return v.setor + " | " + v.valvulas.join(",");
-    }).join("\n");
-    document.getElementById("admin-metas-pressao").value = currentMetasPressao.map(function (m) {
-      return m.cultura + " | " + m.pressaoValvula + " | " + m.pressaoPontaMin + " | " + (m.pressaoInversor || 0);
+      return v.setor + " | " + v.valvulas.join(",") + " | " + (v.labelsMangueira || ["Ponto 1", "Ponto 2"]).join(";");
     }).join("\n");
     document.getElementById("admin-pressao-senha-oculta").value = senha;
     document.getElementById("modal-config-pressao-overlay").classList.add("active");
@@ -4199,22 +4332,19 @@
     var linhasValvulas = document.getElementById("admin-valvulas-setor").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
     var novasValvulas = linhasValvulas.map(function (l) {
       var partes = l.split("|").map(function (p) { return p.trim(); });
-      return { setor: partes[0], valvulas: (partes[1] || "").split(",").map(function (v) { return v.trim(); }).filter(function (v) { return v; }) };
+      var labels = (partes[2] || "Ponto 1;Ponto 2").split(";").map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+      return {
+        setor: partes[0],
+        valvulas: (partes[1] || "").split(",").map(function (v) { return v.trim(); }).filter(function (v) { return v; }),
+        labelsMangueira: labels.length ? labels : ["Ponto 1", "Ponto 2"]
+      };
     }).filter(function (v) { return v.setor && v.valvulas.length; });
 
-    var linhasMetas = document.getElementById("admin-metas-pressao").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
-    var novasMetas = linhasMetas.map(function (l) {
-      var partes = l.split("|").map(function (p) { return p.trim(); });
-      return { cultura: partes[0], pressaoValvula: parseFloat(partes[1]) || 0, pressaoPontaMin: parseFloat(partes[2]) || 0, pressaoInversor: parseFloat(partes[3]) || 0 };
-    }).filter(function (m) { return m.cultura; });
-
     if (!novasValvulas.length) { showToast("A lista de válvulas não pode ficar vazia."); return; }
-    postToBackend({ action: "update_pressao_config", adminToken: senha, valvulasPorSetor: novasValvulas, metasPressao: novasMetas }).then(function (res) {
+    postToBackend({ action: "update_pressao_config", adminToken: senha, valvulasPorSetor: novasValvulas, metasPressao: currentMetasPressao }).then(function (res) {
       if (res && res.ok) {
         currentValvulasPorSetor = res.valvulasPorSetor || novasValvulas;
-        currentMetasPressao = res.metasPressao || novasMetas;
         localStorage.setItem(VALVULAS_SETOR_CACHE_KEY, JSON.stringify(currentValvulasPorSetor));
-        localStorage.setItem(METAS_PRESSAO_CACHE_KEY, JSON.stringify(currentMetasPressao));
         fecharConfigPressao_();
         renderPressaoIdeal();
         showToast("Configuração salva.");
@@ -6543,6 +6673,7 @@
           iniciarListenerGerador_();
           iniciarListenerAnotacoes_();
           iniciarListenerPressao_();
+          iniciarListenerPressaoSetor_();
           iniciarListenerEscala_();
           iniciarListenerOcorrencias_();
         } else {
@@ -6664,8 +6795,10 @@
     document.getElementById("modal-pressao-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-pressao-overlay") fecharModalLeituraPressao_();
     });
-    document.querySelectorAll(".pressao-canto-btn").forEach(function (b) {
-      b.addEventListener("click", function () { cantoSelecionado = b.getAttribute("data-canto"); marcarCantoBotoes_(); });
+    document.getElementById("btn-close-pressao-setor").addEventListener("click", fecharModalPressaoSetor_);
+    document.getElementById("btn-save-pressao-setor").addEventListener("click", salvarPressaoSetor_);
+    document.getElementById("modal-pressao-setor-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-pressao-setor-overlay") fecharModalPressaoSetor_();
     });
     document.getElementById("btn-close-config-pressao").addEventListener("click", fecharConfigPressao_);
     document.getElementById("modal-config-pressao-overlay").addEventListener("click", function (e) {
