@@ -51,7 +51,7 @@ self.addEventListener('fetch', function (event) {
   // se estiver de fato offline.
   if (event.request.mode === 'navigate' || url.indexOf('index.html') > -1) {
     event.respondWith(
-      fetch(event.request).then(function (fresh) {
+      fetch(event.request, { cache: "no-store" }).then(function (fresh) {
         // event.waitUntil() é essencial aqui: sem ele, o navegador pode
         // encerrar o service worker assim que a resposta é entregue,
         // ANTES dessa gravação no cache terminar - aí a atualização nunca
