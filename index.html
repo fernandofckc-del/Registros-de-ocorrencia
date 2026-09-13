@@ -536,14 +536,40 @@
     <div class="modal-title" id="pressao-modal-title">Válvula</div>
     <div class="modal-sub" id="pressao-modal-meta">—</div>
     <div class="field">
-      <span class="field-label" id="pressao-valvula-label">Pressão na válvula (kg)</span>
-      <input id="pressao-valvula-input" type="number" step="0.1" placeholder="Ex.: 1,8">
+      <span class="field-label">Data da leitura</span>
+      <input id="pressao-data-input" type="date">
     </div>
-    <div class="field" id="pressao-ponta-field">
-      <span class="field-label">Pressão na ponta da linha (kg) — opcional</span>
-      <input id="pressao-ponta-input" type="number" step="0.1" placeholder="Ex.: 1,5">
+    <div class="field">
+      <span class="field-label">Canto do setor (opcional)</span>
+      <div id="pressao-canto-botoes" style="display:flex; gap:6px;">
+        <button type="button" class="del-btn pressao-canto-btn" data-canto="1" style="flex:1;">1</button>
+        <button type="button" class="del-btn pressao-canto-btn" data-canto="2" style="flex:1;">2</button>
+        <button type="button" class="del-btn pressao-canto-btn" data-canto="3" style="flex:1;">3</button>
+        <button type="button" class="del-btn pressao-canto-btn" data-canto="4" style="flex:1;">4</button>
+      </div>
     </div>
-    <div id="pressao-avaliacao" style="font-size:12.5px;margin-bottom:10px;"></div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 10px;">
+      <div class="field">
+        <span class="field-label">Pressão no inversor (kg)</span>
+        <input id="pressao-inversor-input" type="number" step="0.1" placeholder="Ex.: 6,0">
+      </div>
+      <div class="field">
+        <span class="field-label">Depois do filtro (kg)</span>
+        <input id="pressao-depois-filtro-input" type="number" step="0.1" placeholder="Ex.: 5,5">
+      </div>
+      <div class="field">
+        <span class="field-label">Antes da válvula (kg)</span>
+        <input id="pressao-antes-valvula-input" type="number" step="0.1" placeholder="Ex.: 2,0">
+      </div>
+      <div class="field">
+        <span class="field-label">Depois da válvula (kg)</span>
+        <input id="pressao-depois-valvula-input" type="number" step="0.1" placeholder="Ex.: 1,8">
+      </div>
+    </div>
+    <div class="field">
+      <span class="field-label">Pressão na mangueira (kg)</span>
+      <input id="pressao-mangueira-input" type="number" step="0.1" placeholder="Ex.: 1,5">
+    </div>
     <div class="field">
       <span class="field-label">Observação (opcional)</span>
       <textarea id="pressao-observacao-input" placeholder="Algo a registrar sobre essa leitura"></textarea>
@@ -880,7 +906,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v80';
+  var APP_CACHE_NAME = 'registro-irrigacao-v82';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1470,9 +1496,16 @@
         var d = doc.data();
         if (d.excluido) return;
         novos.push({
-          id: doc.id, data: d.data, setor: d.setor, valvula: d.valvula,
-          pressaoValvula: d.pressaoValvula !== undefined ? d.pressaoValvula : "",
-          pressaoPonta: d.pressaoPonta !== undefined ? d.pressaoPonta : "",
+          id: doc.id, data: d.data, setor: d.setor, valvula: d.valvula, canto: d.canto || "",
+          pressaoInversor: d.pressaoInversor !== undefined ? d.pressaoInversor : "",
+          pressaoDepoisFiltro: d.pressaoDepoisFiltro !== undefined ? d.pressaoDepoisFiltro : "",
+          pressaoAntesValvula: d.pressaoAntesValvula !== undefined ? d.pressaoAntesValvula : "",
+          pressaoDepoisValvula: d.pressaoDepoisValvula !== undefined ? d.pressaoDepoisValvula : "",
+          pressaoMangueira: d.pressaoMangueira !== undefined ? d.pressaoMangueira : "",
+          // Leituras registradas ANTES dessa mudança guardaram só esses 2
+          // campos - preserva pra continuar aparecendo, em vez de sumir.
+          pressaoValvulaAntiga: d.pressaoValvula !== undefined ? d.pressaoValvula : "",
+          pressaoPontaAntiga: d.pressaoPonta !== undefined ? d.pressaoPonta : "",
           responsavel: d.responsavel || "", observacao: d.observacao || "",
           _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
           _pendingDelete: false
@@ -3948,48 +3981,12 @@
     apagarGeradorFirestore_(id);
   }
 
+  var pressaoCulturaAtiva = null;
   function renderPressaoIdeal() {
     var el = document.getElementById("pressao-content");
-    var html = '<div class="modal-sub" style="margin-bottom:12px;">Meta de pressão por cultura, e a última leitura registrada em cada válvula. Toque numa válvula pra registrar uma nova medição.</div>';
-
-    // metas no topo, sempre visíveis
-    html += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
-    currentMetasPressao.forEach(function (m) {
-      html += '<div style="flex:1;background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px;text-align:center;">' +
-        '<div style="font-family:\'Oswald\',sans-serif;font-size:13px;font-weight:600;">' + escapeHtml(m.cultura) + '</div>' +
-        '<div style="font-size:11px;color:#6B6153;margin-top:4px;">Válvula: <b>' + m.pressaoValvula + ' kg</b></div>' +
-        '<div style="font-size:11px;color:#6B6153;">Ponta mín.: <b>' + m.pressaoPontaMin + ' kg</b></div>' +
-      '</div>';
-    });
-    html += '</div>';
-
-    html += '<div class="card" style="margin-bottom:14px;"><h3 class="panel-title">🔧 Pressão do Inversor de Frequência</h3>';
-    currentMetasPressao.forEach(function (m) {
-      var ultimaInv = getUltimaLeituraValvula_(INVERSOR_SETOR_KEY, m.cultura);
-      var corInv = "#6B6153";
-      if (ultimaInv && ultimaInv.pressaoValvula !== "") {
-        corInv = Math.abs(parseFloat(ultimaInv.pressaoValvula) - m.pressaoInversor) <= 0.3 + 0.001 ? "#2F6B1F" : "#B4442E";
-      }
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-top:1px solid #EFEAD9;">' +
-        '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-inversor="' + escapeHtml(m.cultura) + '">' + escapeHtml(m.cultura) + ' <span style="font-weight:400;color:#8A8072;">(meta ' + m.pressaoInversor + ' kg)</span></span>';
-      if (ultimaInv) {
-        html += '<span style="font-size:11.5px;text-align:right;" data-abrir-inversor="' + escapeHtml(m.cultura) + '">' +
-          '<span style="color:' + corInv + ';font-weight:700;">' + ultimaInv.pressaoValvula + ' kg</span>' +
-          '<br><span style="color:#8A8072;font-size:10px;">' + escapeHtml(fmtDate(ultimaInv.data)) + '</span>' +
-          '<br>' + syncBadgeHtml_(ultimaInv) +
-          '<br><button class="del-btn" data-editar-leitura="' + ultimaInv.id + '" style="font-size:10px;padding:2px 6px;margin-top:3px;">✏️ Editar</button> ' +
-          '<button class="del-btn" data-apagar-leitura="' + ultimaInv.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
-        '</span>';
-      } else {
-        html += '<span style="font-size:11px;color:#8A8072;cursor:pointer;" data-abrir-inversor="' + escapeHtml(m.cultura) + '">Nunca medida</span>';
-      }
-      html += '</div>';
-    });
-    html += '</div>';
 
     if (!currentValvulasPorSetor.length) {
-      html += '<div class="empty-state">Nenhum setor com válvulas cadastradas ainda. Configure em ⚙️ (admin).</div>';
-      el.innerHTML = html;
+      el.innerHTML = '<div class="empty-state">Nenhum setor com válvulas cadastradas ainda. Configure em ⚙️ (admin).</div>';
       return;
     }
 
@@ -4000,41 +3997,68 @@
       if (!porCultura[cultura]) porCultura[cultura] = [];
       porCultura[cultura].push(item);
     });
+    var culturas = Object.keys(porCultura);
+    if (!pressaoCulturaAtiva || culturas.indexOf(pressaoCulturaAtiva) === -1) pressaoCulturaAtiva = culturas[0];
 
-    Object.keys(porCultura).forEach(function (cultura) {
-      var meta = getMetaCultura_(cultura);
-      html += '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:10.5px;letter-spacing:.06em;color:#6B6153;text-transform:uppercase;margin:14px 0 8px;">' + escapeHtml(cultura) + '</div>';
-      porCultura[cultura].forEach(function (item) {
-        html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
-          '<div style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">' + escapeHtml(item.setor) + '</div>';
-        item.valvulas.forEach(function (valv) {
-          var ultima = getUltimaLeituraValvula_(item.setor, valv);
-          var avalia = ultima ? avaliarLeituraPressao_(ultima.pressaoValvula, ultima.pressaoPonta, meta) : { corValvula: "#C9BC9C", corPonta: "#C9BC9C" };
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-top:1px solid #EFEAD9;">' +
-            '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">' + escapeHtml(valv) + '</span>';
-          if (ultima) {
-            html += '<span style="font-size:11.5px;text-align:right;">' +
-              '<span style="color:' + avalia.corValvula + ';font-weight:700;">' + (ultima.pressaoValvula || "—") + ' kg</span>' +
-              (ultima.pressaoPonta ? ' <span style="color:#8A8072;">· ponta </span><span style="color:' + avalia.corPonta + ';font-weight:700;">' + ultima.pressaoPonta + ' kg</span>' : '') +
-              '<br><span style="color:#8A8072;font-size:10px;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
-              '<br>' + syncBadgeHtml_(ultima) +
-              '<br><button class="del-btn" data-editar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;margin-top:3px;">✏️ Editar</button> ' +
-              '<button class="del-btn" data-apagar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
-            '</span>';
-          } else {
-            html += '<span style="font-size:11px;color:#8A8072;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">Nunca medida</span>';
+    var html = '<div class="modal-sub" style="margin-bottom:12px;">Toque numa válvula pra registrar uma nova medição - agora com 5 pontos de pressão por válvula.</div>';
+
+    // abas por cultura
+    html += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
+    culturas.forEach(function (cultura) {
+      var ativa = cultura === pressaoCulturaAtiva;
+      html += '<button class="del-btn" data-cultura-pressao="' + escapeHtml(cultura) + '" style="flex:1;' +
+        (ativa ? 'background:#4C7C59;color:#fff;font-weight:700;' : '') + '">' + escapeHtml(cultura) + '</button>';
+    });
+    html += '</div>';
+
+    porCultura[pressaoCulturaAtiva].forEach(function (item) {
+      html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
+        '<div style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">' + escapeHtml(item.setor) + '</div>';
+      item.valvulas.forEach(function (valv) {
+        var ultima = getUltimaLeituraValvula_(item.setor, valv);
+        html += '<div style="padding:8px 6px;border-top:1px solid #EFEAD9;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<span style="font-size:12.5px;font-weight:700;cursor:pointer;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">' +
+            escapeHtml(valv) + (ultima && ultima.canto ? ' <span style="font-weight:400;color:#8A8072;font-size:10.5px;">(canto ' + escapeHtml(ultima.canto) + ')</span>' : '') +
+          '</span>';
+        if (ultima) {
+          html += '<span style="text-align:right;">' + syncBadgeHtml_(ultima) + '</span>';
+        }
+        html += '</div>';
+        if (ultima) {
+          var temFormatoAntigo = ultima.pressaoValvulaAntiga || ultima.pressaoPontaAntiga;
+          html += '<div style="font-size:11px;color:#4A4136;margin-top:4px;line-height:1.7;">';
+          if (temFormatoAntigo) {
+            html += '<span style="color:#8A5A44;">Leitura antiga (formato anterior):</span> ' +
+              'Válvula: <b>' + (ultima.pressaoValvulaAntiga || "—") + '</b> kg' +
+              (ultima.pressaoPontaAntiga ? ' &nbsp;·&nbsp; Ponta: <b>' + ultima.pressaoPontaAntiga + '</b> kg' : '') +
+              '<br>';
           }
-          html += '</div>';
-        });
+          html +=
+            'Inversor: <b>' + (ultima.pressaoInversor || "—") + '</b> kg &nbsp;·&nbsp; ' +
+            'Depois filtro: <b>' + (ultima.pressaoDepoisFiltro || "—") + '</b> kg<br>' +
+            'Antes válvula: <b>' + (ultima.pressaoAntesValvula || "—") + '</b> kg &nbsp;·&nbsp; ' +
+            'Depois válvula: <b>' + (ultima.pressaoDepoisValvula || "—") + '</b> kg<br>' +
+            'Mangueira: <b>' + (ultima.pressaoMangueira || "—") + '</b> kg' +
+            ' &nbsp;·&nbsp; <span style="color:#8A8072;">' + escapeHtml(fmtDate(ultima.data)) + '</span>' +
+          '</div>' +
+          '<div style="margin-top:5px;">' +
+            '<button class="del-btn" data-editar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;">✏️ Editar</button> ' +
+            '<button class="del-btn" data-apagar-leitura="' + ultima.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
+          '</div>';
+        } else {
+          html += '<div style="font-size:11px;color:#8A8072;cursor:pointer;margin-top:2px;" data-abrir-leitura="' + escapeHtml(item.setor) + '|' + escapeHtml(valv) + '">Nunca medida</div>';
+        }
         html += '</div>';
       });
+      html += '</div>';
     });
 
     html += '<button class="photo-btn" id="btn-admin-pressao" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Válvulas e Metas (admin)</button>';
 
     el.innerHTML = html;
-    el.querySelectorAll("[data-abrir-inversor]").forEach(function (b) {
-      b.addEventListener("click", function () { abrirModalInversor_(b.getAttribute("data-abrir-inversor")); });
+    el.querySelectorAll("[data-cultura-pressao]").forEach(function (b) {
+      b.addEventListener("click", function () { pressaoCulturaAtiva = b.getAttribute("data-cultura-pressao"); renderPressaoIdeal(); });
     });
     el.querySelectorAll("[data-abrir-leitura]").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -4057,42 +4081,32 @@
     document.getElementById("btn-admin-pressao").addEventListener("click", abrirConfigPressao_);
   }
 
-  var editingLeituraId = null, leituraSetorAtual = null, leituraValvulaAtual = null;
-  var INVERSOR_SETOR_KEY = "__INVERSOR__";
-  var modoInversorAtual = false;
+  var editingLeituraId = null, leituraSetorAtual = null, leituraValvulaAtual = null, cantoSelecionado = null;
+  function marcarCantoBotoes_() {
+    document.querySelectorAll(".pressao-canto-btn").forEach(function (b) {
+      var ativo = b.getAttribute("data-canto") === cantoSelecionado;
+      b.style.background = ativo ? "#4C7C59" : "";
+      b.style.color = ativo ? "#fff" : "";
+      b.style.fontWeight = ativo ? "700" : "";
+    });
+  }
+  function limparCamposModalPressao_() {
+    document.getElementById("pressao-data-input").value = todayStr();
+    document.getElementById("pressao-inversor-input").value = "";
+    document.getElementById("pressao-depois-filtro-input").value = "";
+    document.getElementById("pressao-antes-valvula-input").value = "";
+    document.getElementById("pressao-depois-valvula-input").value = "";
+    document.getElementById("pressao-mangueira-input").value = "";
+    document.getElementById("pressao-observacao-input").value = "";
+    cantoSelecionado = null;
+    marcarCantoBotoes_();
+  }
   function abrirModalLeituraPressao_(setor, valvula) {
     editingLeituraId = null;
-    modoInversorAtual = false;
     leituraSetorAtual = setor; leituraValvulaAtual = valvula;
-    var meta = getMetaCultura_(getCulturaDoSetorPressao_(setor));
-    document.getElementById("pressao-valvula-label").textContent = "Pressão na válvula (kg)";
-    document.getElementById("pressao-ponta-field").style.display = "block";
     document.getElementById("pressao-modal-title").textContent = setor + " · " + valvula;
-    document.getElementById("pressao-modal-meta").textContent = meta
-      ? "Meta: " + meta.pressaoValvula + " kg na válvula · mínimo " + meta.pressaoPontaMin + " kg na ponta"
-      : "Sem meta configurada pra essa cultura.";
-    document.getElementById("pressao-valvula-input").value = "";
-    document.getElementById("pressao-ponta-input").value = "";
-    document.getElementById("pressao-observacao-input").value = "";
-    document.getElementById("pressao-avaliacao").textContent = "";
-    document.getElementById("btn-save-pressao").textContent = "Salvar Leitura";
-    document.getElementById("modal-pressao-overlay").classList.add("active");
-  }
-  function abrirModalInversor_(cultura) {
-    editingLeituraId = null;
-    modoInversorAtual = true;
-    leituraSetorAtual = INVERSOR_SETOR_KEY; leituraValvulaAtual = cultura;
-    var meta = getMetaCultura_(cultura);
-    document.getElementById("pressao-valvula-label").textContent = "Pressão do inversor (kg)";
-    document.getElementById("pressao-ponta-field").style.display = "none";
-    document.getElementById("pressao-modal-title").textContent = "Inversor · " + cultura;
-    document.getElementById("pressao-modal-meta").textContent = meta
-      ? "Meta: " + meta.pressaoInversor + " kg de trabalho"
-      : "Sem meta configurada pra essa cultura.";
-    document.getElementById("pressao-valvula-input").value = "";
-    document.getElementById("pressao-ponta-input").value = "";
-    document.getElementById("pressao-observacao-input").value = "";
-    document.getElementById("pressao-avaliacao").textContent = "";
+    document.getElementById("pressao-modal-meta").textContent = "Nova leitura - escolha a data se não for de hoje.";
+    limparCamposModalPressao_();
     document.getElementById("btn-save-pressao").textContent = "Salvar Leitura";
     document.getElementById("modal-pressao-overlay").classList.add("active");
   }
@@ -4100,27 +4114,19 @@
     var r = leiturasPressaoRecords.find(function (x) { return x.id === id; });
     if (!r) return;
     editingLeituraId = id;
-    modoInversorAtual = (r.setor === INVERSOR_SETOR_KEY);
     leituraSetorAtual = r.setor; leituraValvulaAtual = r.valvula;
-    document.getElementById("pressao-ponta-field").style.display = modoInversorAtual ? "none" : "block";
-    if (modoInversorAtual) {
-      var metaInv = getMetaCultura_(r.valvula);
-      document.getElementById("pressao-valvula-label").textContent = "Pressão do inversor (kg)";
-      document.getElementById("pressao-modal-title").textContent = "Inversor · " + r.valvula + " (editando " + fmtDate(r.data) + ")";
-      document.getElementById("pressao-modal-meta").textContent = metaInv ? "Meta: " + metaInv.pressaoInversor + " kg de trabalho" : "Sem meta configurada.";
-    } else {
-      var meta = getMetaCultura_(getCulturaDoSetorPressao_(r.setor));
-      document.getElementById("pressao-valvula-label").textContent = "Pressão na válvula (kg)";
-      document.getElementById("pressao-modal-title").textContent = r.setor + " · " + r.valvula + " (editando " + fmtDate(r.data) + ")";
-      document.getElementById("pressao-modal-meta").textContent = meta
-        ? "Meta: " + meta.pressaoValvula + " kg na válvula · mínimo " + meta.pressaoPontaMin + " kg na ponta"
-        : "Sem meta configurada pra essa cultura.";
-    }
-    document.getElementById("pressao-valvula-input").value = r.pressaoValvula || "";
-    document.getElementById("pressao-ponta-input").value = r.pressaoPonta || "";
+    document.getElementById("pressao-modal-title").textContent = r.setor + " · " + r.valvula + " (editando)";
+    document.getElementById("pressao-modal-meta").textContent = "Editando a leitura de " + fmtDate(r.data) + ".";
+    document.getElementById("pressao-data-input").value = r.data;
+    document.getElementById("pressao-inversor-input").value = r.pressaoInversor || "";
+    document.getElementById("pressao-depois-filtro-input").value = r.pressaoDepoisFiltro || "";
+    document.getElementById("pressao-antes-valvula-input").value = r.pressaoAntesValvula || "";
+    document.getElementById("pressao-depois-valvula-input").value = r.pressaoDepoisValvula || "";
+    document.getElementById("pressao-mangueira-input").value = r.pressaoMangueira || "";
     document.getElementById("pressao-observacao-input").value = r.observacao || "";
+    cantoSelecionado = r.canto || null;
+    marcarCantoBotoes_();
     document.getElementById("btn-save-pressao").textContent = "Salvar Alteração";
-    atualizarAvaliacaoPressao_();
     document.getElementById("modal-pressao-overlay").classList.add("active");
   }
   function apagarLeituraPressao_(id) {
@@ -4143,45 +4149,37 @@
     editingLeituraId = null;
     try { if (document.getElementById("tab-pressao").classList.contains("active")) renderPressaoIdeal(); } catch (e) {}
   }
-  function atualizarAvaliacaoPressao_() {
-    var el = document.getElementById("pressao-avaliacao");
-    if (modoInversorAtual) {
-      var metaInv = getMetaCultura_(leituraValvulaAtual);
-      var pvInv = document.getElementById("pressao-valvula-input").value;
-      if (!metaInv || !pvInv) { el.innerHTML = ""; return; }
-      var corInv = Math.abs(parseFloat(pvInv) - metaInv.pressaoInversor) <= 0.3 + 0.001 ? "#2F6B1F" : "#B4442E";
-      el.innerHTML = '<span style="color:' + corInv + ';font-weight:700;">' + (corInv === "#2F6B1F" ? "Dentro da meta ✓" : "Fora da meta ✗") + '</span>';
+  function salvarLeituraPressao_() {
+    var data = document.getElementById("pressao-data-input").value || todayStr();
+    var inversor = document.getElementById("pressao-inversor-input").value.trim();
+    var depoisFiltro = document.getElementById("pressao-depois-filtro-input").value.trim();
+    var antesValvula = document.getElementById("pressao-antes-valvula-input").value.trim();
+    var depoisValvula = document.getElementById("pressao-depois-valvula-input").value.trim();
+    var mangueira = document.getElementById("pressao-mangueira-input").value.trim();
+    var obs = document.getElementById("pressao-observacao-input").value.trim();
+    if (!inversor && !depoisFiltro && !antesValvula && !depoisValvula && !mangueira) {
+      showToast("Preencha ao menos uma das pressões.");
       return;
     }
-    var meta = getMetaCultura_(getCulturaDoSetorPressao_(leituraSetorAtual));
-    if (!meta) { el.textContent = ""; return; }
-    var pv = document.getElementById("pressao-valvula-input").value;
-    var pp = document.getElementById("pressao-ponta-input").value;
-    if (!pv && !pp) { el.innerHTML = ""; return; }
-    var avalia = avaliarLeituraPressao_(pv, pp, meta);
-    var partes = [];
-    if (pv) partes.push('<span style="color:' + avalia.corValvula + ';font-weight:700;">Válvula ' + (avalia.corValvula === "#2F6B1F" ? "dentro da meta ✓" : "fora da meta ✗") + '</span>');
-    if (pp) partes.push('<span style="color:' + avalia.corPonta + ';font-weight:700;">Ponta ' + (avalia.corPonta === "#2F6B1F" ? "OK ✓" : "abaixo do mínimo ✗") + '</span>');
-    el.innerHTML = partes.join(" · ");
-  }
-  function salvarLeituraPressao_() {
-    var pv = document.getElementById("pressao-valvula-input").value.trim();
-    var pp = document.getElementById("pressao-ponta-input").value.trim();
-    var obs = document.getElementById("pressao-observacao-input").value.trim();
-    if (!pv) { showToast("Preencha a pressão medida."); return; }
-    var campos = { pressaoValvula: pv, pressaoPonta: pp, observacao: obs, excluido: false };
+    var campos = {
+      data: data, canto: cantoSelecionado || "",
+      pressaoInversor: inversor, pressaoDepoisFiltro: depoisFiltro,
+      pressaoAntesValvula: antesValvula, pressaoDepoisValvula: depoisValvula,
+      pressaoMangueira: mangueira, observacao: obs, excluido: false
+    };
     var idAlvo, ehNovo;
     if (editingLeituraId) {
       idAlvo = editingLeituraId; ehNovo = false;
     } else {
       idAlvo = uid(); ehNovo = true;
-      campos.data = todayStr(); campos.setor = leituraSetorAtual; campos.valvula = leituraValvulaAtual;
+      campos.setor = leituraSetorAtual; campos.valvula = leituraValvulaAtual;
       campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
     }
     salvarPressaoFirestore_(idAlvo, campos, ehNovo);
     fecharModalLeituraPressao_();
-    showToast(editingLeituraId ? "Leitura atualizada." : "Leitura registrada.");
+    showToast(ehNovo ? "Leitura registrada." : "Leitura atualizada.");
   }
+
 
   function abrirConfigPressao_() {
     var senha = prompt("Senha de administrador:");
@@ -6666,8 +6664,9 @@
     document.getElementById("modal-pressao-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-pressao-overlay") fecharModalLeituraPressao_();
     });
-    document.getElementById("pressao-valvula-input").addEventListener("input", atualizarAvaliacaoPressao_);
-    document.getElementById("pressao-ponta-input").addEventListener("input", atualizarAvaliacaoPressao_);
+    document.querySelectorAll(".pressao-canto-btn").forEach(function (b) {
+      b.addEventListener("click", function () { cantoSelecionado = b.getAttribute("data-canto"); marcarCantoBotoes_(); });
+    });
     document.getElementById("btn-close-config-pressao").addEventListener("click", fecharConfigPressao_);
     document.getElementById("modal-config-pressao-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-config-pressao-overlay") fecharConfigPressao_();
