@@ -963,7 +963,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v84';
+  var APP_CACHE_NAME = 'registro-irrigacao-v86';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4188,6 +4188,16 @@
       b.addEventListener("click", function () { selecionarAlarme_(b.getAttribute("data-selecionar-alarme")); });
     });
   }
+  var ICONES_BOTAO_ALARME = {
+    "OK": "✅", "CIMA": "⬆️", "BAIXO": "⬇️", "ESQUERDA": "⬅️", "DIREITA": "➡️", "GIRAR": "🔄", "MUDO": "🔇", "VOLTAR": "↩️"
+  };
+  function formatarPassoComIcone_(texto) {
+    var m = String(texto).match(/^\[([A-ZÇÃÁÂÉÍÓÚ]+)\]\s*(.*)$/);
+    if (m && ICONES_BOTAO_ALARME[m[1]]) {
+      return '<span style="display:inline-block;background:#EFE7D3;border-radius:5px;padding:1px 6px;margin-right:5px;font-size:13px;">' + ICONES_BOTAO_ALARME[m[1]] + '</span>' + escapeHtml(m[2]);
+    }
+    return escapeHtml(texto);
+  }
   function selecionarAlarme_(id) {
     var a = alarmesDeif.find(function (x) { return x.id === id; });
     if (!a) return;
@@ -4203,7 +4213,7 @@
       '<div style="font-size:12.5px;color:#4A4136;margin-top:6px;">' + escapeHtml(a.descricao) + '</div>' +
       '<div style="font-size:12px;font-weight:700;margin-top:10px;">Passo a passo:</div>' +
       '<ol style="font-size:12.5px;color:#4A4136;padding-left:18px;margin-top:4px;">' +
-        a.passos.map(function (p) { return '<li style="margin-bottom:4px;">' + escapeHtml(p) + '</li>'; }).join("") +
+        a.passos.map(function (p) { return '<li style="margin-bottom:6px;">' + formatarPassoComIcone_(p) + '</li>'; }).join("") +
       '</ol>' +
     '</div>';
     document.getElementById("alarme-detalhe-conteudo").innerHTML = html;
