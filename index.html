@@ -511,6 +511,57 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-alarme-overlay">
+  <div class="modal-box" style="position:relative; display:flex; flex-direction:column; padding:0; max-height:85vh; max-height:85dvh;">
+    <div style="overflow-y:auto; padding:20px 18px 6px;">
+      <button class="modal-close" id="btn-close-alarme">✕</button>
+      <div class="modal-title">🚨 Alarme do Gerador</div>
+      <div class="modal-sub">Digita o código ou nome do alarme que apareceu no painel DEIF.</div>
+      <div class="field">
+        <span class="field-label">Código ou nome do alarme</span>
+        <input id="alarme-busca-input" type="text" placeholder="Ex.: BB f< ou Emergency stop" autocomplete="off">
+      </div>
+      <div id="alarme-resultados-busca"></div>
+      <div id="alarme-detalhe" style="display:none;">
+        <div id="alarme-detalhe-conteudo"></div>
+        <div class="field">
+          <span class="field-label">Observação (opcional)</span>
+          <textarea id="alarme-observacao" placeholder="O que você fez pra resolver"></textarea>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <input type="checkbox" id="alarme-resolvido-check" style="width:auto;"> Já resolvido
+        </label>
+        <div class="photo-block">
+          <span class="field-label">Foto do painel (opcional)</span>
+          <input id="alarme-foto-input-camera" type="file" accept="image/*" capture="environment" style="display:none">
+          <input id="alarme-foto-input-galeria" type="file" accept="image/*" style="display:none">
+          <div id="alarme-foto-preview" style="margin:6px 0;"></div>
+          <div style="display:flex; gap:8px;">
+            <button class="photo-btn" id="btn-alarme-foto-camera" style="flex:1;">📷 Tirar Foto</button>
+            <button class="photo-btn" id="btn-alarme-foto-galeria" style="flex:1;background:#8A5A44;">🖼️ Da Galeria</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 18px 18px; border-top:1px solid #E5DFC9; background:#FFFDF8; flex-shrink:0;">
+      <button class="save-btn" id="btn-registrar-alarme" style="background:#B4442E;" disabled>Selecione um alarme acima</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-base-alarmes-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-base-alarmes">✕</button>
+    <div class="modal-title">🔒 Base de Alarmes DEIF (administrador)</div>
+    <div class="modal-sub">Formato JSON - um alarme por bloco, com "codigo", "nome", "descricao", "urgencia" ("bloqueia_partida" ou "aviso") e "passos" (lista numerada).</div>
+    <div class="field">
+      <textarea id="admin-base-alarmes" style="min-height:280px;font-family:'IBM Plex Mono',monospace;font-size:11px;" placeholder="Carregando..."></textarea>
+    </div>
+    <button class="photo-btn" id="btn-save-base-alarmes" style="background:#8A5A44">Salvar Base de Alarmes</button>
+    <div id="admin-base-alarmes-result" class="test-result"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-enviar-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-enviar">✕</button>
@@ -767,6 +818,12 @@
 
     <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
 
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🚨 Base de Alarmes do Gerador (administrador)</div>
+    <div class="modal-sub">Cadastra e edita os alarmes conhecidos do painel DEIF, com o passo a passo de cada um.</div>
+    <button class="photo-btn" id="btn-abrir-base-alarmes" style="background:#8A5A44">Editar Base de Alarmes</button>
+
     <div class="modal-title" style="font-size:15px;">🔥 Migração pro Firebase</div>
     <div class="modal-sub">Manutenção, Bombeamento e Rondas já usam o Firebase - eles começaram vazios. Esse botão traz o histórico antigo da planilha pra dentro, sem duplicar o que já estiver lá. Pode rodar mais de uma vez sem problema.</div>
     <button class="photo-btn" id="btn-importar-historico" style="background:#8A5A44">📥 Importar Histórico Antigo</button>
@@ -906,7 +963,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v83';
+  var APP_CACHE_NAME = 'registro-irrigacao-v84';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1634,6 +1691,107 @@
     if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
     db.collection("gerador").doc(id).update({ excluido: true }).catch(function (err) {
       console.error("[firebase] erro ao apagar gerador:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+
+  // ---- Base de Alarmes do Gerador (DEIF) - dicionário editável ----
+  var alarmesDeif = [];
+  var alarmesDeifListenerAtivo = false;
+  var ALARMES_DEIF_SEED = [
+    {
+      codigo: "BB f<", nome: "Busbar Frequency Low",
+      descricao: "Frequência do barramento (busbar) abaixo do valor mínimo configurado. Impede a partida do gerador (DG BLOCKED FOR START) como proteção.",
+      urgencia: "bloqueia_partida",
+      passos: [
+        "Verificar se há rede elétrica ou outro gerador conectado ao barramento no momento do alarme",
+        "Checar se a leitura de frequência (Val) faz sentido comparado ao Setpoint (Sp) — grandes desvios podem indicar sensor com defeito",
+        "Verificar conexões do transformador de frequência/sensor de medição",
+        "Se for oscilação momentânea que já normalizou, reconhecer o alarme com OK",
+        "Se persistir, investigar causa real antes de tentar nova partida (governador, carga, sincronismo)"
+      ]
+    },
+    {
+      codigo: "Emergency stop", nome: "Parada de Emergência Acionada",
+      descricao: "O botão físico de emergência (cogumelo vermelho) foi pressionado, cortando a partida/operação do gerador por segurança.",
+      urgencia: "bloqueia_partida",
+      passos: [
+        "Girar o botão vermelho de emergência no sentido horário até ele destravar e subir (soltar o botão)",
+        "Voltar para a tela principal de alarmes no controlador (sair de qualquer submenu, como Event log)",
+        "Selecionar o alarme de emergência na lista usando as setas",
+        "Apertar OK para reconhecer (ACK) o alarme",
+        "Se ainda tiver alarme sonoro, usar o botão de mudo/sino no painel",
+        "Confirmar que a mensagem 'DG BLOCKED FOR START' sumiu antes de tentar novo start"
+      ]
+    }
+  ];
+  function iniciarListenerAlarmesDeif_() {
+    if (alarmesDeifListenerAtivo || !db) return;
+    alarmesDeifListenerAtivo = true;
+    db.collection("alarmes_deif").onSnapshot(function (snapshot) {
+      if (snapshot.empty) {
+        // primeira vez que alguém usa - semeia a base inicial sozinho
+        ALARMES_DEIF_SEED.forEach(function (a) {
+          db.collection("alarmes_deif").doc(uid()).set(a).catch(function () {});
+        });
+        return;
+      }
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, codigo: d.codigo || "", nome: d.nome || "", descricao: d.descricao || "",
+          urgencia: d.urgencia || "aviso", passos: Array.isArray(d.passos) ? d.passos : []
+        });
+      });
+      novos.sort(function (a, b) { return a.codigo.localeCompare(b.codigo); });
+      alarmesDeif = novos;
+      try { if (document.getElementById("tab-gerador").classList.contains("active") && !algumModalAberto_()) renderGerador(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de alarmes DEIF:", err);
+    });
+  }
+
+  // ---- Histórico de Alarmes registrados (por ocorrência) ----
+  var geradorAlarmesRecords = [];
+  var geradorAlarmesListenerAtivo = false;
+  function iniciarListenerGeradorAlarmes_() {
+    if (geradorAlarmesListenerAtivo || !db) return;
+    geradorAlarmesListenerAtivo = true;
+    db.collection("gerador_alarmes").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, codigo: d.codigo || "", nome: d.nome || "", data: d.data, hora: d.hora || "",
+          resolvido: !!d.resolvido, observacao: d.observacao || "", foto: d.foto || "",
+          responsavel: d.responsavel || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites
+        });
+      });
+      novos.sort(function (a, b) { return String(b.data + b.hora).localeCompare(String(a.data + a.hora)); });
+      geradorAlarmesRecords = novos;
+      try { if (document.getElementById("tab-gerador").classList.contains("active") && !algumModalAberto_()) renderGerador(); } catch (e) {}
+    }, function (err) {
+      console.error("[firebase] erro no listener de histórico de alarmes:", err);
+    });
+  }
+  function salvarGeradorAlarmeFirestore_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return Promise.reject("sem firebase"); }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    return db.collection("gerador_alarmes").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar alarme:", err);
+      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      throw err;
+    });
+  }
+  function apagarGeradorAlarmeFirestore_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("gerador_alarmes").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar alarme:", err);
       showToast("Erro ao apagar - tenta de novo.");
     });
   }
@@ -3885,11 +4043,33 @@
     var html = '<div class="modal-sub" style="margin-bottom:12px;">Não precisa ser todo dia — registra quando for olhar o painel. O app calcula sozinho o que rodou/gastou/gerou desde a última leitura.</div>';
 
     html += '<button class="save-btn" id="btn-nova-leitura-gerador" style="background:#4C7C59;margin-top:0;">⛽ Nova Leitura do Gerador</button>';
+    html += '<button class="save-btn" id="btn-abrir-alarme" style="background:#B4442E;margin-top:8px;">🚨 Registrar Alarme</button>';
+
+    if (geradorAlarmesRecords.length) {
+      html += '<div class="card" style="margin-top:12px;"><h3 class="panel-title">🚨 Alarmes Registrados</h3>';
+      geradorAlarmesRecords.slice(0, 8).forEach(function (r) {
+        html += '<div style="padding:8px 0;border-bottom:1px solid #EFEAD9;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<span style="font-size:12.5px;font-weight:700;">' + escapeHtml(r.codigo) + '</span>' +
+          '<span style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;background:' + (r.resolvido ? "#DCEBD0;color:#2F5A1E" : "#FBEDE8;color:#8A2E2E") + ';">' + (r.resolvido ? "Resolvido" : "Em aberto") + '</span>' +
+          '</div>' +
+          '<div style="font-size:11px;color:#6B6153;margin-top:2px;">' + escapeHtml(r.nome) + ' · ' + escapeHtml(fmtDate(r.data)) + ' ' + escapeHtml(r.hora) + '</div>' +
+          (r.observacao ? '<div style="font-size:11.5px;color:#4A4136;margin-top:3px;">📝 ' + escapeHtml(r.observacao) + '</div>' : '') +
+          '<div style="margin-top:5px;">' +
+            syncBadgeHtml_(r) + ' ' +
+            (!r.resolvido ? '<button class="del-btn" data-resolver-alarme="' + r.id + '" style="font-size:10px;padding:2px 6px;">✅ Marcar Resolvido</button> ' : '') +
+            '<button class="del-btn" data-apagar-alarme="' + r.id + '" style="font-size:10px;padding:2px 6px;">🗑</button>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
 
     if (!ordenados.length) {
       html += '<div class="empty-state" style="margin-top:12px;">Nenhuma leitura registrada ainda.</div>';
       el.innerHTML = html;
       document.getElementById("btn-nova-leitura-gerador").addEventListener("click", function () { abrirModalGerador_(null); });
+      ligarBotoesAlarmeGerador_(el);
       return;
     }
 
@@ -3945,14 +4125,168 @@
 
     el.innerHTML = html;
     document.getElementById("btn-nova-leitura-gerador").addEventListener("click", function () { abrirModalGerador_(null); });
+    ligarBotoesAlarmeGerador_(el);
     el.querySelectorAll("[data-editar-gerador]").forEach(function (b) {
       b.addEventListener("click", function () { abrirModalGerador_(b.getAttribute("data-editar-gerador")); });
     });
     var btnApagar = el.querySelector("[data-apagar-gerador]");
     if (btnApagar) btnApagar.addEventListener("click", function () { apagarGerador_(btnApagar.getAttribute("data-apagar-gerador")); });
   }
+  function ligarBotoesAlarmeGerador_(el) {
+    document.getElementById("btn-abrir-alarme").addEventListener("click", abrirModalAlarme_);
+    el.querySelectorAll("[data-resolver-alarme]").forEach(function (b) {
+      b.addEventListener("click", function () { marcarAlarmeResolvido_(b.getAttribute("data-resolver-alarme")); });
+    });
+    el.querySelectorAll("[data-apagar-alarme]").forEach(function (b) {
+      b.addEventListener("click", function () { apagarGeradorAlarme_(b.getAttribute("data-apagar-alarme")); });
+    });
+  }
 
   var editingGeradorId = null;
+  // ---- Alarme do Gerador: buscar, mostrar detalhe, registrar ----
+  var alarmeSelecionado = null;
+  var pendingFotoAlarme = null;
+  function abrirModalAlarme_() {
+    alarmeSelecionado = null;
+    pendingFotoAlarme = null;
+    document.getElementById("alarme-busca-input").value = "";
+    document.getElementById("alarme-resultados-busca").innerHTML = "";
+    document.getElementById("alarme-detalhe").style.display = "none";
+    document.getElementById("alarme-observacao").value = "";
+    document.getElementById("alarme-resolvido-check").checked = false;
+    document.getElementById("alarme-foto-preview").innerHTML = "";
+    document.getElementById("btn-registrar-alarme").disabled = true;
+    document.getElementById("btn-registrar-alarme").textContent = "Selecione um alarme acima";
+    document.getElementById("modal-alarme-overlay").classList.add("active");
+    setTimeout(function () { document.getElementById("alarme-busca-input").focus(); }, 200);
+  }
+  function fecharModalAlarme_() {
+    document.getElementById("modal-alarme-overlay").classList.remove("active");
+  }
+  function buscarAlarmes_() {
+    var termo = document.getElementById("alarme-busca-input").value.trim().toLowerCase();
+    var resultadosEl = document.getElementById("alarme-resultados-busca");
+    document.getElementById("alarme-detalhe").style.display = "none";
+    document.getElementById("btn-registrar-alarme").disabled = true;
+    document.getElementById("btn-registrar-alarme").textContent = "Selecione um alarme acima";
+    alarmeSelecionado = null;
+    if (!termo) { resultadosEl.innerHTML = ""; return; }
+    var achados = alarmesDeif.filter(function (a) {
+      return a.codigo.toLowerCase().indexOf(termo) > -1 || a.nome.toLowerCase().indexOf(termo) > -1;
+    });
+    if (!achados.length) {
+      resultadosEl.innerHTML = '<div style="font-size:12px;color:#8A8072;padding:8px 0;">Nenhum alarme encontrado nessa base ainda. Peça pro admin cadastrar em ⚙️.</div>';
+      return;
+    }
+    resultadosEl.innerHTML = achados.map(function (a) {
+      var corUrgencia = a.urgencia === "bloqueia_partida" ? "#B4442E" : "#D6A233";
+      return '<div class="del-btn" data-selecionar-alarme="' + a.id + '" style="display:block;text-align:left;padding:9px 11px;margin-bottom:6px;border-left:3px solid ' + corUrgencia + ';">' +
+        '<b>' + escapeHtml(a.codigo) + '</b> — ' + escapeHtml(a.nome) +
+      '</div>';
+    }).join("");
+    resultadosEl.querySelectorAll("[data-selecionar-alarme]").forEach(function (b) {
+      b.addEventListener("click", function () { selecionarAlarme_(b.getAttribute("data-selecionar-alarme")); });
+    });
+  }
+  function selecionarAlarme_(id) {
+    var a = alarmesDeif.find(function (x) { return x.id === id; });
+    if (!a) return;
+    alarmeSelecionado = a;
+    document.getElementById("alarme-resultados-busca").innerHTML = "";
+    document.getElementById("alarme-busca-input").value = a.codigo;
+    var urgente = a.urgencia === "bloqueia_partida";
+    var html = '<div style="background:' + (urgente ? "#FBEDE8" : "#FBF4E4") + ';border-radius:6px;padding:10px 12px;margin:8px 0;">' +
+      '<div style="font-size:11px;font-weight:700;color:' + (urgente ? "#B4442E" : "#8A6A1B") + ';margin-bottom:4px;">' +
+        (urgente ? "⛔ BLOQUEIA A PARTIDA" : "⚠️ AVISO") +
+      '</div>' +
+      '<div style="font-family:\'Oswald\',sans-serif;font-size:15px;font-weight:600;">' + escapeHtml(a.codigo) + ' — ' + escapeHtml(a.nome) + '</div>' +
+      '<div style="font-size:12.5px;color:#4A4136;margin-top:6px;">' + escapeHtml(a.descricao) + '</div>' +
+      '<div style="font-size:12px;font-weight:700;margin-top:10px;">Passo a passo:</div>' +
+      '<ol style="font-size:12.5px;color:#4A4136;padding-left:18px;margin-top:4px;">' +
+        a.passos.map(function (p) { return '<li style="margin-bottom:4px;">' + escapeHtml(p) + '</li>'; }).join("") +
+      '</ol>' +
+    '</div>';
+    document.getElementById("alarme-detalhe-conteudo").innerHTML = html;
+    document.getElementById("alarme-detalhe").style.display = "block";
+    document.getElementById("btn-registrar-alarme").disabled = false;
+    document.getElementById("btn-registrar-alarme").textContent = "Registrar Ocorrência desse Alarme";
+  }
+  function registrarAlarme_() {
+    if (!alarmeSelecionado) return;
+    var agora = new Date();
+    var campos = {
+      codigo: alarmeSelecionado.codigo, nome: alarmeSelecionado.nome,
+      data: todayStr(), hora: horaAgora_(),
+      resolvido: document.getElementById("alarme-resolvido-check").checked,
+      observacao: document.getElementById("alarme-observacao").value.trim(),
+      foto: pendingFotoAlarme || "",
+      responsavel: (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "",
+      excluido: false
+    };
+    salvarGeradorAlarmeFirestore_(uid(), campos, true);
+    fecharModalAlarme_();
+    showToast("Alarme registrado no histórico.");
+  }
+  function marcarAlarmeResolvido_(id) {
+    salvarGeradorAlarmeFirestore_(id, { resolvido: true }, false);
+    showToast("Marcado como resolvido.");
+  }
+  function apagarGeradorAlarme_(id) {
+    if (!confirm("Excluir esse registro de alarme?")) return;
+    apagarGeradorAlarmeFirestore_(id);
+  }
+
+  // ---- Base de Alarmes (admin) ----
+  function abrirBaseAlarmes_() {
+    var senha = prompt("Senha de administrador:");
+    if (senha === null) return;
+    postToBackend({ action: "verificar_admin", adminToken: senha }).then(function (res) {
+      if (!res || !res.ok) { showToast((res && res.error) || "Senha incorreta."); return; }
+      var listaParaEditar = alarmesDeif.map(function (a) {
+        return { codigo: a.codigo, nome: a.nome, descricao: a.descricao, urgencia: a.urgencia, passos: a.passos };
+      });
+      document.getElementById("admin-base-alarmes").value = JSON.stringify(listaParaEditar, null, 2);
+      document.getElementById("admin-base-alarmes-result").style.display = "none";
+      document.getElementById("modal-base-alarmes-overlay").classList.add("active");
+    }).catch(function () { showToast("Erro de conexão."); });
+  }
+  function fecharBaseAlarmes_() { document.getElementById("modal-base-alarmes-overlay").classList.remove("active"); }
+  function salvarBaseAlarmes_() {
+    var resultEl = document.getElementById("admin-base-alarmes-result");
+    resultEl.className = "test-result"; resultEl.style.display = "block";
+    var lista;
+    try {
+      lista = JSON.parse(document.getElementById("admin-base-alarmes").value);
+      if (!Array.isArray(lista)) throw new Error("precisa ser uma lista [ ]");
+    } catch (err) {
+      resultEl.className = "test-result fail";
+      resultEl.textContent = "JSON inválido: " + err.message;
+      return;
+    }
+    if (!db) { resultEl.className = "test-result fail"; resultEl.textContent = "Firebase ainda não carregou."; return; }
+    var idsAntigos = alarmesDeif.map(function (a) { return a.id; });
+    var batch = db.batch();
+    idsAntigos.forEach(function (id) { batch.update(db.collection("alarmes_deif").doc(id), { excluido: true }); });
+    lista.forEach(function (a) {
+      var ref = db.collection("alarmes_deif").doc(uid());
+      batch.set(ref, {
+        codigo: String(a.codigo || "").trim(), nome: String(a.nome || "").trim(),
+        descricao: String(a.descricao || "").trim(),
+        urgencia: a.urgencia === "bloqueia_partida" ? "bloqueia_partida" : "aviso",
+        passos: Array.isArray(a.passos) ? a.passos.map(function (p) { return String(p); }) : [],
+        excluido: false
+      });
+    });
+    batch.commit().then(function () {
+      resultEl.className = "test-result ok";
+      resultEl.textContent = "Base de alarmes atualizada!";
+      setTimeout(fecharBaseAlarmes_, 900);
+    }).catch(function (err) {
+      resultEl.className = "test-result fail";
+      resultEl.textContent = "Erro ao salvar: " + err.message;
+    });
+  }
+
   function abrirModalGerador_(id) {
     editingGeradorId = id;
     var rec = id ? geradorRecords.find(function (r) { return r.id === id; }) : null;
@@ -6675,6 +7009,8 @@
           iniciarListenerPressao_();
           iniciarListenerPressaoSetor_();
           iniciarListenerEscala_();
+          iniciarListenerAlarmesDeif_();
+          iniciarListenerGeradorAlarmes_();
           iniciarListenerOcorrencias_();
         } else {
           var msg = (resultado && resultado.erro) ? resultado.erro : "motivo desconhecido";
@@ -7013,6 +7349,35 @@
     });
 
     document.getElementById("btn-importar-historico").addEventListener("click", importarHistoricoAntigo_);
+    document.getElementById("btn-abrir-base-alarmes").addEventListener("click", abrirBaseAlarmes_);
+    document.getElementById("btn-close-base-alarmes").addEventListener("click", fecharBaseAlarmes_);
+    document.getElementById("btn-save-base-alarmes").addEventListener("click", salvarBaseAlarmes_);
+    document.getElementById("modal-base-alarmes-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-base-alarmes-overlay") fecharBaseAlarmes_();
+    });
+    document.getElementById("btn-close-alarme").addEventListener("click", fecharModalAlarme_);
+    document.getElementById("modal-alarme-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-alarme-overlay") fecharModalAlarme_();
+    });
+    document.getElementById("alarme-busca-input").addEventListener("input", buscarAlarmes_);
+    document.getElementById("btn-registrar-alarme").addEventListener("click", registrarAlarme_);
+    document.getElementById("btn-alarme-foto-camera").addEventListener("click", function () {
+      document.getElementById("alarme-foto-input-camera").click();
+    });
+    document.getElementById("btn-alarme-foto-galeria").addEventListener("click", function () {
+      document.getElementById("alarme-foto-input-galeria").click();
+    });
+    function processarFotoAlarme_(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      compressImage(file, 1000, 0.62, function (dataUrl) {
+        pendingFotoAlarme = dataUrl;
+        document.getElementById("alarme-foto-preview").innerHTML = '<img src="' + dataUrl + '" style="max-width:100%;border-radius:6px;">';
+        e.target.value = "";
+      });
+    }
+    document.getElementById("alarme-foto-input-camera").addEventListener("change", processarFotoAlarme_);
+    document.getElementById("alarme-foto-input-galeria").addEventListener("change", processarFotoAlarme_);
     document.getElementById("btn-save-operacoes-causadoras").addEventListener("click", function () {
       var pass = document.getElementById("admin-pass").value.trim();
       var lines = document.getElementById("admin-operacoes-causadoras").value.split("\n").map(function (l) { return l.trim(); }).filter(function (l) { return l; });
