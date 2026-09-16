@@ -963,7 +963,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v87';
+  var APP_CACHE_NAME = 'registro-irrigacao-v88';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4975,6 +4975,7 @@
           '<button class="del-btn" data-rel-atalho="30" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">30 dias</button>' +
           '<button class="del-btn" data-rel-atalho="90" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">90 dias</button>' +
         '</div>' +
+        '<button class="del-btn" id="btn-diagnostico-bombeamento" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">🔍 Achar leitura errada</button>' +
       '</div>';
 
     // ================= RELATÓRIO NA TELA =================
@@ -5088,6 +5089,7 @@
         renderRelatorios();
       });
     });
+    document.getElementById("btn-diagnostico-bombeamento").addEventListener("click", abrirDiagnosticoBombeamento_);
     desenharGraficosNaTela_(dados);
     document.getElementById("btn-gerar-rel-pdf").addEventListener("click", gerarRelatorioBombeamentoPDF);
     document.getElementById("btn-compartilhar-rel").addEventListener("click", compartilharRelatorioImagem);
@@ -5254,6 +5256,43 @@
   // Lista as rodadas do período em que a bomba claramente parou antes do
   // horário registrado (mais de 1h de diferença entre o tempo que ela
   // deveria ter levado pra bombear aquele volume e o tempo anotado).
+  // Acha leituras com consumo absurdo (bem provavelmente erro de digitação
+  // na leitura inicial ou final do hidrômetro) - qualquer uma das 4 bombas
+  // pumpando o dia inteiro não passa de uns milhares de m³ por rodada, então
+  // qualquer coisa muito acima disso quase certamente é dado errado.
+  function encontrarLeiturasSuspeitas_() {
+    var LIMITE = 20000; // m³ - bem acima do que uma rodada normal produz
+    var suspeitas = [];
+    bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
+      var c = consumoRodada_(r);
+      if (c === null) return;
+      if (c < 0 || c > LIMITE) {
+        suspeitas.push({
+          id: r.id, bomba: r.bomba, data: r.data, horarioInicio: r.horarioInicio, horarioFim: r.horarioFim,
+          leituraInicial: r.leituraInicial, leituraFinal: r.leituraFinal, consumo: c
+        });
+      }
+    });
+    suspeitas.sort(function (a, b) { return Math.abs(b.consumo) - Math.abs(a.consumo); });
+    return suspeitas;
+  }
+  function abrirDiagnosticoBombeamento_() {
+    var suspeitas = encontrarLeiturasSuspeitas_();
+    var html;
+    if (!suspeitas.length) {
+      html = "Nenhuma leitura suspeita encontrada nos registros de Bombeamento que este celular já sincronizou. Se o gráfico ainda estiver estranho, sincroniza esse celular de novo primeiro (pode ser que a leitura ruim esteja só no de outro celular ainda).";
+    } else {
+      html = "Achei " + suspeitas.length + " leitura(s) com consumo fora do normal:\n\n" +
+        suspeitas.map(function (s) {
+          return "Bomba " + s.bomba + " · " + fmtDate(s.data) + " (" + s.horarioInicio + "-" + s.horarioFim + ")\n" +
+            "  Leitura inicial: " + s.leituraInicial + " · Leitura final: " + s.leituraFinal + "\n" +
+            "  Consumo calculado: " + Math.round(s.consumo).toLocaleString("pt-BR") + " m³ ⚠️";
+        }).join("\n\n") +
+        "\n\nVai em Bombeamento, acha esse dia/bomba, e corrige a leitura errada (toca no lápis ✏️).";
+    }
+    alert(html);
+  }
+
   function paradasDetectadas_() {
     var ini = relDataInicio ? parseISODate(relDataInicio) : null;
     var fim = relDataFim ? parseISODate(relDataFim) : null;
