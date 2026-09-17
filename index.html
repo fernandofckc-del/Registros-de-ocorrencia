@@ -336,14 +336,14 @@
           <span class="field-label">Descrição</span>
           <textarea id="f-descricao" placeholder="O que foi encontrado"></textarea>
         </div>
+        <div class="field" style="background:#FBF4E4;border:1px solid #D6A233;border-radius:6px;padding:10px 12px;">
+          <span class="field-label" style="color:#8A5A18;font-weight:700;">⚠️ Aconteceu mais de uma vez? Quantas?</span>
+          <input id="f-quantidade" type="number" min="1" step="1" value="1">
+          <div style="font-size:11px;color:#7A5A18;margin-top:3px;">Se o mesmo problema apareceu em vários pontos do setor, coloca o número aqui em vez de cadastrar de novo — continua sendo 1 registro, só que conta certo nas estatísticas.</div>
+        </div>
         <div class="field">
           <span class="field-label">Ação Tomada (opcional)</span>
           <textarea id="f-acao" placeholder="O que já foi feito"></textarea>
-        </div>
-        <div class="field">
-          <span class="field-label">Quantas vezes aconteceu?</span>
-          <input id="f-quantidade" type="number" min="1" step="1" value="1">
-          <div style="font-size:11px;color:#8A8072;margin-top:3px;">Pra não repetir o cadastro quando o mesmo problema aparece várias vezes no setor - continua sendo 1 registro, mas conta certo nas estatísticas.</div>
         </div>
 
         <div class="photo-block">
@@ -4007,7 +4007,9 @@
     document.getElementById("btn-salvar-anotacao").textContent = "Salvar Alteração";
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  var salvandoAnotacao = false;
   function salvarAnotacao_() {
+    if (salvandoAnotacao) return; // já está salvando - ignora toques repetidos
     var texto = document.getElementById("nova-anotacao-texto").value.trim();
     if (!texto) { showToast("Escreve alguma coisa antes de salvar."); return; }
     var idAlvo, ehNovo;
@@ -4018,6 +4020,9 @@
     } else {
       idAlvo = uid(); ehNovo = true;
     }
+    salvandoAnotacao = true;
+    var btnSalvarAnotacao = document.getElementById("btn-salvar-anotacao");
+    if (btnSalvarAnotacao) btnSalvarAnotacao.disabled = true;
     showToast("Salvando...");
     resolverUmaFoto_(fotoParaSalvar).then(function (urlFoto) {
       var campos = { texto: texto, foto: urlFoto || "", excluido: false };
@@ -4027,7 +4032,13 @@
       }
       salvarAnotacaoFirestore_(idAlvo, campos, ehNovo);
       pendingFotoAnotacao = null;
+      salvandoAnotacao = false;
+      if (btnSalvarAnotacao) btnSalvarAnotacao.disabled = false;
       showToast("Anotação salva.");
+    }).catch(function (err) {
+      salvandoAnotacao = false;
+      if (btnSalvarAnotacao) btnSalvarAnotacao.disabled = false;
+      showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     });
   }
   function apagarAnotacao_(id) {
@@ -4344,7 +4355,9 @@
       ? '<img src="' + pendingFotoGerador + '" style="width:70px;height:70px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;">'
       : "";
   }
+  var salvandoGerador = false;
   function salvarGerador_() {
+    if (salvandoGerador) return; // já está salvando - ignora toques repetidos
     var data = document.getElementById("gerador-data").value;
     var horas = document.getElementById("gerador-horas").value.trim();
     var litros = document.getElementById("gerador-litros").value.trim();
@@ -4356,6 +4369,9 @@
 
     var idAlvo = editingGeradorId || uid();
     var ehNovo = !editingGeradorId;
+    salvandoGerador = true;
+    var btnSalvarGerador = document.getElementById("btn-save-gerador");
+    if (btnSalvarGerador) btnSalvarGerador.disabled = true;
     showToast("Salvando...");
     resolverUmaFoto_(pendingFotoGerador).then(function (urlFoto) {
       var campos = {
@@ -4364,8 +4380,14 @@
       };
       if (ehNovo) campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
       salvarGeradorFirestore_(idAlvo, campos, ehNovo);
+      salvandoGerador = false;
+      if (btnSalvarGerador) btnSalvarGerador.disabled = false;
       fecharModalGerador_();
       showToast("Leitura do gerador salva.");
+    }).catch(function (err) {
+      salvandoGerador = false;
+      if (btnSalvarGerador) btnSalvarGerador.disabled = false;
+      showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     });
   }
   function apagarGerador_(id) {
@@ -5864,7 +5886,9 @@
     try { if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento(); } catch (e) {}
   }
 
+  var salvandoRonda = false;
   function salvarRonda() {
+    if (salvandoRonda) return; // já está salvando - ignora toques repetidos
     var cont = document.getElementById("ronda-bombas-container");
     var plantonista = document.getElementById("ronda-plantonista").value.trim();
     var nivel = document.getElementById("ronda-nivel").value;
@@ -5883,6 +5907,9 @@
     }
 
     var agora = horaAgora_();
+    salvandoRonda = true;
+    var btnSalvarRonda = document.getElementById("btn-save-ronda");
+    if (btnSalvarRonda) btnSalvarRonda.disabled = true;
     showToast("Salvando...");
 
     Promise.all([
@@ -5923,8 +5950,14 @@
         }
       }
       salvarRondasFirestoreLote_(itensParaSalvar);
+      salvandoRonda = false;
+      if (btnSalvarRonda) btnSalvarRonda.disabled = false;
       fecharModalRonda();
       showToast(houveParada ? "⚠ Ronda salva COM bomba parada." : "Ronda registrada.");
+    }).catch(function (err) {
+      salvandoRonda = false;
+      if (btnSalvarRonda) btnSalvarRonda.disabled = false;
+      showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     });
   }
 
@@ -6025,7 +6058,9 @@
     try { if (document.getElementById("tab-bombeamento").classList.contains("active")) renderBombeamento(); } catch (e) {}
   }
 
+  var salvandoBomb = false;
   function handleSaveBomb() {
+    if (salvandoBomb) return; // já está salvando - ignora toques repetidos
     try {
       var dataReg = document.getElementById("bomb-data").value || bombData;
       var horarioInicio = document.getElementById("bomb-horario-inicio").value;
@@ -6038,6 +6073,9 @@
       var idAlvo = editingBombId || uid();
       var ehNovo = !editingBombId;
       var bombaAlvo = editingBombBomba;
+      salvandoBomb = true;
+      var btnSalvarBomb = document.getElementById("btn-save-bomb");
+      if (btnSalvarBomb) { btnSalvarBomb.disabled = true; }
       showToast("Salvando...");
 
       Promise.all([
@@ -6063,9 +6101,16 @@
         } else {
           showToast("Bomba " + bombaAlvo + " registrada.");
         }
+        salvandoBomb = false;
+        if (btnSalvarBomb) btnSalvarBomb.disabled = false;
         closeBombModal();
+      }).catch(function (err) {
+        salvandoBomb = false;
+        if (btnSalvarBomb) btnSalvarBomb.disabled = false;
+        showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
       });
     } catch (err) {
+      salvandoBomb = false;
       showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
     }
   }
@@ -6076,7 +6121,9 @@
   }
   // ================= FIM BOMBEAMENTO =================
 
+  var salvandoOcorrencia = false;
   function handleSave() {
+    if (salvandoOcorrencia) return; // já está salvando - ignora toques repetidos
     var cultura = document.getElementById("f-cultura").value;
     var setor = document.getElementById("f-setor").value.trim();
     var data = document.getElementById("f-data").value || todayStr();
@@ -6096,6 +6143,10 @@
     var idAlvo = editingId || uid();
     var ehNovo = !editingId;
     var fotosParaSalvar = pendingFotos.slice();
+    salvandoOcorrencia = true;
+    var btnSalvar = document.getElementById("btn-salvar");
+    var textoOriginalBtn = btnSalvar ? btnSalvar.textContent : "";
+    if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = ehNovo ? "Salvando..." : "Atualizando..."; }
     showToast(ehNovo ? "Salvando..." : "Atualizando...");
 
     resolverFotosOcorrencia_(fotosParaSalvar).then(function (urls) {
@@ -6109,9 +6160,15 @@
       return salvarOcorrenciaFirestore_(idAlvo, campos, ehNovo);
     }).then(function () {
       showToast(ehNovo ? "Ocorrência registrada." : "Ocorrência atualizada.");
+      salvandoOcorrencia = false;
+      if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = textoOriginalBtn; }
       resetForm();
       switchTab("historico");
-    }).catch(function () { /* erro já avisado dentro das funções acima */ });
+    }).catch(function () {
+      salvandoOcorrencia = false;
+      if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = textoOriginalBtn; }
+      /* erro já avisado dentro das funções acima */
+    });
   }
 
   // ---------- sincronização ----------
