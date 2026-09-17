@@ -824,6 +824,12 @@
     <div class="modal-sub">Cadastra e edita os alarmes conhecidos do painel DEIF, com o passo a passo de cada um.</div>
     <button class="photo-btn" id="btn-abrir-base-alarmes" style="background:#8A5A44">Editar Base de Alarmes</button>
 
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
+    <div class="modal-title" style="font-size:15px;">🔄 Forçar Atualização Completa</div>
+    <div class="modal-sub">Se o app ficar "preso" numa versão antiga mesmo depois de eu avisar que subiu uma nova, usa esse botão - ele apaga tudo que está guardado no celular sobre o app (não apaga seus dados, só o "cache" da tela) e busca tudo de novo do zero.</div>
+    <button class="photo-btn" id="btn-forcar-atualizacao" style="background:#B4442E">Forçar Atualização Agora</button>
+
     <div class="modal-title" style="font-size:15px;">🔥 Migração pro Firebase</div>
     <div class="modal-sub">Manutenção, Bombeamento e Rondas já usam o Firebase - eles começaram vazios. Esse botão traz o histórico antigo da planilha pra dentro, sem duplicar o que já estiver lá. Pode rodar mais de uma vez sem problema.</div>
     <button class="photo-btn" id="btn-importar-historico" style="background:#8A5A44">📥 Importar Histórico Antigo</button>
@@ -7455,6 +7461,22 @@
     });
 
     document.getElementById("btn-importar-historico").addEventListener("click", importarHistoricoAntigo_);
+    document.getElementById("btn-forcar-atualizacao").addEventListener("click", function () {
+      if (!confirm("Isso vai apagar o cache do app e recarregar a página. Continuar?")) return;
+      showToast("Limpando e atualizando...");
+      Promise.all([
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }),
+        (window.caches ? caches.keys().then(function (chaves) {
+          return Promise.all(chaves.map(function (c) { return caches.delete(c); }));
+        }) : Promise.resolve())
+      ]).then(function () {
+        window.location.reload(true);
+      }).catch(function () {
+        window.location.reload(true);
+      });
+    });
     document.getElementById("btn-abrir-base-alarmes").addEventListener("click", abrirBaseAlarmes_);
     document.getElementById("btn-close-base-alarmes").addEventListener("click", fecharBaseAlarmes_);
     document.getElementById("btn-save-base-alarmes").addEventListener("click", salvarBaseAlarmes_);
@@ -7793,7 +7815,7 @@
       );
     }).then(function () {
       if ("serviceWorker" in navigator) {
-        return navigator.serviceWorker.register("./service-worker.js").catch(function () {});
+        return navigator.serviceWorker.register("./service-worker.js", { updateViaCache: "none" }).catch(function () {});
       }
     }).then(function () {
       setTimeout(checkOfflineReady, 500);
@@ -7819,7 +7841,7 @@
       window.location.reload();
     });
 
-    navigator.serviceWorker.register("./service-worker.js").then(function (reg) {
+    navigator.serviceWorker.register("./service-worker.js", { updateViaCache: "none" }).then(function (reg) {
       // Força checar se existe uma versão mais nova assim que o app abre.
       reg.update().catch(function () {});
       setTimeout(checkOfflineReady, 1200);
