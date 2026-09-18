@@ -571,7 +571,7 @@
       <span class="field-label">Quem recebe?</span>
       <div id="enviar-lista-contatos"></div>
     </div>
-    <div class="field">
+    <div class="field" id="enviar-canal-wrap">
       <span class="field-label">Por onde?</span>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><input type="checkbox" id="enviar-canal-whatsapp" checked style="width:auto;"> WhatsApp</label>
       <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="enviar-canal-email" style="width:auto;"> E-mail</label>
@@ -969,7 +969,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v93';
+  var APP_CACHE_NAME = 'registro-irrigacao-v94';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2154,7 +2154,10 @@
       '</label>';
     });
     if (!html) html = '<div style="font-size:12px;color:#B4442E;">Nenhum contato cadastrado ainda - configure em ⚙️ Configurações → Contatos para Avisar.</div>';
-    listaEl.innerHTML = html;
+    document.getElementById("enviar-lista-contatos").innerHTML = html;
+    document.getElementById("enviar-lista-contatos").style.display = "";
+    document.getElementById("enviar-canal-wrap").style.display = "";
+    document.getElementById("btn-confirmar-enviar").style.display = "";
     document.getElementById("enviar-result").style.display = "none";
     document.getElementById("modal-enviar-overlay").classList.add("active");
   }
@@ -2177,32 +2180,60 @@
     var querEmail = document.getElementById("enviar-canal-email").checked;
     if (!querWhatsapp && !querEmail) { resultEl.className = "test-result fail"; resultEl.textContent = "Marca pelo menos um canal (WhatsApp ou e-mail)."; return; }
 
-    var linkFoto = (r.fotos && r.fotos.length) ? urlFoto_(r.fotos[0]) : "";
+    // Se a foto ainda não subiu pro Drive (ainda é uma imagem inteira em
+    // base64, não um link), NÃO cola ela na mensagem - isso é o que gerava
+    // aquele texto gigantesco e travava o WhatsApp/e-mail ao abrir.
+    var primeiraFoto = (r.fotos && r.fotos.length) ? r.fotos[0] : "";
+    var fotoAindaSubindo = primeiraFoto && String(primeiraFoto).indexOf("data:image") === 0;
+    var linkFoto = (primeiraFoto && !fotoAindaSubindo) ? urlFoto_(primeiraFoto) : "";
+
     var textoMsg = "🌱 Ocorrência Operacional\n" +
       "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
       "Tipo: " + r.tipo + "\n" +
       (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
       "Data: " + fmtDate(r.data) + "\n" +
       "Descrição: " + r.descricao +
-      (linkFoto ? "\nFoto: " + linkFoto : "");
+      (linkFoto ? "\nFoto: " + linkFoto : (fotoAindaSubindo ? "\n(a foto ainda está subindo - manda separado depois)" : ""));
 
-    var emailsDestino = [];
+    // Em vez de abrir tudo de uma vez (o celular trava/bloqueia quando o
+    // app tenta abrir várias janelas sozinho), monta um botão pra CADA
+    // combinação de contato+canal, e a pessoa toca em cada um. Um toque
+    // direto do usuário nunca é bloqueado, diferente de abrir tudo em código.
+    var prontos = [];
     chavesMarcadas.forEach(function (chave) {
       var c = currentContatosAviso[chave] || {};
+      var nomeContato = c.nome || chave;
       if (querWhatsapp && c.whatsapp) {
         var numero = c.whatsapp.replace(/\D/g, "");
         if (numero.length <= 11) numero = "55" + numero; // adiciona código do Brasil se não tiver
-        window.open("https://wa.me/" + numero + "?text=" + encodeURIComponent(textoMsg), "_blank");
+        prontos.push({
+          label: "📱 WhatsApp — " + nomeContato,
+          url: "https://wa.me/" + numero + "?text=" + encodeURIComponent(textoMsg)
+        });
       }
-      if (querEmail && c.email) emailsDestino.push(c.email);
+      if (querEmail && c.email) {
+        var assunto = "Ocorrência Operacional - " + r.setor + " - " + r.tipo;
+        prontos.push({
+          label: "✉️ E-mail — " + nomeContato,
+          url: "mailto:" + c.email + "?subject=" + encodeURIComponent(assunto) + "&body=" + encodeURIComponent(textoMsg)
+        });
+      }
     });
-    if (querEmail && emailsDestino.length) {
-      var assunto = "Ocorrência Operacional - " + r.setor + " - " + r.tipo;
-      window.open("mailto:" + emailsDestino.join(",") + "?subject=" + encodeURIComponent(assunto) + "&body=" + encodeURIComponent(textoMsg), "_blank");
+
+    if (!prontos.length) {
+      resultEl.className = "test-result fail";
+      resultEl.textContent = "Nenhum contato marcado tem esse canal cadastrado.";
+      return;
     }
+
+    document.getElementById("enviar-lista-contatos").style.display = "none";
+    document.getElementById("enviar-canal-wrap").style.display = "none";
+    document.getElementById("btn-confirmar-enviar").style.display = "none";
     resultEl.className = "test-result ok";
-    resultEl.textContent = "Abrindo... se pedir permissão de pop-up, permite.";
-    setTimeout(fecharModalEnviarOcorrencia_, 1400);
+    resultEl.innerHTML = '<b>Toca em cada um pra abrir:</b><br><br>' +
+      prontos.map(function (p, i) {
+        return '<a href="' + p.url + '" target="_blank" data-abrir-envio="' + i + '" style="display:block;background:#2F7DB0;color:#fff;text-decoration:none;text-align:center;padding:10px;border-radius:6px;margin-bottom:8px;font-weight:700;">' + p.label + '</a>';
+      }).join("");
   }
 
   function startEdit(id) {
