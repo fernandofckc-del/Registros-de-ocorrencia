@@ -1,4 +1,4 @@
-var CACHE_NAME = 'registro-irrigacao-v92';
+var CACHE_NAME = 'registro-irrigacao-v93';
 var ASSETS = [
   './',
   './index.html',
@@ -73,10 +73,23 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
-  // Outros arquivos (ícones, manifest): cache primeiro, com fallback pra rede
+  // Outros arquivos (ícones, manifest, bibliotecas externas como Firebase e
+  // Excel): cache primeiro, com fallback pra rede - e guarda o que buscar
+  // da rede pra da próxima vez já ter salvo. Antes só CONFERIA se já tinha
+  // em cache mas nunca GRAVAVA nada aqui - por isso as bibliotecas externas
+  // (que vêm de outro site, não do próprio app) nunca ficavam disponíveis
+  // offline, mesmo depois de terem sido carregadas com sucesso antes.
   event.respondWith(
     caches.match(event.request).then(function (cached) {
-      return cached || fetch(event.request);
+      if (cached) return cached;
+      return fetch(event.request).then(function (fresh) {
+        event.waitUntil(
+          caches.open(CACHE_NAME).then(function (cache) {
+            return cache.put(event.request, fresh.clone());
+          })
+        );
+        return fresh;
+      });
     })
   );
 });
