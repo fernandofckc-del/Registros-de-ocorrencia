@@ -969,7 +969,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v95';
+  var APP_CACHE_NAME = 'registro-irrigacao-v96';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1239,9 +1239,11 @@
     if (!temBase64) return Promise.resolve(fotos);
     return postToBackend({ action: "upload_fotos_ocorrencia", fotos: fotos, id: uid() }).then(function (res) {
       if (res && res.ok && res.urls) return res.urls;
-      showToast("Não consegui subir a foto agora - vai continuar tentando.");
+      // Mostra o erro DE VERDADE, não só um aviso genérico - assim dá pra
+      // saber o motivo exato sem precisar abrir o Apps Script pra conferir.
+      showToast("Não consegui subir a foto: " + ((res && res.error) || "motivo desconhecido"));
       return fotos; // mantém base64 por enquanto, tenta de novo depois
-    }).catch(function () {
+    }).catch(function (err) {
       showToast("Sem internet pra subir a foto agora - salvo localmente, tenta de novo depois.");
       return fotos;
     });
@@ -1989,7 +1991,7 @@
     t.textContent = msg;
     t.style.display = "block";
     clearTimeout(showToast._h);
-    showToast._h = setTimeout(function () { t.style.display = "none"; }, 2600);
+    showToast._h = setTimeout(function () { t.style.display = "none"; }, 4500);
   }
 
   function populateSelect(id, options) {
