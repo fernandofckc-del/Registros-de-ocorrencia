@@ -969,7 +969,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v94';
+  var APP_CACHE_NAME = 'registro-irrigacao-v95';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2187,13 +2187,41 @@
     var fotoAindaSubindo = primeiraFoto && String(primeiraFoto).indexOf("data:image") === 0;
     var linkFoto = (primeiraFoto && !fotoAindaSubindo) ? urlFoto_(primeiraFoto) : "";
 
+    if (fotoAindaSubindo) {
+      resultEl.className = "test-result";
+      resultEl.innerHTML = "A foto dessa ocorrência ainda não subiu pro Drive (pode ter falhado quando você salvou, se a internet estava fraca naquele momento).<br><br>" +
+        '<button class="save-btn" id="btn-tentar-subir-foto" style="background:#D6A233;margin-top:0;">🔄 Tentar subir a foto agora</button>';
+      var btnTentar = document.getElementById("btn-tentar-subir-foto");
+      btnTentar.addEventListener("click", function () {
+        btnTentar.disabled = true;
+        btnTentar.textContent = "Tentando...";
+        resolverFotosOcorrencia_([primeiraFoto]).then(function (urls) {
+          var novaFoto = urls && urls[0];
+          var subiuAgora = novaFoto && String(novaFoto).indexOf("data:image") !== 0;
+          if (subiuAgora) {
+            var novasFotos = r.fotos.slice();
+            novasFotos[0] = novaFoto;
+            r.fotos = novasFotos; // atualiza local pra não precisar esperar o Firestore avisar de volta
+            salvarOcorrenciaFirestore_(r.id, { fotos: novasFotos }, false);
+            showToast("Foto enviada! Montando a mensagem de novo...");
+            confirmarEnvioOcorrencia_(); // reconstroi tudo, agora com o link certo
+          } else {
+            btnTentar.disabled = false;
+            btnTentar.textContent = "🔄 Tentar subir a foto agora";
+            showToast("Ainda sem internet suficiente pra subir a foto - tenta de novo em instantes.");
+          }
+        });
+      });
+      return;
+    }
+
     var textoMsg = "🌱 Ocorrência Operacional\n" +
       "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
       "Tipo: " + r.tipo + "\n" +
       (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
       "Data: " + fmtDate(r.data) + "\n" +
       "Descrição: " + r.descricao +
-      (linkFoto ? "\nFoto: " + linkFoto : (fotoAindaSubindo ? "\n(a foto ainda está subindo - manda separado depois)" : ""));
+      (linkFoto ? "\nFoto: " + linkFoto : "");
 
     // Em vez de abrir tudo de uma vez (o celular trava/bloqueia quando o
     // app tenta abrir várias janelas sozinho), monta um botão pra CADA
