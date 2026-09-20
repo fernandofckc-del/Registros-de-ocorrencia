@@ -1026,7 +1026,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v100';
+  var APP_CACHE_NAME = 'registro-irrigacao-v101';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4200,13 +4200,18 @@
   }
   function fecharModalPlantaoConfig_() { document.getElementById("modal-plantao-config-overlay").classList.remove("active"); }
   function salvarConfigPadraoPlantao_() {
-    // se não alterna, a semana B nunca é usada de qualquer forma - mas
-    // preenche igual à A só por organização, sem afetar nada.
-    var semanaB = plantaoConfigAlterna ? plantaoConfigDiasRascunho.semanaB : plantaoConfigDiasRascunho.semanaA;
-    salvarPadraoPessoa_(plantaoConfigPessoaAtual, plantaoConfigAlterna, plantaoConfigDiasRascunho.semanaA, semanaB);
-    showToast("Padrão de " + plantaoConfigPessoaAtual + " salvo.");
-    fecharModalPlantaoConfig_();
-    renderPlantao();
+    try {
+      // se não alterna, a semana B nunca é usada de qualquer forma - mas
+      // preenche igual à A só por organização, sem afetar nada.
+      var semanaB = plantaoConfigAlterna ? plantaoConfigDiasRascunho.semanaB : plantaoConfigDiasRascunho.semanaA;
+      salvarPadraoPessoa_(plantaoConfigPessoaAtual, plantaoConfigAlterna, plantaoConfigDiasRascunho.semanaA, semanaB);
+      showToast("Padrão de " + plantaoConfigPessoaAtual + " salvo.");
+      fecharModalPlantaoConfig_();
+      try { renderPlantao(); } catch (errRender) { console.error("[plantao] erro ao redesenhar depois de salvar:", errRender); }
+    } catch (err) {
+      console.error("[plantao] erro ao salvar padrão:", err);
+      showToast("Erro ao salvar: " + (err && err.message ? err.message : String(err)));
+    }
   }
 
   function renderEscala() {
