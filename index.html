@@ -683,6 +683,8 @@
     <button class="modal-close" id="btn-close-plantao-config">✕</button>
     <div class="modal-title">🔒 Padrão Semanal (administrador)</div>
     <div class="modal-sub">Escolhe a pessoa e define o padrão que se repete toda semana sozinho.</div>
+    <button class="photo-btn" id="btn-preencher-plantao-auto" style="background:#4C7C59;margin-bottom:14px;">🌱 Preencher Alex, Yverson, Ivonaldo, André e Josias Automaticamente</button>
+    <hr style="margin-bottom:14px;border:none;border-top:1px dashed #D2C7AB;">
     <div class="field">
       <span class="field-label">Pessoa</span>
       <select id="plantao-config-pessoa"></select>
@@ -1026,7 +1028,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v102';
+  var APP_CACHE_NAME = 'registro-irrigacao-v104';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -3945,17 +3947,29 @@
 
   // ================= ESCALA PLANTÃO =================
   var plantaoInicioBloco = null; // string "YYYY-MM-DD" do primeiro dia (domingo) do bloco de 2 semanas mostrado
+  // Formata uma data pro padrão "YYYY-MM-DD" (o mesmo que o resto do app usa
+  // internamente pra guardar e comparar datas) - diferente do fmtDateUTC, que
+  // é só pra MOSTRAR na tela (DD/MM/YYYY). Usar o de mostrar aqui por engano
+  // foi o que causava o "NaN/NaN/NaN": as próximas contas tentavam quebrar
+  // essa data de novo pelo "-", mas ela já tinha virado "14/09/2026" (com
+  // barra, sem traço nenhum pra achar).
+  function fmtISO_(d) {
+    var ano = d.getUTCFullYear();
+    var mes = String(d.getUTCMonth() + 1).padStart(2, "0");
+    var dia = String(d.getUTCDate()).padStart(2, "0");
+    return ano + "-" + mes + "-" + dia;
+  }
   function domingoDaSemana_(dataStr) {
     var partes = dataStr.split("-");
     var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
     dt.setUTCDate(dt.getUTCDate() - dt.getUTCDay());
-    return fmtDateUTC(dt);
+    return fmtISO_(dt);
   }
   function addDiasStr_(dataStr, n) {
     var partes = dataStr.split("-");
     var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
     dt.setUTCDate(dt.getUTCDate() + n);
-    return fmtDateUTC(dt);
+    return fmtISO_(dt);
   }
   function renderPlantao() {
     var el = document.getElementById("plantao-content");
@@ -4122,6 +4136,93 @@
   // ---- Modal: configurar padrão semanal (admin) ----
   var plantaoConfigPessoaAtual = null;
   var plantaoConfigDiasRascunho = {};
+  // Preenche de uma vez os padrões dos 5 fixos que já sei o horário certo
+  // (lidos do print que o Fernando mandou), pra ele não precisar configurar
+  // dia por dia manualmente. O Adilson fica de fora de propósito - ele está
+  // substituindo o André nas férias, então continua sendo tratado célula por
+  // célula (pontual) enquanto durar essa substituição.
+  function diaTrabalho_(turnos) { return { tipo: "horarios", turnos: turnos }; }
+  function diaFolga_() { return { tipo: "folga", turnos: [] }; }
+  function preencherPadroesAutomaticos_() {
+    // Cada semana é construída explicitamente com os horários certos - tentar
+    // "inverter" automaticamente perdia o horário de verdade (um dia de folga
+    // não sabe qual horário usar quando vira dia de trabalho).
+    var alexSemanaA = {
+      segunda: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]), terca: diaFolga_(),
+      quarta: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]), quinta: diaFolga_(),
+      sexta: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]), sabado: diaFolga_(),
+      domingo: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"])
+    };
+    var alexSemanaB = {
+      segunda: diaFolga_(), terca: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]),
+      quarta: diaFolga_(), quinta: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]),
+      sexta: diaFolga_(), sabado: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]),
+      domingo: diaFolga_()
+    };
+    var yversonSemanaA = {
+      segunda: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]), terca: diaFolga_(),
+      quarta: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]), quinta: diaFolga_(),
+      sexta: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]), sabado: diaFolga_(),
+      domingo: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"])
+    };
+    var yversonSemanaB = {
+      segunda: diaFolga_(), terca: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]),
+      quarta: diaFolga_(), quinta: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]),
+      sexta: diaFolga_(), sabado: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]),
+      domingo: diaFolga_()
+    };
+    var ivonaldoSemanaA = {
+      segunda: diaFolga_(), terca: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]),
+      quarta: diaFolga_(), quinta: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]),
+      sexta: diaFolga_(), sabado: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]),
+      domingo: diaFolga_()
+    };
+    var ivonaldoSemanaB = {
+      segunda: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]), terca: diaFolga_(),
+      quarta: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]), quinta: diaFolga_(),
+      sexta: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"]), sabado: diaFolga_(),
+      domingo: diaTrabalho_(["18:00", "23:00", "00:00", "06:00"])
+    };
+    var andreSemanaA = {
+      segunda: diaFolga_(), terca: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]),
+      quarta: diaFolga_(), quinta: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]),
+      sexta: diaFolga_(), sabado: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]),
+      domingo: diaFolga_()
+    };
+    var andreSemanaB = {
+      segunda: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]), terca: diaFolga_(),
+      quarta: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]), quinta: diaFolga_(),
+      sexta: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"]), sabado: diaFolga_(),
+      domingo: diaTrabalho_(["18:00", "22:00", "23:00", "06:00"])
+    };
+    // Josias também alterna entre as duas semanas (folga sempre segunda e
+    // terça nas duas, mas os outros dias mudam de uma semana pra outra).
+    var josiasSemanaA = {
+      segunda: diaFolga_(), terca: diaFolga_(), quarta: diaFolga_(),
+      quinta: diaTrabalho_(["06:00", "11:00", "12:00", "18:00"]),
+      sexta: diaTrabalho_(["06:00", "11:00", "12:00", "18:00"]),
+      sabado: diaTrabalho_(["06:00", "11:00", "12:00", "18:00"]),
+      domingo: diaFolga_()
+    };
+    var josiasSemanaB = {
+      segunda: diaFolga_(), terca: diaFolga_(),
+      quarta: diaTrabalho_(["06:00", "12:00", "13:00", "18:00"]),
+      quinta: diaTrabalho_(["06:00", "12:00", "13:00", "18:00"]),
+      sexta: diaTrabalho_(["06:00", "11:00", "12:00", "18:00"]),
+      sabado: diaTrabalho_(["06:00", "11:00", "12:00", "18:00"]),
+      domingo: diaTrabalho_(["06:00", "12:00", "13:00", "18:00"])
+    };
+
+    salvarPadraoPessoa_("Alex", true, alexSemanaA, alexSemanaB);
+    salvarPadraoPessoa_("Yverson", true, yversonSemanaA, yversonSemanaB);
+    salvarPadraoPessoa_("Ivonaldo", true, ivonaldoSemanaA, ivonaldoSemanaB);
+    salvarPadraoPessoa_("André", true, andreSemanaA, andreSemanaB);
+    salvarPadraoPessoa_("Josias", true, josiasSemanaA, josiasSemanaB);
+    showToast("Padrões de Alex, Yverson, Ivonaldo, André e Josias preenchidos.");
+    fecharModalPlantaoConfig_();
+    renderPlantao();
+  }
+
   function abrirConfigPadraoPlantao_() {
     var senha = prompt("Senha de administrador:");
     if (senha === null) return;
@@ -8171,6 +8272,7 @@
       selecionarPessoaConfigPlantao_(e.target.value);
     });
     document.getElementById("btn-salvar-plantao-config").addEventListener("click", salvarConfigPadraoPlantao_);
+    document.getElementById("btn-preencher-plantao-auto").addEventListener("click", preencherPadroesAutomaticos_);
     document.getElementById("btn-save-base-alarmes").addEventListener("click", salvarBaseAlarmes_);
     document.getElementById("modal-base-alarmes-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-base-alarmes-overlay") fecharBaseAlarmes_();
