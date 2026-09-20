@@ -280,6 +280,10 @@
         <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #C9905A, #7A5230);">📅</span>
         <span class="hub-label">Escala</span>
       </button>
+      <button class="hub-circle" data-tab="plantao">
+        <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #7AA8C9, #2D5A7A);">🕐</span>
+        <span class="hub-label">Plantão</span>
+      </button>
       <button class="hub-circle" data-tab="relatorios">
         <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #B0B8A8, #5A6650);">📄</span>
         <span class="hub-label">Relatórios</span>
@@ -395,6 +399,10 @@
 
     <section id="tab-escala" class="tab-panel">
       <div id="escala-content"></div>
+    </section>
+
+    <section id="tab-plantao" class="tab-panel">
+      <div id="plantao-content"></div>
     </section>
 
     <!-- RELATÓRIOS (somente administrador) -->
@@ -635,6 +643,55 @@
 </div>
 
 <!-- MODAL DE CONFIGURAÇÃO DE PRESSÃO (admin) -->
+<div class="modal-overlay" id="modal-plantao-celula-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-celula">✕</button>
+    <div class="modal-title" id="plantao-celula-titulo">Pessoa · Dia</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="del-btn" data-plantao-tipo="folga" style="flex:1;padding:10px;">😴 Folga</button>
+      <button class="del-btn" data-plantao-tipo="ferias" style="flex:1;padding:10px;">🏖️ Férias</button>
+      <button class="del-btn" data-plantao-tipo="horarios" style="flex:1;padding:10px;">🕐 Trabalhando</button>
+    </div>
+    <div id="plantao-celula-horarios" style="display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
+        <div class="field"><span class="field-label">Turno 1 - Início</span><input id="plantao-t1-ini" type="time"></div>
+        <div class="field"><span class="field-label">Turno 1 - Fim</span><input id="plantao-t1-fim" type="time"></div>
+        <div class="field"><span class="field-label">Turno 2 - Início (opcional)</span><input id="plantao-t2-ini" type="time"></div>
+        <div class="field"><span class="field-label">Turno 2 - Fim (opcional)</span><input id="plantao-t2-fim" type="time"></div>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:10px 0 14px;">
+      <input type="checkbox" id="plantao-destaque" style="width:auto;"> Destacar em vermelho
+    </label>
+    <button class="save-btn" id="btn-salvar-plantao-celula" style="background:#4C7C59;">Salvar</button>
+    <button class="photo-btn" id="btn-limpar-plantao-celula" style="background:#8A8072;margin-top:8px;">Limpar (voltar ao padrão)</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-plantao-add-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-add">✕</button>
+    <div class="modal-title">➕ Adicionar Substituto</div>
+    <div class="modal-sub">Aparece nessa semana de 2 - toque nas células dele depois pra preencher os dias.</div>
+    <div class="field"><span class="field-label">Nome</span><input id="plantao-add-nome" type="text" placeholder="Ex.: João"></div>
+    <button class="save-btn" id="btn-confirmar-plantao-add" style="background:#2F7DB0;">Adicionar</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-plantao-config-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-config">✕</button>
+    <div class="modal-title">🔒 Padrão Semanal (administrador)</div>
+    <div class="modal-sub">Escolhe a pessoa e define o padrão que se repete toda semana sozinho.</div>
+    <div class="field">
+      <span class="field-label">Pessoa</span>
+      <select id="plantao-config-pessoa"></select>
+    </div>
+    <div id="plantao-config-dias"></div>
+    <button class="save-btn" id="btn-salvar-plantao-config" style="background:#8A5A44;">Salvar Padrão desta Pessoa</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-config-pressao-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-config-pressao">✕</button>
@@ -969,7 +1026,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v98';
+  var APP_CACHE_NAME = 'registro-irrigacao-v99';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1904,6 +1961,94 @@
     });
   }
 
+  // ---- Escala Plantão: padrão fixo (se repete toda semana) + exceções pontuais ----
+  var DIAS_SEMANA_PLANTAO = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+  var DIAS_SEMANA_PLANTAO_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  var PLANTONISTAS_FIXOS = ["Alex", "André", "Yverson", "Ivonaldo", "Josias", "Adilson"];
+
+  var plantaoPadroes = []; // um por pessoa fixa: {id, pessoa, dias: {segunda: {tipo, turnos}, ...}}
+  var plantaoPadroesListenerAtivo = false;
+  function iniciarListenerPlantaoPadroes_() {
+    if (plantaoPadroesListenerAtivo || !db) return;
+    plantaoPadroesListenerAtivo = true;
+    db.collection("escala_plantao_padrao").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        novos.push({ id: doc.id, pessoa: d.pessoa, dias: d.dias || {} });
+      });
+      plantaoPadroes = novos;
+      try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
+    }, function (err) { console.error("[firebase] erro no listener de padrão do plantão:", err); });
+  }
+  function getPadraoPessoa_(pessoa) {
+    return plantaoPadroes.find(function (p) { return p.pessoa === pessoa; }) || null;
+  }
+  function salvarPadraoPessoa_(pessoa, dias) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var existente = getPadraoPessoa_(pessoa);
+    var id = existente ? existente.id : uid();
+    db.collection("escala_plantao_padrao").doc(id).set({ pessoa: pessoa, dias: dias }, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar padrão:", err);
+      showToast("Erro ao salvar - tenta de novo.");
+    });
+  }
+
+  var plantaoRegistros = []; // exceções/overrides pontuais e entradas de substitutos: {id, pessoa, data, tipo, turnos, destaque, excluido}
+  var plantaoRegistrosListenerAtivo = false;
+  function iniciarListenerPlantaoRegistros_() {
+    if (plantaoRegistrosListenerAtivo || !db) return;
+    plantaoRegistrosListenerAtivo = true;
+    db.collection("escala_plantao").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, pessoa: d.pessoa, data: d.data, tipo: d.tipo,
+          turnos: Array.isArray(d.turnos) ? d.turnos : [], destaque: !!d.destaque,
+          _synced: !doc.metadata.hasPendingWrites
+        });
+      });
+      plantaoRegistros = novos;
+      try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
+    }, function (err) { console.error("[firebase] erro no listener de registros do plantão:", err); });
+  }
+  function getRegistroPontual_(pessoa, data) {
+    return plantaoRegistros.find(function (r) { return r.pessoa === pessoa && r.data === data; }) || null;
+  }
+  function salvarRegistroPlantao_(id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    var dados = Object.assign({}, campos, { excluido: false });
+    db.collection("escala_plantao").doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar plantão:", err);
+      showToast("Erro ao salvar - tenta de novo.");
+    });
+  }
+  function apagarRegistroPlantao_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("escala_plantao").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar plantão:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
+  // Resolve o que mostrar numa célula (pessoa+data): 1) se tem exceção
+  // pontual salva, usa ela; 2) senão, se for uma das 6 pessoas fixas, usa o
+  // padrão semanal dela pro dia da semana correspondente; 3) senão, vazio.
+  function getCelulaPlantao_(pessoa, dataStr) {
+    var pontual = getRegistroPontual_(pessoa, dataStr);
+    if (pontual) return { tipo: pontual.tipo, turnos: pontual.turnos, destaque: pontual.destaque, origem: "pontual", id: pontual.id };
+    var padrao = getPadraoPessoa_(pessoa);
+    if (padrao) {
+      var partes = dataStr.split("-");
+      var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+      var diaSemana = DIAS_SEMANA_PLANTAO[dt.getUTCDay()];
+      var configDia = padrao.dias[diaSemana];
+      if (configDia) return { tipo: configDia.tipo, turnos: configDia.turnos || [], destaque: false, origem: "padrao", id: null };
+    }
+    return { tipo: "", turnos: [], destaque: false, origem: "vazio", id: null };
+  }
+
   function loadOperador() {
     try {
       var raw = localStorage.getItem(OPERADOR_KEY);
@@ -2348,6 +2493,12 @@
       try { renderEscala(); } catch (err) {
         document.getElementById("escala-content").innerHTML =
           '<div class="empty-state">Não consegui carregar a Escala agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
+    if (tab === "plantao") {
+      try { renderPlantao(); } catch (err) {
+        document.getElementById("plantao-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar a Escala Plantão agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
       }
     }
     updateBadge();
@@ -3759,6 +3910,247 @@
   // confirmar - sem isso, salvar a entrada de um dia redesenhava a tela
   // inteira e apagava o que ainda estava sendo digitado nos outros dias.
   var escalaRascunhos = {};
+
+  // ================= ESCALA PLANTÃO =================
+  var plantaoInicioBloco = null; // string "YYYY-MM-DD" do primeiro dia (domingo) do bloco de 2 semanas mostrado
+  function domingoDaSemana_(dataStr) {
+    var partes = dataStr.split("-");
+    var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+    dt.setUTCDate(dt.getUTCDate() - dt.getUTCDay());
+    return fmtDateUTC(dt);
+  }
+  function addDiasStr_(dataStr, n) {
+    var partes = dataStr.split("-");
+    var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+    dt.setUTCDate(dt.getUTCDate() + n);
+    return fmtDateUTC(dt);
+  }
+  function renderPlantao() {
+    var el = document.getElementById("plantao-content");
+    if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
+
+    // monta os 14 dias do bloco
+    var dias = [];
+    for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
+
+    // pessoas: os 6 fixos sempre aparecem; substitutos aparecem só se
+    // tiverem algum registro pontual dentro desse bloco de 14 dias
+    var pessoasSubstitutas = [];
+    plantaoRegistros.forEach(function (r) {
+      if (dias.indexOf(r.data) === -1) return;
+      if (PLANTONISTAS_FIXOS.indexOf(r.pessoa) === -1 && pessoasSubstitutas.indexOf(r.pessoa) === -1) {
+        pessoasSubstitutas.push(r.pessoa);
+      }
+    });
+    var pessoas = PLANTONISTAS_FIXOS.concat(pessoasSubstitutas.sort());
+
+    var html = '<div class="modal-sub" style="margin-bottom:10px;">Padrão fixo se repete sozinho toda semana - toca numa célula pra mudar só aquele dia (férias, folga extra, substituto).</div>';
+
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+      '<button class="del-btn" id="btn-plantao-anterior" style="padding:6px 14px;">← 2 semanas</button>' +
+      '<span style="font-size:12px;font-weight:700;">' + fmtDate(dias[0]) + ' a ' + fmtDate(dias[13]) + '</span>' +
+      '<button class="del-btn" id="btn-plantao-proxima" style="padding:6px 14px;">2 semanas →</button>' +
+    '</div>';
+
+    html += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #DCD3BC;border-radius:6px;">';
+    html += '<table style="border-collapse:collapse;font-size:10.5px;min-width:1200px;">';
+    // cabeçalho
+    html += '<tr>';
+    html += '<th style="position:sticky;left:0;background:#4C6B2F;color:#fff;padding:6px 8px;text-align:left;z-index:2;min-width:80px;">Pessoa</th>';
+    dias.forEach(function (d, i) {
+      var partes = d.split("-");
+      var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+      var corFundo = (i % 2 === 0) ? "#F3EEE0" : "#E5DFC9";
+      var separador = (i === 7) ? "border-left:3px solid #4C6B2F;" : "";
+      html += '<th style="background:' + corFundo + ';padding:5px 6px;text-align:center;min-width:78px;' + separador + '">' +
+        escapeHtml(fmtDate(d)) + '<br>' + escapeHtml(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()]) + '</th>';
+    });
+    html += '</tr>';
+
+    pessoas.forEach(function (pessoa) {
+      var qualquerDestaque = dias.some(function (d) { return getCelulaPlantao_(pessoa, d).destaque; });
+      var corNome = qualquerDestaque ? "#B4442E" : "#2A2620";
+      html += '<tr>';
+      html += '<td style="position:sticky;left:0;background:#FFFDF8;padding:6px 8px;font-weight:700;color:' + corNome + ';border-top:1px solid #DCD3BC;z-index:1;">' + escapeHtml(pessoa) + '</td>';
+      dias.forEach(function (d, i) {
+        var cel = getCelulaPlantao_(pessoa, d);
+        var corFundo = (i % 2 === 0) ? "#FFFDF8" : "#F3EEE0";
+        var separador = (i === 7) ? "border-left:3px solid #4C6B2F;" : "";
+        var corTexto = cel.destaque ? "#B4442E" : "#2A2620";
+        var texto = "";
+        if (cel.tipo === "folga") texto = "FOLGA";
+        else if (cel.tipo === "ferias") texto = "Férias";
+        else if (cel.tipo === "horarios" && cel.turnos.length) texto = cel.turnos.filter(Boolean).join(" ");
+        html += '<td data-plantao-cel="' + escapeHtml(pessoa) + '|' + d + '" style="background:' + corFundo + ';padding:6px 5px;text-align:center;font-weight:700;color:' + corTexto + ';border-top:1px solid #DCD3BC;cursor:pointer;' + separador + '">' + escapeHtml(texto || "—") + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</table></div>';
+
+    html += '<button class="photo-btn" id="btn-plantao-add-substituto" style="background:#2F7DB0;margin-top:12px;">➕ Adicionar Substituto Nesta Semana</button>';
+    html += '<button class="photo-btn" id="btn-plantao-config" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Padrão dos Fixos (admin)</button>';
+
+    el.innerHTML = html;
+    document.getElementById("btn-plantao-anterior").addEventListener("click", function () {
+      plantaoInicioBloco = addDiasStr_(plantaoInicioBloco, -14);
+      renderPlantao();
+    });
+    document.getElementById("btn-plantao-proxima").addEventListener("click", function () {
+      plantaoInicioBloco = addDiasStr_(plantaoInicioBloco, 14);
+      renderPlantao();
+    });
+    document.getElementById("btn-plantao-add-substituto").addEventListener("click", abrirAddSubstituto_);
+    document.getElementById("btn-plantao-config").addEventListener("click", abrirConfigPadraoPlantao_);
+    el.querySelectorAll("[data-plantao-cel]").forEach(function (td) {
+      td.addEventListener("click", function () {
+        var partes = td.getAttribute("data-plantao-cel").split("|");
+        abrirEditarCelulaPlantao_(partes[0], partes[1]);
+      });
+    });
+  }
+
+  // ---- Modal: editar uma célula (pessoa + dia específico) ----
+  var plantaoCelulaAtual = null; // {pessoa, data}
+  var plantaoTipoSelecionado = null;
+  function abrirEditarCelulaPlantao_(pessoa, data) {
+    plantaoCelulaAtual = { pessoa: pessoa, data: data };
+    var cel = getCelulaPlantao_(pessoa, data);
+    plantaoTipoSelecionado = cel.tipo || null;
+    document.getElementById("plantao-celula-titulo").textContent = pessoa + " · " + fmtDate(data);
+    document.getElementById("plantao-t1-ini").value = cel.turnos[0] || "";
+    document.getElementById("plantao-t1-fim").value = cel.turnos[1] || "";
+    document.getElementById("plantao-t2-ini").value = cel.turnos[2] || "";
+    document.getElementById("plantao-t2-fim").value = cel.turnos[3] || "";
+    document.getElementById("plantao-destaque").checked = cel.destaque || false;
+    document.getElementById("plantao-celula-horarios").style.display = (cel.tipo === "horarios") ? "block" : "none";
+    marcarTipoPlantaoBotoes_();
+    document.getElementById("modal-plantao-celula-overlay").classList.add("active");
+  }
+  function marcarTipoPlantaoBotoes_() {
+    document.querySelectorAll("[data-plantao-tipo]").forEach(function (b) {
+      var ativo = b.getAttribute("data-plantao-tipo") === plantaoTipoSelecionado;
+      b.style.background = ativo ? "#4C7C59" : "";
+      b.style.color = ativo ? "#fff" : "";
+    });
+  }
+  function fecharModalPlantaoCelula_() {
+    document.getElementById("modal-plantao-celula-overlay").classList.remove("active");
+    plantaoCelulaAtual = null;
+  }
+  function salvarCelulaPlantao_() {
+    if (!plantaoCelulaAtual || !plantaoTipoSelecionado) { showToast("Escolhe Folga, Férias ou Trabalhando."); return; }
+    var turnos = [];
+    if (plantaoTipoSelecionado === "horarios") {
+      turnos = [
+        document.getElementById("plantao-t1-ini").value || "",
+        document.getElementById("plantao-t1-fim").value || "",
+        document.getElementById("plantao-t2-ini").value || "",
+        document.getElementById("plantao-t2-fim").value || ""
+      ];
+      if (!turnos[0] && !turnos[1]) { showToast("Preenche pelo menos o Turno 1."); return; }
+    }
+    var destaque = document.getElementById("plantao-destaque").checked;
+    var existente = getRegistroPontual_(plantaoCelulaAtual.pessoa, plantaoCelulaAtual.data);
+    var id = existente ? existente.id : uid();
+    salvarRegistroPlantao_(id, {
+      pessoa: plantaoCelulaAtual.pessoa, data: plantaoCelulaAtual.data,
+      tipo: plantaoTipoSelecionado, turnos: turnos, destaque: destaque
+    }, !existente);
+    fecharModalPlantaoCelula_();
+    showToast("Salvo.");
+    renderPlantao();
+  }
+  function limparCelulaPlantao_() {
+    if (!plantaoCelulaAtual) return;
+    var existente = getRegistroPontual_(plantaoCelulaAtual.pessoa, plantaoCelulaAtual.data);
+    if (existente) apagarRegistroPlantao_(existente.id);
+    fecharModalPlantaoCelula_();
+    showToast("Voltou ao padrão.");
+    renderPlantao();
+  }
+
+  // ---- Modal: adicionar substituto ----
+  function abrirAddSubstituto_() {
+    document.getElementById("plantao-add-nome").value = "";
+    document.getElementById("modal-plantao-add-overlay").classList.add("active");
+  }
+  function fecharModalPlantaoAdd_() { document.getElementById("modal-plantao-add-overlay").classList.remove("active"); }
+  function confirmarAddSubstituto_() {
+    var nome = document.getElementById("plantao-add-nome").value.trim();
+    if (!nome) { showToast("Digita o nome."); return; }
+    if (PLANTONISTAS_FIXOS.indexOf(nome) > -1) { showToast("Essa pessoa já é fixa, não precisa adicionar."); return; }
+    // cria uma entrada "vazia" (folga) só pra ele aparecer na grade dessa semana - a pessoa toca nas células depois pra preencher de verdade
+    var dataAncora = plantaoInicioBloco;
+    salvarRegistroPlantao_(uid(), { pessoa: nome, data: dataAncora, tipo: "folga", turnos: [], destaque: true }, true);
+    fecharModalPlantaoAdd_();
+    showToast(nome + " adicionado - toca nas células dele pra preencher.");
+    renderPlantao();
+  }
+
+  // ---- Modal: configurar padrão semanal (admin) ----
+  var plantaoConfigPessoaAtual = null;
+  var plantaoConfigDiasRascunho = {};
+  function abrirConfigPadraoPlantao_() {
+    var senha = prompt("Senha de administrador:");
+    if (senha === null) return;
+    postToBackend({ action: "verificar_admin", adminToken: senha }).then(function (res) {
+      if (!res || !res.ok) { showToast((res && res.error) || "Senha incorreta."); return; }
+      var sel = document.getElementById("plantao-config-pessoa");
+      sel.innerHTML = PLANTONISTAS_FIXOS.map(function (p) { return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>'; }).join("");
+      selecionarPessoaConfigPlantao_(PLANTONISTAS_FIXOS[0]);
+      document.getElementById("modal-plantao-config-overlay").classList.add("active");
+    }).catch(function () { showToast("Erro de conexão."); });
+  }
+  function selecionarPessoaConfigPlantao_(pessoa) {
+    plantaoConfigPessoaAtual = pessoa;
+    var padrao = getPadraoPessoa_(pessoa);
+    plantaoConfigDiasRascunho = padrao ? JSON.parse(JSON.stringify(padrao.dias)) : {};
+    renderDiasConfigPlantao_();
+  }
+  function renderDiasConfigPlantao_() {
+    var html = "";
+    DIAS_SEMANA_PLANTAO.forEach(function (dia, i) {
+      var config = plantaoConfigDiasRascunho[dia] || { tipo: "folga", turnos: [] };
+      html += '<div style="background:#FBF8F1;border:1px solid #DCD3BC;border-radius:6px;padding:10px;margin-bottom:8px;">' +
+        '<div style="font-weight:700;font-size:12.5px;margin-bottom:6px;">' + DIAS_SEMANA_PLANTAO_LABEL[i] + '</div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+          '<button class="del-btn" data-config-dia-tipo="' + dia + '|folga" style="flex:1;' + (config.tipo === "folga" ? "background:#4C7C59;color:#fff;" : "") + '">Folga</button>' +
+          '<button class="del-btn" data-config-dia-tipo="' + dia + '|horarios" style="flex:1;' + (config.tipo === "horarios" ? "background:#4C7C59;color:#fff;" : "") + '">Trabalha</button>' +
+        '</div>' +
+        (config.tipo === "horarios" ?
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">' +
+            '<input type="time" data-config-dia-turno="' + dia + '|0" value="' + (config.turnos[0] || "") + '" placeholder="Início 1">' +
+            '<input type="time" data-config-dia-turno="' + dia + '|1" value="' + (config.turnos[1] || "") + '" placeholder="Fim 1">' +
+            '<input type="time" data-config-dia-turno="' + dia + '|2" value="' + (config.turnos[2] || "") + '" placeholder="Início 2 (opc.)">' +
+            '<input type="time" data-config-dia-turno="' + dia + '|3" value="' + (config.turnos[3] || "") + '" placeholder="Fim 2 (opc.)">' +
+          '</div>' : "") +
+      '</div>';
+    });
+    document.getElementById("plantao-config-dias").innerHTML = html;
+    document.querySelectorAll("[data-config-dia-tipo]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var partes = b.getAttribute("data-config-dia-tipo").split("|");
+        if (!plantaoConfigDiasRascunho[partes[0]]) plantaoConfigDiasRascunho[partes[0]] = { tipo: "folga", turnos: [] };
+        plantaoConfigDiasRascunho[partes[0]].tipo = partes[1];
+        renderDiasConfigPlantao_();
+      });
+    });
+    document.querySelectorAll("[data-config-dia-turno]").forEach(function (inp) {
+      inp.addEventListener("change", function () {
+        var partes = inp.getAttribute("data-config-dia-turno").split("|");
+        var dia = partes[0], idx = +partes[1];
+        if (!plantaoConfigDiasRascunho[dia].turnos) plantaoConfigDiasRascunho[dia].turnos = [];
+        plantaoConfigDiasRascunho[dia].turnos[idx] = inp.value;
+      });
+    });
+  }
+  function fecharModalPlantaoConfig_() { document.getElementById("modal-plantao-config-overlay").classList.remove("active"); }
+  function salvarConfigPadraoPlantao_() {
+    salvarPadraoPessoa_(plantaoConfigPessoaAtual, plantaoConfigDiasRascunho);
+    showToast("Padrão de " + plantaoConfigPessoaAtual + " salvo.");
+    fecharModalPlantaoConfig_();
+    renderPlantao();
+  }
 
   function renderEscala() {
     var el = document.getElementById("escala-content");
@@ -7322,6 +7714,8 @@
           iniciarListenerPressao_();
           iniciarListenerPressaoSetor_();
           iniciarListenerEscala_();
+          iniciarListenerPlantaoPadroes_();
+          iniciarListenerPlantaoRegistros_();
           iniciarListenerAlarmesDeif_();
           iniciarListenerGeradorAlarmes_();
           iniciarListenerOcorrencias_();
@@ -7680,6 +8074,33 @@
     });
     document.getElementById("btn-abrir-base-alarmes").addEventListener("click", abrirBaseAlarmes_);
     document.getElementById("btn-close-base-alarmes").addEventListener("click", fecharBaseAlarmes_);
+    // Escala Plantão - modais
+    document.getElementById("btn-close-plantao-celula").addEventListener("click", fecharModalPlantaoCelula_);
+    document.getElementById("modal-plantao-celula-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-plantao-celula-overlay") fecharModalPlantaoCelula_();
+    });
+    document.querySelectorAll("[data-plantao-tipo]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        plantaoTipoSelecionado = b.getAttribute("data-plantao-tipo");
+        document.getElementById("plantao-celula-horarios").style.display = (plantaoTipoSelecionado === "horarios") ? "block" : "none";
+        marcarTipoPlantaoBotoes_();
+      });
+    });
+    document.getElementById("btn-salvar-plantao-celula").addEventListener("click", salvarCelulaPlantao_);
+    document.getElementById("btn-limpar-plantao-celula").addEventListener("click", limparCelulaPlantao_);
+    document.getElementById("btn-close-plantao-add").addEventListener("click", fecharModalPlantaoAdd_);
+    document.getElementById("modal-plantao-add-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-plantao-add-overlay") fecharModalPlantaoAdd_();
+    });
+    document.getElementById("btn-confirmar-plantao-add").addEventListener("click", confirmarAddSubstituto_);
+    document.getElementById("btn-close-plantao-config").addEventListener("click", fecharModalPlantaoConfig_);
+    document.getElementById("modal-plantao-config-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-plantao-config-overlay") fecharModalPlantaoConfig_();
+    });
+    document.getElementById("plantao-config-pessoa").addEventListener("change", function (e) {
+      selecionarPessoaConfigPlantao_(e.target.value);
+    });
+    document.getElementById("btn-salvar-plantao-config").addEventListener("click", salvarConfigPadraoPlantao_);
     document.getElementById("btn-save-base-alarmes").addEventListener("click", salvarBaseAlarmes_);
     document.getElementById("modal-base-alarmes-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-base-alarmes-overlay") fecharBaseAlarmes_();
