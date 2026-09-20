@@ -1026,7 +1026,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v101';
+  var APP_CACHE_NAME = 'registro-irrigacao-v102';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2010,7 +2010,15 @@
     if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
     var existente = getPadraoPessoa_(pessoa);
     var id = existente ? existente.id : uid();
-    db.collection("escala_plantao_padrao").doc(id).set({ pessoa: pessoa, alterna: alterna, semanaA: semanaA, semanaB: semanaB }, { merge: true }).catch(function (err) {
+    // O Firestore recusa qualquer valor "undefined" em qualquer canto do
+    // documento (por exemplo, um turno que ficou sem ser digitado vira uma
+    // "posição vazia" no array em vez de um texto vazio de verdade). Passar
+    // por esse JSON.parse(JSON.stringify(...)) troca qualquer "undefined"
+    // por null automaticamente, sem precisar caçar item por item onde ele
+    // estava escondido.
+    var semanaALimpa = JSON.parse(JSON.stringify(semanaA || {}));
+    var semanaBLimpa = JSON.parse(JSON.stringify(semanaB || {}));
+    db.collection("escala_plantao_padrao").doc(id).set({ pessoa: pessoa, alterna: alterna, semanaA: semanaALimpa, semanaB: semanaBLimpa }, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar padrão:", err);
       showToast("Erro ao salvar - tenta de novo.");
     });
