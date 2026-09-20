@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v106';
+  var APP_CACHE_NAME = 'registro-irrigacao-v107';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2443,48 +2443,45 @@
     var querEmail = document.getElementById("enviar-canal-email").checked;
     if (!querWhatsapp && !querEmail) { resultEl.className = "test-result fail"; resultEl.textContent = "Marca pelo menos um canal (WhatsApp ou e-mail)."; return; }
 
-    // Se a foto ainda não subiu pro Drive (ainda é uma imagem inteira em
-    // base64, não um link), NÃO cola ela na mensagem - isso é o que gerava
-    // aquele texto gigantesco e travava o WhatsApp/e-mail ao abrir.
-    var primeiraFoto = (r.fotos && r.fotos.length) ? r.fotos[0] : "";
-    var fotoAindaSubindo = primeiraFoto && String(primeiraFoto).indexOf("data:image") === 0;
-    var linkFoto = (primeiraFoto && !fotoAindaSubindo) ? urlFoto_(primeiraFoto) : "";
+    // Olha TODAS as fotos da ocorrência (não só a primeira) - uma foto ainda
+    // em base64 (não subiu pro Drive ainda) não entra na mensagem de link,
+    // mas ainda pode ser tentada de novo ou anexada de verdade depois.
+    var todasFotos = r.fotos || [];
+    var fotosProntas = todasFotos.filter(function (f) { return f && String(f).indexOf("data:image") !== 0; });
+    var fotosPendentes = todasFotos.filter(function (f) { return f && String(f).indexOf("data:image") === 0; });
 
-    if (fotoAindaSubindo) {
+    if (fotosPendentes.length) {
       resultEl.className = "test-result";
-      resultEl.innerHTML = "A foto dessa ocorrência ainda não subiu pro Drive (pode ter falhado quando você salvou, se a internet estava fraca naquele momento).<br><br>" +
-        '<button class="save-btn" id="btn-tentar-subir-foto" style="background:#D6A233;margin-top:0;">🔄 Tentar subir a foto agora</button>';
+      resultEl.innerHTML = (fotosProntas.length ? fotosProntas.length + " foto(s) já prontas, " : "") +
+        fotosPendentes.length + " foto(s) ainda não subiram pro Drive (pode ter faltado internet no momento de salvar).<br><br>" +
+        '<button class="save-btn" id="btn-tentar-subir-foto" style="background:#D6A233;margin-top:0;">🔄 Tentar subir agora</button>';
       var btnTentar = document.getElementById("btn-tentar-subir-foto");
       btnTentar.addEventListener("click", function () {
         btnTentar.disabled = true;
         btnTentar.textContent = "Tentando...";
-        resolverFotosOcorrencia_([primeiraFoto]).then(function (urls) {
-          var novaFoto = urls && urls[0];
-          var subiuAgora = novaFoto && String(novaFoto).indexOf("data:image") !== 0;
-          if (subiuAgora) {
-            var novasFotos = r.fotos.slice();
-            novasFotos[0] = novaFoto;
-            r.fotos = novasFotos; // atualiza local pra não precisar esperar o Firestore avisar de volta
-            salvarOcorrenciaFirestore_(r.id, { fotos: novasFotos }, false);
-            showToast("Foto enviada! Montando a mensagem de novo...");
-            confirmarEnvioOcorrencia_(); // reconstroi tudo, agora com o link certo
+        resolverFotosOcorrencia_(todasFotos).then(function (urls) {
+          var aindaFaltou = urls.some(function (u) { return String(u).indexOf("data:image") === 0; });
+          r.fotos = urls;
+          salvarOcorrenciaFirestore_(r.id, { fotos: urls }, false);
+          if (!aindaFaltou) {
+            showToast("Todas as fotos subiram! Montando a mensagem de novo...");
           } else {
-            btnTentar.disabled = false;
-            btnTentar.textContent = "🔄 Tentar subir a foto agora";
-            showToast("Ainda sem internet suficiente pra subir a foto - tenta de novo em instantes.");
+            showToast("Algumas ainda não subiram - sem internet suficiente. Tenta de novo em instantes.");
           }
+          confirmarEnvioOcorrencia_(); // reconstroi tudo com o que já tiver pronto
         });
       });
       return;
     }
 
+    var linksFoto = fotosProntas.map(urlFoto_);
     var textoMsg = "🌱 Ocorrência Operacional\n" +
       "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
       "Tipo: " + r.tipo + "\n" +
       (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
       "Data: " + fmtDate(r.data) + "\n" +
       "Descrição: " + r.descricao +
-      (linkFoto ? "\nFoto: " + linkFoto : "");
+      (linksFoto.length ? "\n" + (linksFoto.length > 1 ? "Fotos:\n" + linksFoto.join("\n") : "Foto: " + linksFoto[0]) : "");
 
     // Em vez de abrir tudo de uma vez (o celular trava/bloqueia quando o
     // app tenta abrir várias janelas sozinho), monta um botão pra CADA
@@ -2521,10 +2518,53 @@
     document.getElementById("enviar-canal-wrap").style.display = "none";
     document.getElementById("btn-confirmar-enviar").style.display = "none";
     resultEl.className = "test-result ok";
-    resultEl.innerHTML = '<b>Toca em cada um pra abrir:</b><br><br>' +
+    var botaoAnexar = "";
+    if (fotosProntas.length && navigator.share) {
+      botaoAnexar = '<button class="save-btn" id="btn-anexar-fotos-verdade" style="background:#25A244;margin-top:0;margin-bottom:10px;">📎 Compartilhar com as Fotos de Verdade Anexadas</button>' +
+        '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Abre o menu de compartilhar do celular com ' + fotosProntas.length + ' foto(s) de verdade - você escolhe o contato/grupo do WhatsApp na hora.</div>';
+    }
+    resultEl.innerHTML = botaoAnexar + '<b>Ou toca em cada um pra abrir (só com o link da foto, direto pro contato):</b><br><br>' +
       prontos.map(function (p, i) {
         return '<a href="' + p.url + '" target="_blank" data-abrir-envio="' + i + '" style="display:block;background:#2F7DB0;color:#fff;text-decoration:none;text-align:center;padding:10px;border-radius:6px;margin-bottom:8px;font-weight:700;">' + p.label + '</a>';
       }).join("");
+
+    var btnAnexar = document.getElementById("btn-anexar-fotos-verdade");
+    if (btnAnexar) {
+      btnAnexar.addEventListener("click", function () {
+        btnAnexar.disabled = true;
+        btnAnexar.textContent = "Preparando fotos...";
+        var textoLegenda = "🌱 Ocorrência Operacional\n" +
+          "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
+          "Tipo: " + r.tipo + "\n" +
+          (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
+          "Data: " + fmtDate(r.data) + "\n" +
+          "Descrição: " + r.descricao;
+        Promise.all(fotosProntas.map(function (f, i) {
+          return fetch(urlFoto_(f)).then(function (resp) {
+            if (!resp.ok) throw new Error("Falha ao buscar foto " + (i + 1));
+            return resp.blob();
+          }).then(function (blob) {
+            return new File([blob], "ocorrencia_foto" + (i + 1) + ".jpg", { type: blob.type || "image/jpeg" });
+          });
+        })).then(function (arquivos) {
+          var dadosShare = { files: arquivos, text: textoLegenda, title: "Ocorrência Operacional" };
+          if (navigator.canShare && !navigator.canShare(dadosShare)) {
+            showToast("O celular não aceitou anexar essas fotos - tenta pelos links abaixo.");
+            btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
+            return;
+          }
+          navigator.share(dadosShare).catch(function (err) {
+            if (err && err.name !== "AbortError") showToast("Não consegui abrir o compartilhar: " + err.message);
+          }).finally(function () {
+            btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
+          });
+        }).catch(function (err) {
+          console.error("[enviar ocorrência] erro ao buscar fotos pra anexar:", err);
+          showToast("Não consegui baixar as fotos pra anexar - tenta pelos links abaixo, ou confere a internet.");
+          btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
+        });
+      });
+    }
   }
 
   function startEdit(id) {
