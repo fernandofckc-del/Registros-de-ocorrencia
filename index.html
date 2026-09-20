@@ -678,6 +678,32 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-plantao-substituicao-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-substituicao">✕</button>
+    <div class="modal-title">🔄 Substituição Temporária</div>
+    <div class="modal-sub">A pessoa que substitui passa a usar o mesmo padrão (e as mesmas exceções) de quem ela está cobrindo, até a data que você marcar.</div>
+    <div class="field">
+      <span class="field-label">Quem vai substituir</span>
+      <input id="plantao-sub-substituto" type="text" placeholder="Ex.: Adilson">
+    </div>
+    <div class="field">
+      <span class="field-label">Vai seguir o padrão de quem</span>
+      <select id="plantao-sub-seguede"></select>
+    </div>
+    <div class="field">
+      <span class="field-label">A partir de qual dia</span>
+      <input id="plantao-sub-inicio" type="date">
+    </div>
+    <div class="field">
+      <span class="field-label">Até qual dia (deixe em branco se não souber ainda)</span>
+      <input id="plantao-sub-fim" type="date">
+    </div>
+    <button class="save-btn" id="btn-confirmar-plantao-substituicao" style="background:#2F7DB0;">Confirmar Substituição</button>
+    <div id="plantao-sub-lista-ativas" style="margin-top:16px;"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-plantao-config-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-plantao-config">✕</button>
@@ -1028,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v104';
+  var APP_CACHE_NAME = 'registro-irrigacao-v105';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2064,13 +2090,69 @@
       showToast("Erro ao apagar - tenta de novo.");
     });
   }
+
+  // ---- Substituição temporária: "fulano segue o padrão de beltrano" ----
+  // Pra quando alguém cobre outra pessoa por um tempo (tipo Adilson cobrindo
+  // o André de férias) sem precisar preencher célula por célula - o
+  // substituto passa a usar o mesmo padrão (e as mesmas exceções pontuais)
+  // de quem ele está substituindo, só durante o período marcado.
+  var plantaoSubstituicoes = [];
+  var plantaoSubstituicoesListenerAtivo = false;
+  function iniciarListenerPlantaoSubstituicoes_() {
+    if (plantaoSubstituicoesListenerAtivo || !db) return;
+    plantaoSubstituicoesListenerAtivo = true;
+    db.collection("escala_plantao_substituicoes").onSnapshot(function (snapshot) {
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({ id: doc.id, substituto: d.substituto, segueDe: d.segueDe, inicio: d.inicio, fim: d.fim || null });
+      });
+      plantaoSubstituicoes = novos;
+      try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
+    }, function (err) { console.error("[firebase] erro no listener de substituições do plantão:", err); });
+  }
+  function getSubstituicaoAtiva_(pessoa, dataStr) {
+    return plantaoSubstituicoes.find(function (s) {
+      if (s.substituto !== pessoa) return false;
+      if (dataStr < s.inicio) return false;
+      if (s.fim && dataStr > s.fim) return false;
+      return true;
+    }) || null;
+  }
+  function salvarSubstituicaoPlantao_(substituto, segueDe, inicio, fim) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("escala_plantao_substituicoes").doc(uid()).set({
+      substituto: substituto, segueDe: segueDe, inicio: inicio, fim: fim || null, excluido: false
+    }).catch(function (err) {
+      console.error("[firebase] erro ao salvar substituição:", err);
+      showToast("Erro ao salvar - tenta de novo.");
+    });
+  }
+  function apagarSubstituicaoPlantao_(id) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("escala_plantao_substituicoes").doc(id).update({ excluido: true }).catch(function (err) {
+      console.error("[firebase] erro ao apagar substituição:", err);
+      showToast("Erro ao apagar - tenta de novo.");
+    });
+  }
   // Resolve o que mostrar numa célula (pessoa+data): 1) se tem exceção
-  // pontual salva, usa ela; 2) senão, se for uma das 6 pessoas fixas, usa o
-  // padrão semanal dela pro dia da semana correspondente - escolhendo a
-  // semana A ou B do ciclo, se a pessoa alternar; 3) senão, vazio.
+  // pontual salva PRA ESSA PESSOA, usa ela; 2) senão, se ela está substituindo
+  // outra pessoa nesse período, usa o que essa outra pessoa teria naquele dia
+  // (padrão dela, incluindo as exceções pontuais dela); 3) senão, se for uma
+  // pessoa com padrão próprio, usa o padrão semanal dela pro dia da semana
+  // correspondente; 4) senão, vazio.
   function getCelulaPlantao_(pessoa, dataStr) {
     var pontual = getRegistroPontual_(pessoa, dataStr);
     if (pontual) return { tipo: pontual.tipo, turnos: pontual.turnos, destaque: pontual.destaque, origem: "pontual", id: pontual.id };
+
+    var substituicao = getSubstituicaoAtiva_(pessoa, dataStr);
+    if (substituicao) {
+      var celOriginal = getCelulaPlantao_(substituicao.segueDe, dataStr);
+      // marca de onde veio, mas mantém o resto igual ao da pessoa original
+      return { tipo: celOriginal.tipo, turnos: celOriginal.turnos, destaque: celOriginal.destaque, origem: "substituicao", id: null, segueDe: substituicao.segueDe };
+    }
+
     var padrao = getPadraoPessoa_(pessoa);
     if (padrao) {
       var partes = dataStr.split("-");
@@ -4034,6 +4116,7 @@
     html += '</table></div>';
 
     html += '<button class="photo-btn" id="btn-plantao-add-substituto" style="background:#2F7DB0;margin-top:12px;">➕ Adicionar Substituto Nesta Semana</button>';
+    html += '<button class="photo-btn" id="btn-plantao-substituicao" style="background:#D6A233;margin-top:8px;">🔄 Substituição Temporária (segue padrão de outra pessoa)</button>';
     html += '<button class="photo-btn" id="btn-plantao-config" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Padrão dos Fixos (admin)</button>';
 
     el.innerHTML = html;
@@ -4046,6 +4129,7 @@
       renderPlantao();
     });
     document.getElementById("btn-plantao-add-substituto").addEventListener("click", abrirAddSubstituto_);
+    document.getElementById("btn-plantao-substituicao").addEventListener("click", abrirModalSubstituicao_);
     document.getElementById("btn-plantao-config").addEventListener("click", abrirConfigPadraoPlantao_);
     el.querySelectorAll("[data-plantao-cel]").forEach(function (td) {
       td.addEventListener("click", function () {
@@ -4116,6 +4200,52 @@
   }
 
   // ---- Modal: adicionar substituto ----
+  // ---- Modal: substituição temporária (segue padrão de outra pessoa) ----
+  function abrirModalSubstituicao_() {
+    var pessoasComPadrao = plantaoPadroes.map(function (p) { return p.pessoa; });
+    var sel = document.getElementById("plantao-sub-seguede");
+    sel.innerHTML = pessoasComPadrao.map(function (p) { return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>'; }).join("");
+    document.getElementById("plantao-sub-substituto").value = "";
+    document.getElementById("plantao-sub-inicio").value = todayStr();
+    document.getElementById("plantao-sub-fim").value = "";
+    renderSubstituicoesAtivas_();
+    document.getElementById("modal-plantao-substituicao-overlay").classList.add("active");
+  }
+  function fecharModalSubstituicao_() { document.getElementById("modal-plantao-substituicao-overlay").classList.remove("active"); }
+  function renderSubstituicoesAtivas_() {
+    var el = document.getElementById("plantao-sub-lista-ativas");
+    if (!plantaoSubstituicoes.length) { el.innerHTML = ""; return; }
+    var html = '<div style="font-weight:700;font-size:12px;margin-bottom:6px;">Substituições cadastradas:</div>';
+    plantaoSubstituicoes.forEach(function (s) {
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;background:#FBF4E4;border-radius:4px;padding:7px 9px;margin-bottom:5px;font-size:12px;">' +
+        '<span><b>' + escapeHtml(s.substituto) + '</b> segue <b>' + escapeHtml(s.segueDe) + '</b><br>' +
+        '<span style="color:#8A8072;">' + fmtDate(s.inicio) + (s.fim ? ' até ' + fmtDate(s.fim) : ' (sem data final ainda)') + '</span></span>' +
+        '<button class="del-btn" data-remover-sub="' + s.id + '">🗑</button>' +
+      '</div>';
+    });
+    el.innerHTML = html;
+    el.querySelectorAll("[data-remover-sub]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        apagarSubstituicaoPlantao_(b.getAttribute("data-remover-sub"));
+        showToast("Substituição removida.");
+        setTimeout(renderSubstituicoesAtivas_, 300); // dá um tempinho pro listener do Firestore atualizar a lista local
+      });
+    });
+  }
+  function confirmarSubstituicaoPlantao_() {
+    var substituto = document.getElementById("plantao-sub-substituto").value.trim();
+    var segueDe = document.getElementById("plantao-sub-seguede").value;
+    var inicio = document.getElementById("plantao-sub-inicio").value;
+    var fim = document.getElementById("plantao-sub-fim").value;
+    if (!substituto) { showToast("Digita quem vai substituir."); return; }
+    if (!inicio) { showToast("Escolhe a data de início."); return; }
+    if (substituto === segueDe) { showToast("A pessoa não pode substituir ela mesma."); return; }
+    salvarSubstituicaoPlantao_(substituto, segueDe, inicio, fim);
+    showToast(substituto + " agora segue o padrão de " + segueDe + ".");
+    fecharModalSubstituicao_();
+    renderPlantao();
+  }
+
   function abrirAddSubstituto_() {
     document.getElementById("plantao-add-nome").value = "";
     document.getElementById("modal-plantao-add-overlay").classList.add("active");
@@ -7887,6 +8017,7 @@
           iniciarListenerEscala_();
           iniciarListenerPlantaoPadroes_();
           iniciarListenerPlantaoRegistros_();
+          iniciarListenerPlantaoSubstituicoes_();
           iniciarListenerAlarmesDeif_();
           iniciarListenerGeradorAlarmes_();
           iniciarListenerOcorrencias_();
@@ -8264,6 +8395,11 @@
       if (e.target.id === "modal-plantao-add-overlay") fecharModalPlantaoAdd_();
     });
     document.getElementById("btn-confirmar-plantao-add").addEventListener("click", confirmarAddSubstituto_);
+    document.getElementById("btn-close-plantao-substituicao").addEventListener("click", fecharModalSubstituicao_);
+    document.getElementById("modal-plantao-substituicao-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-plantao-substituicao-overlay") fecharModalSubstituicao_();
+    });
+    document.getElementById("btn-confirmar-plantao-substituicao").addEventListener("click", confirmarSubstituicaoPlantao_);
     document.getElementById("btn-close-plantao-config").addEventListener("click", fecharModalPlantaoConfig_);
     document.getElementById("modal-plantao-config-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-plantao-config-overlay") fecharModalPlantaoConfig_();
