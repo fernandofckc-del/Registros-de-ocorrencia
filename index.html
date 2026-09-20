@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v105';
+  var APP_CACHE_NAME = 'registro-irrigacao-v106';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1992,7 +1992,7 @@
   // ---- Escala Plantão: padrão fixo (se repete toda semana) + exceções pontuais ----
   var DIAS_SEMANA_PLANTAO = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
   var DIAS_SEMANA_PLANTAO_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-  var PLANTONISTAS_FIXOS = ["Alex", "André", "Yverson", "Ivonaldo", "Josias", "Adilson"];
+  var PLANTONISTAS_FIXOS = ["Alex", "Yverson", "Ivonaldo", "André", "Josias", "Adilson"]; // duplas ficam lado a lado: Alex+Yverson, Ivonaldo+André
   // Domingo de referência pra calcular se uma semana qualquer é "A" ou "B"
   // do ciclo que se alterna - a dupla que trabalha domingo numa semana
   // folga domingo (e trabalha segunda) na semana seguinte, e assim por
@@ -4053,6 +4053,98 @@
     dt.setUTCDate(dt.getUTCDate() + n);
     return fmtISO_(dt);
   }
+  // ================= COMPARTILHAR A ESCALA COMO IMAGEM (pro WhatsApp) =================
+  function construirCanvasPlantao_(dias, pessoas) {
+    var LARG_NOME = 130, LARG_DIA = 132, ALT_HEADER = 56, ALT_LINHA = 46;
+    var W = LARG_NOME + dias.length * LARG_DIA;
+    var H = ALT_HEADER + pessoas.length * ALT_LINHA + 50; // +50 pro rodapé
+    var canvas = document.createElement("canvas");
+    var SC = 2;
+    canvas.width = W * SC; canvas.height = H * SC;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(SC, SC);
+    ctx.fillStyle = "#F3EEE0"; ctx.fillRect(0, 0, W, H);
+
+    // cabeçalho: coluna "Pessoa" + uma coluna por dia
+    ctx.fillStyle = "#4C6B2F"; ctx.fillRect(0, 0, LARG_NOME, ALT_HEADER);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 13px Arial"; ctx.textAlign = "left";
+    ctx.fillText("Pessoa", 10, ALT_HEADER / 2 + 5);
+
+    dias.forEach(function (d, i) {
+      var partes = d.split("-");
+      var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+      var x = LARG_NOME + i * LARG_DIA;
+      var corFundo = (i % 2 === 0) ? "#EFEAD9" : "#E3DBC4";
+      var separadorEsquerdo = (i === 7);
+      ctx.fillStyle = corFundo; ctx.fillRect(x, 0, LARG_DIA, ALT_HEADER);
+      if (separadorEsquerdo) { ctx.fillStyle = "#4C6B2F"; ctx.fillRect(x, 0, 3, H); }
+      ctx.fillStyle = "#241F1A"; ctx.font = "bold 12.5px Arial"; ctx.textAlign = "center";
+      ctx.fillText(fmtDate(d), x + LARG_DIA / 2, 22);
+      ctx.font = "11px Arial"; ctx.fillStyle = "#4A4136";
+      ctx.fillText(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()], x + LARG_DIA / 2, 40);
+    });
+
+    // linhas por pessoa
+    pessoas.forEach(function (pessoa, li) {
+      var y = ALT_HEADER + li * ALT_LINHA;
+      var qualquerDestaque = dias.some(function (d) { return getCelulaPlantao_(pessoa, d).destaque; });
+      ctx.fillStyle = "#FFFDF8"; ctx.fillRect(0, y, LARG_NOME, ALT_LINHA);
+      ctx.strokeStyle = "#DCD3BC"; ctx.strokeRect(0, y, LARG_NOME, ALT_LINHA);
+      ctx.fillStyle = qualquerDestaque ? "#B4442E" : "#241F1A";
+      ctx.font = "bold 12.5px Arial"; ctx.textAlign = "left";
+      ctx.fillText(pessoa, 10, y + ALT_LINHA / 2 + 4);
+
+      dias.forEach(function (d, i) {
+        var x = LARG_NOME + i * LARG_DIA;
+        var cel = getCelulaPlantao_(pessoa, d);
+        var corFundo = (i % 2 === 0) ? "#FFFDF8" : "#F3EEE0";
+        ctx.fillStyle = corFundo; ctx.fillRect(x, y, LARG_DIA, ALT_LINHA);
+        ctx.strokeStyle = "#DCD3BC"; ctx.strokeRect(x, y, LARG_DIA, ALT_LINHA);
+        var texto = "—";
+        if (cel.tipo === "folga") texto = "FOLGA";
+        else if (cel.tipo === "ferias") texto = "Férias";
+        else if (cel.tipo === "horarios" && cel.turnos.length) texto = cel.turnos.filter(Boolean).join(" ");
+        ctx.fillStyle = cel.destaque ? "#B4442E" : "#241F1A";
+        ctx.font = "bold 10.5px Arial"; ctx.textAlign = "center";
+        ctx.fillText(texto, x + LARG_DIA / 2, y + ALT_LINHA / 2 + 4);
+      });
+    });
+
+    var ty = ALT_HEADER + pessoas.length * ALT_LINHA + 22;
+    ctx.textAlign = "left"; ctx.fillStyle = "#6B6153"; ctx.font = "10px Arial";
+    ctx.fillText("Escala Plantão · gerado em " + fmtDate(todayStr()), 10, ty);
+
+    return canvas;
+  }
+  function compartilharPlantaoImagem_() {
+    if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
+    var dias = [];
+    for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
+    var pessoasSubstitutas = [];
+    plantaoRegistros.forEach(function (r) {
+      if (dias.indexOf(r.data) === -1) return;
+      if (PLANTONISTAS_FIXOS.indexOf(r.pessoa) === -1 && pessoasSubstitutas.indexOf(r.pessoa) === -1) pessoasSubstitutas.push(r.pessoa);
+    });
+    var pessoas = PLANTONISTAS_FIXOS.concat(pessoasSubstitutas.sort());
+
+    showToast("Preparando imagem...");
+    var canvas = construirCanvasPlantao_(dias, pessoas);
+    canvas.toBlob(function (blob) {
+      if (!blob) { showToast("Não consegui gerar a imagem."); return; }
+      var nome = "escala_plantao_" + dias[0] + "_a_" + dias[13] + ".png";
+      var file = new File([blob], nome, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: "Escala Plantão", text: "Escala de " + fmtDate(dias[0]) + " a " + fmtDate(dias[13]) }).catch(function () {});
+      } else {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = nome;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        showToast("Imagem baixada — é só mandar pelo WhatsApp.");
+      }
+    }, "image/png");
+  }
+
   function renderPlantao() {
     var el = document.getElementById("plantao-content");
     if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
@@ -4115,7 +4207,8 @@
     });
     html += '</table></div>';
 
-    html += '<button class="photo-btn" id="btn-plantao-add-substituto" style="background:#2F7DB0;margin-top:12px;">➕ Adicionar Substituto Nesta Semana</button>';
+    html += '<button class="save-btn" id="btn-plantao-compartilhar" style="background:#25A244;margin-top:12px;">📤 Compartilhar no WhatsApp</button>';
+    html += '<button class="photo-btn" id="btn-plantao-add-substituto" style="background:#2F7DB0;margin-top:8px;">➕ Adicionar Substituto Nesta Semana</button>';
     html += '<button class="photo-btn" id="btn-plantao-substituicao" style="background:#D6A233;margin-top:8px;">🔄 Substituição Temporária (segue padrão de outra pessoa)</button>';
     html += '<button class="photo-btn" id="btn-plantao-config" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Padrão dos Fixos (admin)</button>';
 
@@ -4128,6 +4221,7 @@
       plantaoInicioBloco = addDiasStr_(plantaoInicioBloco, 14);
       renderPlantao();
     });
+    document.getElementById("btn-plantao-compartilhar").addEventListener("click", compartilharPlantaoImagem_);
     document.getElementById("btn-plantao-add-substituto").addEventListener("click", abrirAddSubstituto_);
     document.getElementById("btn-plantao-substituicao").addEventListener("click", abrirModalSubstituicao_);
     document.getElementById("btn-plantao-config").addEventListener("click", abrirConfigPadraoPlantao_);
