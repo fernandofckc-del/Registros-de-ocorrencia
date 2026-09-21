@@ -991,6 +991,17 @@
 
     <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
 
+    <div class="modal-title" style="font-size:15px;">🔐 Acesso ao Firebase</div>
+    <div class="modal-sub">Cada celular entra no Firebase com a <b>conta da equipe</b>, usando a chave de sincronização (o Token lá de cima) como senha. Celular sem a chave certa continua entrando como anônimo por enquanto.</div>
+    <div id="cfg-acesso-status" style="border-radius:6px;padding:9px 11px;font-size:12.5px;margin-bottom:8px;"></div>
+    <button class="photo-btn" id="btn-acesso-tentar" style="background:#2F7DB0;margin-bottom:8px;">🔒 Ativar acesso da equipe agora</button>
+    <button class="photo-btn" id="btn-dispositivos" style="background:#4C7C59">📱 Ver celulares da equipe</button>
+    <div id="cfg-dispositivos-lista" style="display:none;font-size:12.5px;margin-top:8px;background:#FBF8F0;border:1px solid #E4DCC8;border-radius:6px;padding:8px 10px;"></div>
+    <div class="modal-sub" style="margin-top:12px;"><b>Criar a conta da equipe no Firebase</b> (uma vez só, pelo administrador): e-mail <b>equipe@registroocorrencia.app</b> e senha <b>equipe-</b> seguido da chave de sincronização. Exemplo: chave abc123 → senha equipe-abc123.</div>
+    <button class="photo-btn" id="btn-copiar-senha-equipe" style="background:#8A5A44">📋 Copiar senha da conta da equipe</button>
+
+    <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
+
     <div class="modal-title" style="font-size:15px;">🔒 Rondas Noturnas (administrador)</div>
     <div class="modal-sub">Define de quanto em quanto tempo o plantonista tem que conferir as bombas. Um horário por linha, formato <b>HH:MM</b>. Vale para todos os celulares.</div>
     <div class="field">
@@ -1054,7 +1065,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v112';
+  var APP_CACHE_NAME = 'registro-irrigacao-v113';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1158,7 +1169,23 @@
         db.enablePersistence({ synchronizeTabs: true }).catch(function (err) {
           console.warn("[firebase] persistência offline não disponível:", err.code);
         });
-        firebase.auth().signInAnonymously().then(function () {
+        esperarAuthRestaurar_().then(function (usuario) {
+          // Já tem sessão guardada neste celular (anônima ou da equipe):
+          // segue com ela - funciona até sem internet.
+          if (usuario) return usuario;
+          // Primeira vez neste celular: com chave e internet, entra direto
+          // na conta da equipe; senão (ou se falhar), anônimo como antes.
+          if (senhaEquipe_() && navigator.onLine) {
+            marcarTentativaEquipe_();
+            return firebase.auth().signInWithEmailAndPassword(EMAIL_EQUIPE, senhaEquipe_())
+              .then(function (cred) { guardarErroEquipe_(""); return cred; })
+              .catch(function (err) {
+                guardarErroEquipe_((err && err.code) || "erro");
+                return firebase.auth().signInAnonymously();
+              });
+          }
+          return firebase.auth().signInAnonymously();
+        }).then(function () {
           resolve(true);
         }).catch(function (err) {
           console.error("[firebase] falha no login anônimo:", err);
@@ -1171,6 +1198,244 @@
     });
     return firebaseProntoP;
   }
+
+  // ================= CONTA DA EQUIPE (acesso ao Firebase) =================
+  // Antes todo celular entrava no Firebase como "anônimo" - e qualquer
+  // pessoa com o link do app também conseguia. Agora o celular entra com a
+  // CONTA DA EQUIPE, usando como senha a chave de sincronização que ele já
+  // tem configurada (senha = "equipe-" + chave). Enquanto a conta não existir
+  // no Firebase, ou se o celular não tiver a chave certa, ele continua
+  // anônimo como antes - nada para de funcionar. Quando todos os celulares
+  // estiverem na conta da equipe, as regras do Firestore podem ser fechadas
+  // pra deixar o anônimo de fora.
+  var EMAIL_EQUIPE = "equipe@registroocorrencia.app";
+  function senhaEquipe_() {
+    var tk = (config && config.token) || "";
+    if (!tk) {
+      try { tk = (JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}").token || ""); } catch (e) {}
+    }
+    return tk ? "equipe-" + tk : "";
+  }
+  function tipoLoginAtual_() {
+    try {
+      var u = firebase.auth().currentUser;
+      if (!u) return "nenhum";
+      return u.isAnonymous ? "anonimo" : "equipe";
+    } catch (e) { return "nenhum"; }
+  }
+  // Quando o Firebase abre, ele leva um instante pra "lembrar" quem estava
+  // logado neste celular. Espera isso antes de decidir como entrar.
+  function esperarAuthRestaurar_() {
+    return new Promise(function (resolve) {
+      var feito = false;
+      var parar = function () {};
+      function fim(u) { if (feito) return; feito = true; try { parar(); } catch (e) {} resolve(u || null); }
+      try { parar = firebase.auth().onAuthStateChanged(fim); } catch (e) { fim(null); }
+      setTimeout(function () { try { fim(firebase.auth().currentUser); } catch (e) { fim(null); } }, 5000);
+    });
+  }
+  function guardarErroEquipe_(codigo) {
+    try { localStorage.setItem("equipe_ultimo_erro", codigo || ""); } catch (e) {}
+  }
+  function ultimoErroEquipe_() {
+    try { return localStorage.getItem("equipe_ultimo_erro") || ""; } catch (e) { return ""; }
+  }
+  function marcarTentativaEquipe_() {
+    try { localStorage.setItem("equipe_tentativa_em", String(Date.now())); } catch (e) {}
+  }
+  function motivoAuth_(codigo) {
+    var m = {
+      "auth/operation-not-allowed": "o login por e-mail/senha ainda não foi ativado no Firebase",
+      "auth/invalid-credential": "a conta da equipe ainda não foi criada, ou a senha não confere com a chave deste celular",
+      "auth/invalid-login-credentials": "a conta da equipe ainda não foi criada, ou a senha não confere com a chave deste celular",
+      "auth/wrong-password": "a senha não confere com a chave deste celular",
+      "auth/user-not-found": "a conta da equipe ainda não foi criada no Firebase",
+      "auth/user-disabled": "a conta da equipe está desativada no Firebase",
+      "auth/too-many-requests": "muitas tentativas - o Firebase pediu pra esperar um pouco",
+      "auth/network-request-failed": "estava sem internet na hora da tentativa",
+      "pendentes": "ainda tinha registro deste celular subindo - tenta de novo mais tarde"
+    };
+    return m[codigo] || codigo || "";
+  }
+
+  // Tela travada por alguns segundos durante a troca de conta.
+  function travaTela_(ligar, texto) {
+    var el = document.getElementById("trava-tela");
+    if (ligar) {
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "trava-tela";
+        el.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(20,25,20,.55);display:flex;align-items:center;justify-content:center;padding:20px;";
+        el.innerHTML = '<div style="background:#F3EEE0;color:#241F1A;border-radius:10px;padding:16px 20px;font-size:14px;font-weight:700;max-width:320px;text-align:center;"></div>';
+        document.body.appendChild(el);
+      }
+      el.firstChild.textContent = texto || "Aguarde...";
+      el.style.display = "flex";
+    } else if (el) {
+      el.style.display = "none";
+    }
+  }
+  function comLimite_(promessa, ms) {
+    return Promise.race([promessa, new Promise(function (_, rejeita) {
+      setTimeout(function () { rejeita({ code: "pendentes" }); }, ms);
+    })]);
+  }
+
+  // Troca o celular de "anônimo" pra "conta da equipe".
+  // CUIDADO IMPORTANTE: o Firestore guarda a fila de envio (o que foi gravado
+  // sem internet) SEPARADA POR CONTA. Se trocasse de conta com registro ainda
+  // na fila do anônimo, esse registro ficaria preso lá e nunca subiria. Por
+  // isso: 1) espera tudo que está na fila chegar no servidor; 2) trava a tela
+  // uns segundos (pra ninguém gravar nada no meio); 3) confere a fila de novo;
+  // 4) só então troca. Se não der pra esvaziar a fila (internet ruim), não
+  // troca agora - tenta de novo depois, sem perder nada.
+  var virandoEquipe = false;
+  function tentarVirarEquipe_(forcar) {
+    if (virandoEquipe || !db || !navigator.onLine) return Promise.resolve(false);
+    if (tipoLoginAtual_() !== "anonimo" || !senhaEquipe_()) return Promise.resolve(false);
+    if (!forcar) {
+      var ultima = +(localStorage.getItem("equipe_tentativa_em") || 0);
+      if (Date.now() - ultima < 60 * 60 * 1000) return Promise.resolve(false); // no máximo 1x por hora
+      if (algumModalAberto_()) return Promise.resolve(false); // alguém preenchendo algo - fica pra depois
+    }
+    virandoEquipe = true;
+    var travou = false;
+    return comLimite_(db.waitForPendingWrites(), 20000).then(function () {
+      travou = true;
+      travaTela_(true, "🔒 Ativando o acesso da equipe neste celular...");
+      return comLimite_(db.waitForPendingWrites(), 10000);
+    }).then(function () {
+      marcarTentativaEquipe_();
+      return firebase.auth().signInWithEmailAndPassword(EMAIL_EQUIPE, senhaEquipe_());
+    }).then(function () {
+      guardarErroEquipe_("");
+      showToast("🔒 Acesso da equipe ativado neste celular.");
+      registrarDispositivo_(true);
+      return true;
+    }).catch(function (err) {
+      var codigo = (err && err.code) || "erro";
+      guardarErroEquipe_(codigo);
+      console.warn("[firebase] não ativou a conta da equipe agora:", codigo);
+      registrarDispositivo_(true);
+      if (forcar) showToast("⚠️ Não ativou: " + motivoAuth_(codigo));
+      return false;
+    }).then(function (ok) {
+      if (travou) travaTela_(false);
+      virandoEquipe = false;
+      try { renderAcessoFirebase_(); } catch (e) {}
+      return ok;
+    });
+  }
+
+  // ---- Lista de celulares (pra saber quem já está na conta da equipe) ----
+  // Cada celular se apresenta no Firebase (no máximo 1x por hora): nome do
+  // dono (se for celular pessoal), modelo, versão do app, tipo de acesso e
+  // se tem a chave. Assim dá pra ver, pela tela de configurações, quais
+  // celulares ainda precisam de ajuste - sem sair perguntando um por um.
+  var DISPOSITIVO_KEY = "dispositivo_id_v1";
+  function idDispositivo_() {
+    var id = "";
+    try { id = localStorage.getItem(DISPOSITIVO_KEY) || ""; } catch (e) {}
+    if (!id) {
+      id = "cel_" + uid();
+      try { localStorage.setItem(DISPOSITIVO_KEY, id); } catch (e) {}
+    }
+    return id;
+  }
+  function modeloAparelho_() {
+    var ua = navigator.userAgent || "";
+    var m = /Android ([\d.]+); ([^;)]+)/.exec(ua);
+    if (m) return "Android " + m[1] + " · " + m[2].replace(/ Build.*/, "").trim();
+    if (/iPhone/.test(ua)) return "iPhone";
+    if (/Windows/.test(ua)) return "Computador (Windows)";
+    return "Outro aparelho";
+  }
+  function registrarDispositivo_(forcar) {
+    if (!db) return;
+    var ultimo = +(localStorage.getItem("dispositivo_reportado_em") || 0);
+    if (!forcar && Date.now() - ultimo < 60 * 60 * 1000) return;
+    var versao = (/-(v\d+)$/.exec(APP_CACHE_NAME) || [])[1] || "";
+    var dados = {
+      nome: (operadorDispositivo && operadorDispositivo.modo === "pessoal" && operadorDispositivo.nome) || "",
+      modo: (operadorDispositivo && operadorDispositivo.modo) || "compartilhado",
+      aparelho: modeloAparelho_(),
+      versao: versao,
+      login: tipoLoginAtual_(),
+      temChave: !!senhaEquipe_(),
+      erroEquipe: tipoLoginAtual_() === "equipe" ? "" : ultimoErroEquipe_(),
+      ultimoAcesso: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    try { localStorage.setItem("dispositivo_reportado_em", String(Date.now())); } catch (e) {}
+    db.collection("dispositivos").doc(idDispositivo_()).set(dados, { merge: true }).catch(function (err) {
+      console.warn("[dispositivos] não registrou:", err && err.code);
+    });
+  }
+
+  function renderAcessoFirebase_() {
+    var el = document.getElementById("cfg-acesso-status");
+    if (!el) return;
+    var t = tipoLoginAtual_();
+    var btn = document.getElementById("btn-acesso-tentar");
+    var html, cor;
+    if (t === "equipe") {
+      html = "🔒 Este celular já está com o <b>acesso da equipe</b>.";
+      cor = "#E8F1E4";
+    } else if (!senhaEquipe_()) {
+      html = "❌ Este celular está <b>sem a chave de sincronização</b>. Preencha o Token lá em cima e salve.";
+      cor = "#FBEDE8";
+    } else {
+      var e = ultimoErroEquipe_();
+      html = "⚠️ Este celular ainda entra como <b>anônimo</b>." + (e ? "<br>Última tentativa: " + escapeHtml(motivoAuth_(e)) + "." : "");
+      cor = "#FBF4E4";
+    }
+    el.innerHTML = html;
+    el.style.background = cor;
+    if (btn) btn.style.display = (t === "anonimo" && senhaEquipe_()) ? "" : "none";
+  }
+
+  function carregarListaDispositivos_() {
+    var el = document.getElementById("cfg-dispositivos-lista");
+    if (!el) return;
+    el.style.display = "block";
+    if (!db) { el.textContent = "Firebase ainda não carregou."; return; }
+    el.textContent = "Carregando...";
+    db.collection("dispositivos").get().then(function (snap) {
+      var agora = Date.now(), limite = 30 * 24 * 60 * 60 * 1000;
+      var lista = [], escondidos = 0;
+      snap.forEach(function (doc) {
+        var d = doc.data();
+        var quando = d.ultimoAcesso && d.ultimoAcesso.toDate ? d.ultimoAcesso.toDate() : null;
+        if (quando && agora - quando.getTime() > limite) { escondidos++; return; }
+        d._quando = quando;
+        d._status = d.login === "equipe" ? 2 : (d.temChave ? 1 : 0);
+        lista.push(d);
+      });
+      if (!lista.length) { el.textContent = "Nenhum celular se apresentou ainda. Cada celular aparece aqui quando abre a versão nova do app com internet."; return; }
+      lista.sort(function (a, b) {
+        if (a._status !== b._status) return a._status - b._status;
+        return (b._quando ? b._quando.getTime() : agora) - (a._quando ? a._quando.getTime() : agora);
+      });
+      var naEquipe = lista.filter(function (d) { return d._status === 2; }).length;
+      var html = '<div style="font-weight:700;margin-bottom:6px;">🔒 ' + naEquipe + " de " + lista.length +
+        " celular(es) já no acesso da equipe</div>";
+      lista.forEach(function (d) {
+        var selo = d._status === 2 ? "🔒 Equipe" : (d._status === 1 ? "⚠️ Anônimo" : "❌ Sem chave");
+        var quem = d.nome ? escapeHtml(d.nome) : "Celular compartilhado";
+        var q = d._quando ? d._quando.toLocaleDateString("pt-BR").slice(0, 5) + " " + d._quando.toTimeString().slice(0, 5) : "agora há pouco";
+        html += '<div style="border-top:1px solid #E4DCC8;padding:6px 0;">' +
+          "<b>" + selo + "</b> · " + quem +
+          '<div style="color:#6B6153;font-size:11.5px;">' + escapeHtml(d.aparelho || "") + " · " + escapeHtml(d.versao || "") + " · visto " + q + "</div>" +
+          (d._status === 1 && d.erroEquipe ? '<div style="color:#8A5A18;font-size:11.5px;">Motivo: ' + escapeHtml(motivoAuth_(d.erroEquipe)) + "</div>" : "") +
+          "</div>";
+      });
+      if (escondidos) html += '<div style="color:#8A8072;font-size:11px;margin-top:4px;">+' + escondidos + " celular(es) sem uso há mais de 30 dias (escondidos)</div>";
+      el.innerHTML = html;
+    }).catch(function (err) {
+      el.textContent = "Não consegui carregar a lista: " + motivoFirestore_(err) +
+        ((err && err.code) === "permission-denied" ? " (falta publicar as regras novas do Firestore, com a coleção dispositivos)" : "");
+    });
+  }
+  // ================= FIM CONTA DA EQUIPE =================
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   // Enquanto um modal estiver aberto, os listeners do Firebase NÃO devem
@@ -8542,6 +8807,10 @@
           iniciarListenerAlarmesDeif_();
           iniciarListenerGeradorAlarmes_();
           iniciarListenerOcorrencias_();
+          setTimeout(function () {
+            registrarDispositivo_();
+            tentarVirarEquipe_();
+          }, 8000);
         } else {
           var msg = (resultado && resultado.erro) ? resultado.erro : "motivo desconhecido";
           console.error("[firebase] não conectou:", msg);
@@ -8797,6 +9066,25 @@
       document.getElementById("cfg-operador-lista").innerHTML =
         currentPlantonistas.map(function (n) { return '<option value="' + escapeHtml(n) + '">'; }).join("");
       document.getElementById("cfg-operador-result").style.display = "none";
+      // --- acesso ao Firebase ---
+      try { renderAcessoFirebase_(); } catch (e) {}
+      var listaDisp = document.getElementById("cfg-dispositivos-lista");
+      if (listaDisp) { listaDisp.style.display = "none"; listaDisp.innerHTML = ""; }
+    });
+    document.getElementById("btn-acesso-tentar").addEventListener("click", function () {
+      if (!navigator.onLine) { showToast("Precisa de internet pra ativar."); return; }
+      tentarVirarEquipe_(true);
+    });
+    document.getElementById("btn-dispositivos").addEventListener("click", carregarListaDispositivos_);
+    document.getElementById("btn-copiar-senha-equipe").addEventListener("click", function () {
+      var senha = senhaEquipe_();
+      if (!senha) { showToast("Preencha e salve o Token primeiro."); return; }
+      var feito = function () { showToast("Senha copiada. Cole no Firebase ao criar o usuário."); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(senha).then(feito).catch(function () { window.prompt("Copie a senha:", senha); });
+      } else {
+        window.prompt("Copie a senha:", senha);
+      }
     });
     document.getElementById("btn-close-modal").addEventListener("click", function () {
       document.getElementById("modal-overlay").classList.remove("active");
@@ -8813,6 +9101,10 @@
       showToast("Configuração salva.");
       refreshSyncPill();
       trySync();
+      // chave nova/alterada: tenta já entrar na conta da equipe
+      setTimeout(function () {
+        if (tipoLoginAtual_() === "anonimo" && config.token) tentarVirarEquipe_(true); else registrarDispositivo_(true);
+      }, 1500);
     });
 
     document.getElementById("btn-sync-now").addEventListener("click", function () { religarListenersAgora_(); trySync(); });
@@ -9185,6 +9477,7 @@
       refreshSyncPill(); trySync();
       setTimeout(reenviarFotosPendentes_, 3000);
       setTimeout(function () { religarListenersAgora_(10000); }, 2000);
+      setTimeout(function () { tentarVirarEquipe_(); }, 6000);
     });
     setTimeout(reenviarFotosPendentes_, 15000);
     setInterval(reenviarFotosPendentes_, 10 * 60 * 1000);
@@ -9194,6 +9487,7 @@
       if (document.visibilityState !== "visible") return;
       setTimeout(reenviarFotosPendentes_, 5000);
       religarListenersAgora_(30000);
+      setTimeout(function () { tentarVirarEquipe_(); registrarDispositivo_(); }, 7000);
     });
     // Gatilho extra, além do Background Sync: toda vez que a tela volta a
     // ficar visível (ex.: notificação, desbloqueou o celular), tenta
