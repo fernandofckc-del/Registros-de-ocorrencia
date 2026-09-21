@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v109';
+  var APP_CACHE_NAME = 'registro-irrigacao-v110';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1234,6 +1234,23 @@
     return '<span style="display:inline-block;font-size:9.5px;font-weight:700;color:' + cor + ';background:' + fundo + ';border-radius:8px;padding:2px 7px;margin-top:3px;">' + texto + '</span>';
   }
 
+  // Aviso de erro do Firestore. IMPORTANTE: o .catch() de um set()/update()
+  // NÃO dispara por falta de internet (offline o Firestore guarda na fila e
+  // manda sozinho depois). Ele só dispara quando o SERVIDOR RECUSOU de vez -
+  // e aí não existe "tentar de novo sozinho": o registro não foi salvo.
+  // Antes a mensagem dizia "vai tentar de novo", o que escondia o problema.
+  function avisarErroFirestore_(err) {
+    var code = (err && err.code) || "";
+    var motivos = {
+      "permission-denied": "sem permissão no Firebase (regras do Firestore)",
+      "invalid-argument": "registro grande demais ou com dado inválido (muitas fotos?)",
+      "resource-exhausted": "limite diário do plano gratuito do Firebase atingido",
+      "unauthenticated": "login do Firebase caiu - feche e abra o app"
+    };
+    var motivo = motivos[code] || (code ? code : ((err && err.message) || "motivo desconhecido"));
+    showToast("⚠️ NÃO foi salvo: " + motivo);
+  }
+
   function escapeHtml(s) {
     return String(s || "").replace(/[&<>"']/g, function (c) {
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
@@ -1294,17 +1311,25 @@
     if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return Promise.reject("sem firebase"); }
     var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
-    return db.collection("ocorrencias").doc(id).set(dados, { merge: true }).catch(function (err) {
+    var escrita = db.collection("ocorrencias").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar ocorrência:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
       throw err;
     });
+    // O set() do Firestore só "termina" quando o SERVIDOR confirma. Sem
+    // internet isso nunca acontece - e o botão ficava preso em "Salvando..."
+    // pra sempre. Mas o registro JÁ está gravado no celular (fila offline do
+    // Firestore) desde o primeiro instante. Então: espera no máximo 2,5 s;
+    // se o servidor não respondeu até lá, segue como "salvo no celular".
+    // Se o servidor recusar depois, o aviso do catch acima aparece igual.
+    var limite = new Promise(function (resolve) { setTimeout(function () { resolve("local"); }, 2500); });
+    return Promise.race([escrita.then(function () { return "servidor"; }), limite]);
   }
   function atualizarStatusOcorrenciaFirestore_(id, status) {
     if (!db) { showToast("Firebase ainda não carregou."); return; }
     db.collection("ocorrencias").doc(id).update({ status: status }).catch(function (err) {
       console.error("[firebase] erro ao mudar status:", err);
-      showToast("Erro ao mudar status - tenta de novo.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarOcorrenciaFirestore_(id) {
@@ -1336,6 +1361,78 @@
   // Mesma função de cima, só que pra UMA foto só (Bombeamento e Rondas
   // guardam foto única por campo, não um array como Ocorrências) - reusa
   // o mesmo caminho de upload, sem duplicar lógica.
+  // Se alguma foto não subiu pro Drive, ela vai em base64 DENTRO do documento
+  // do Firestore - e cada documento tem limite de 1 MB. 4 fotos de 1080px
+  // chegam perto disso; passando, o servidor recusa e a ocorrência INTEIRA se
+  // perde. Aqui: se as fotos em base64 somam mais de ~650 KB, recomprime
+  // (800px, qualidade menor) só pra caber. Fotos que já são link do Drive
+  // não são mexidas.
+  var LIMITE_BASE64_DOC = 650000;
+  function tamanhoBase64_(fotos) {
+    return (fotos || []).reduce(function (t, f) {
+      return t + (String(f).indexOf("data:image") === 0 ? String(f).length : 0);
+    }, 0);
+  }
+  function recomprimirDataUrl_(dataUrl, maxW, quality) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, maxW / img.width);
+        var canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+  function reduzirFotosSeGrande_(fotos) {
+    if (tamanhoBase64_(fotos) <= LIMITE_BASE64_DOC) return Promise.resolve(fotos);
+    function passo(lista, maxW, q) {
+      return Promise.all(lista.map(function (f) {
+        return String(f).indexOf("data:image") === 0 ? recomprimirDataUrl_(f, maxW, q) : f;
+      }));
+    }
+    return passo(fotos, 800, 0.5).then(function (r) {
+      if (tamanhoBase64_(r) <= LIMITE_BASE64_DOC) return r;
+      return passo(r, 640, 0.4);
+    });
+  }
+
+  // Fotos que ficaram em base64 (sem internet na hora de salvar) agora sobem
+  // SOZINHAS: quando a internet volta, ao abrir o app e a cada 10 min. Antes
+  // só subiam se alguém apertasse "Tentar subir agora" na tela de envio.
+  var reenvioFotosRodando = false;
+  function reenviarFotosPendentesOcorrencias_() {
+    if (reenvioFotosRodando || !db || !navigator.onLine) return;
+    if (!config || !config.url || !config.token) return;
+    var pendentes = (records || []).filter(function (r) {
+      return (r.fotos || []).some(function (f) { return String(f).indexOf("data:image") === 0; });
+    });
+    if (!pendentes.length) return;
+    reenvioFotosRodando = true;
+    var subiram = 0;
+    // Uma ocorrência por vez, pra não entupir a internet fraca do campo.
+    pendentes.reduce(function (cadeia, r) {
+      return cadeia.then(function () {
+        return postToBackend({ token: config.token, action: "upload_fotos_ocorrencia", fotos: r.fotos, id: uid() })
+          .then(function (res) {
+            if (res && res.ok && res.urls && res.urls.length === r.fotos.length) {
+              subiram++;
+              return db.collection("ocorrencias").doc(r.id).update({ fotos: res.urls }).catch(function (err) {
+                console.error("[fotos] não consegui gravar os links:", err);
+              });
+            }
+          }).catch(function () { /* sem internet de novo - tenta na próxima */ });
+      });
+    }, Promise.resolve()).then(function () {
+      reenvioFotosRodando = false;
+      if (subiram) showToast("📷 Fotos pendentes de " + subiram + " ocorrência(s) subiram pro Drive.");
+    });
+  }
+
   function resolverUmaFoto_(foto) {
     if (!foto) return Promise.resolve("");
     return resolverFotosOcorrencia_([foto]).then(function (urls) { return (urls && urls[0]) || foto; });
@@ -1382,7 +1479,7 @@
     });
     db.collection("manutencao").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar manutenção:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarManutencaoFirestore_(id) {
@@ -1555,7 +1652,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     ref.set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar bombeamento:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarBombeamentoFirestore_(id) {
@@ -1621,7 +1718,7 @@
     });
     batch.commit().catch(function (err) {
       console.error("[firebase] erro ao salvar ronda:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
 
@@ -1676,7 +1773,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     db.collection("pressao").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar pressão:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarPressaoFirestore_(id) {
@@ -1725,7 +1822,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     db.collection("pressao_setor").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar pressão do setor:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarPressaoSetorFirestore_(id) {
@@ -1777,7 +1874,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     db.collection("gerador").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar gerador:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarGeradorFirestore_(id) {
@@ -1823,9 +1920,17 @@
     alarmesDeifListenerAtivo = true;
     db.collection("alarmes_deif").onSnapshot(function (snapshot) {
       if (snapshot.empty) {
-        // primeira vez que alguém usa - semeia a base inicial sozinho
-        ALARMES_DEIF_SEED.forEach(function (a) {
-          db.collection("alarmes_deif").doc(uid()).set(a).catch(function () {});
+        // Primeira vez que alguém usa - semeia a base inicial sozinho.
+        // Dois cuidados que faltavam (e podiam DUPLICAR a lista inteira):
+        // 1) só semeia se a resposta veio do SERVIDOR. Um snapshot vazio
+        //    vindo do cache (celular offline, cache ainda vazio) NÃO quer
+        //    dizer que a coleção está vazia de verdade.
+        // 2) IDs fixos ("seed_0", "seed_1"...) em vez de aleatórios: se dois
+        //    celulares semearem ao mesmo tempo, gravam o MESMO documento em
+        //    vez de criar dois.
+        if (snapshot.metadata.fromCache) return;
+        ALARMES_DEIF_SEED.forEach(function (a, i) {
+          db.collection("alarmes_deif").doc("seed_" + i).set(a, { merge: true }).catch(function () {});
         });
         return;
       }
@@ -1877,7 +1982,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     return db.collection("gerador_alarmes").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar alarme:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
       throw err;
     });
   }
@@ -1928,7 +2033,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     db.collection("anotacoes").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar anotação:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarAnotacaoFirestore_(id) {
@@ -1978,7 +2083,7 @@
     if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
     db.collection("escala").doc(id).set(dados, { merge: true }).catch(function (err) {
       console.error("[firebase] erro ao salvar escala:", err);
-      showToast("Erro ao salvar - vai tentar de novo sozinho quando a internet voltar.");
+      avisarErroFirestore_(err);
     });
   }
   function apagarEscalaFirestore_(id) {
@@ -7210,7 +7315,7 @@
     if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = ehNovo ? "Salvando..." : "Atualizando..."; }
     showToast(ehNovo ? "Salvando..." : "Atualizando...");
 
-    resolverFotosOcorrencia_(fotosParaSalvar).then(function (urls) {
+    resolverFotosOcorrencia_(fotosParaSalvar).then(reduzirFotosSeGrande_).then(function (urls) {
       var campos = {
         cultura: cultura, setor: setor, data: data, tipo: tipo, causa: causa,
         operacaoCausadora: operacaoCausadora, quantidade: quantidade,
@@ -7219,8 +7324,12 @@
       };
       if (ehNovo) campos.status = "Aberto";
       return salvarOcorrenciaFirestore_(idAlvo, campos, ehNovo);
-    }).then(function () {
-      showToast(ehNovo ? "Ocorrência registrada." : "Ocorrência atualizada.");
+    }).then(function (onde) {
+      if (onde === "local") {
+        showToast((ehNovo ? "Ocorrência registrada" : "Ocorrência atualizada") + " no celular - sobe sozinha quando tiver internet.");
+      } else {
+        showToast(ehNovo ? "Ocorrência registrada." : "Ocorrência atualizada.");
+      }
       salvandoOcorrencia = false;
       if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = textoOriginalBtn; }
       resetForm();
@@ -8821,7 +8930,12 @@
       if (e.target.id === "foto-lightbox") fecharFotoAmpliada_();
     });
 
-    window.addEventListener("online", function () { refreshSyncPill(); trySync(); });
+    window.addEventListener("online", function () {
+      refreshSyncPill(); trySync();
+      setTimeout(reenviarFotosPendentesOcorrencias_, 3000);
+    });
+    setTimeout(reenviarFotosPendentesOcorrencias_, 15000);
+    setInterval(reenviarFotosPendentesOcorrencias_, 10 * 60 * 1000);
     // Gatilho extra, além do Background Sync: toda vez que a tela volta a
     // ficar visível (ex.: notificação, desbloqueou o celular), tenta
     // enviar o que estiver pendente. Não depende do Android liberar tempo
