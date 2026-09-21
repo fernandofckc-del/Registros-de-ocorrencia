@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v111';
+  var APP_CACHE_NAME = 'registro-irrigacao-v112';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1239,17 +1239,99 @@
   // manda sozinho depois). Ele só dispara quando o SERVIDOR RECUSOU de vez -
   // e aí não existe "tentar de novo sozinho": o registro não foi salvo.
   // Antes a mensagem dizia "vai tentar de novo", o que escondia o problema.
-  function avisarErroFirestore_(err) {
+  function motivoFirestore_(err) {
     var code = (err && err.code) || "";
     var motivos = {
       "permission-denied": "sem permissão no Firebase (regras do Firestore)",
       "invalid-argument": "registro grande demais ou com dado inválido (muitas fotos?)",
       "resource-exhausted": "limite diário do plano gratuito do Firebase atingido",
-      "unauthenticated": "login do Firebase caiu - feche e abra o app"
+      "unauthenticated": "login do Firebase caiu - feche e abra o app",
+      "failed-precondition": "o Firestore pediu uma configuração (índice) que falta",
+      "unavailable": "servidor do Firebase fora do alcance no momento"
     };
-    var motivo = motivos[code] || (code ? code : ((err && err.message) || "motivo desconhecido"));
-    showToast("⚠️ NÃO foi salvo: " + motivo);
+    return motivos[code] || (code ? code : ((err && err.message) || "motivo desconhecido"));
   }
+  function avisarErroFirestore_(err) {
+    showToast("⚠️ NÃO foi salvo: " + motivoFirestore_(err));
+  }
+
+  // ================= LISTENER QUE CAI: AVISAR E RELIGAR =================
+  // "Listener" é a conexão que mantém cada aba sempre atualizada com o
+  // Firestore. Quando ele dá erro, ele MORRE - e o Firestore NÃO religa
+  // sozinho. Antes o erro ia só pro console: a tela ficava parada nos dados
+  // antigos e a pílula podia até dizer "Tudo enviado", sem ninguém perceber.
+  // Exemplo: o limite diário do plano gratuito estoura de madrugada; no dia
+  // seguinte o limite volta, mas o app seguia "morto" até alguém fechar e
+  // abrir de novo.
+  // Agora: avisa na pílula de sincronização e tenta religar sozinho,
+  // esperando cada vez mais entre as tentativas (1, 2, 4, 8, até 15 min) pra
+  // não gastar à toa. Também tenta na hora quando alguém aperta o ⟳, quando
+  // a internet volta ou quando o app volta pra tela.
+  var listenersComErro = {};
+  function falhaListener_(nome, colecao, err, religar, vivo) {
+    console.error("[firebase] erro no listener de " + nome + ":", err);
+    var info = listenersComErro[nome] || { nome: nome, tentativas: 0, timer: null };
+    info.colecao = colecao;
+    info.religar = religar;
+    info.vivo = vivo;
+    info.motivo = motivoFirestore_(err);
+    if (!info.ultimaTentativa) info.ultimaTentativa = Date.now();
+    listenersComErro[nome] = info;
+    agendarReligar_(info);
+    try { refreshSyncPill(); } catch (e) {}
+  }
+  // Marca a próxima tentativa - só UMA por vez (se o listener e a conferência
+  // falharem juntos, não conta duas vezes nem encurta a espera).
+  function agendarReligar_(info) {
+    if (info.timer) return;
+    info.tentativas++;
+    var espera = Math.min(15 * 60 * 1000, 60 * 1000 * Math.pow(2, info.tentativas - 1));
+    info.proxima = Date.now() + espera;
+    info.timer = setTimeout(function () { tentarReligar_(info.nome); }, espera);
+  }
+  function tentarReligar_(nome) {
+    var info = listenersComErro[nome];
+    if (!info) return;
+    clearTimeout(info.timer);
+    info.timer = null;
+    info.ultimaTentativa = Date.now();
+    info.religar(); // se o listener já estiver vivo, a própria função não faz nada
+    if (!db || !navigator.onLine) { agendarReligar_(info); try { refreshSyncPill(); } catch (e) {} return; }
+    // Conferência direta com o servidor (lê 1 documento só). Precisa disso
+    // porque o listener religado entrega primeiro o CACHE do celular - e se
+    // nada mudou no servidor, o Firestore não avisa de novo quando conecta.
+    db.collection(info.colecao).limit(1).get({ source: "server" }).then(function () {
+      // Servidor respondeu. Espera 3 s: se o listener for dar erro de novo,
+      // o erro chega nesse meio-tempo - aí não dá como resolvido.
+      setTimeout(function () {
+        if (listenersComErro[nome] !== info) return;
+        if (info.vivo()) listenerVoltou_(nome); else agendarReligar_(info);
+      }, 3000);
+    }).catch(function (err) {
+      if (listenersComErro[nome] !== info) return;
+      info.motivo = motivoFirestore_(err);
+      agendarReligar_(info);
+      try { refreshSyncPill(); } catch (e) {}
+    });
+  }
+  function listenerVoltou_(nome) {
+    var info = listenersComErro[nome];
+    if (!info) return;
+    clearTimeout(info.timer);
+    delete listenersComErro[nome];
+    try { refreshSyncPill(); } catch (e) {}
+    if (!Object.keys(listenersComErro).length) showToast("✅ Conexão com o Firebase voltou - dados atualizados.");
+  }
+  // minIntervaloMs: não tenta de novo se a última tentativa foi agora há
+  // pouco (evita ficar tentando toda vez que a tela liga e desliga).
+  function religarListenersAgora_(minIntervaloMs) {
+    Object.keys(listenersComErro).forEach(function (nome) {
+      var info = listenersComErro[nome];
+      if (minIntervaloMs && Date.now() - (info.ultimaTentativa || 0) < minIntervaloMs) return;
+      tentarReligar_(nome);
+    });
+  }
+  // ================= FIM LISTENER QUE CAI =================
 
   function escapeHtml(s) {
     return String(s || "").replace(/[&<>"']/g, function (c) {
@@ -1281,6 +1363,9 @@
     if (ocorrenciasListenerAtivo || !db) return;
     ocorrenciasListenerAtivo = true;
     db.collection("ocorrencias").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Ocorrências");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1304,7 +1389,7 @@
       } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de ocorrências:", err);
+      ocorrenciasListenerAtivo = false; falhaListener_("Ocorrências", "ocorrencias", err, iniciarListenerOcorrencias_, function () { return ocorrenciasListenerAtivo; });
     });
   }
   function salvarOcorrenciaFirestore_(id, campos, novo) {
@@ -1563,6 +1648,9 @@
     if (manutListenerAtivo || !db) return;
     manutListenerAtivo = true;
     db.collection("manutencao").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Manutenção");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1578,7 +1666,7 @@
       try { if (document.getElementById("tab-manutencao").classList.contains("active") && !algumModalAberto_()) renderManutencao(); } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de manutenção:", err);
+      manutListenerAtivo = false; falhaListener_("Manutenção", "manutencao", err, iniciarListenerManutencao_, function () { return manutListenerAtivo; });
     });
   }
   function salvarManutencaoFirestore_(id, campos) {
@@ -1732,6 +1820,9 @@
     if (bombListenerAtivo || !db) return;
     bombListenerAtivo = true;
     db.collection("bombeamento").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Bombeamento");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1751,7 +1842,7 @@
       try { if (document.getElementById("tab-bombeamento").classList.contains("active") && !algumModalAberto_()) renderBombeamento(); } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de bombeamento:", err);
+      bombListenerAtivo = false; falhaListener_("Bombeamento", "bombeamento", err, iniciarListenerBombeamento_, function () { return bombListenerAtivo; });
     });
   }
   function salvarBombeamentoFirestore_(id, campos, novo) {
@@ -1788,6 +1879,9 @@
     if (rondaListenerAtivo || !db) return;
     rondaListenerAtivo = true;
     db.collection("rondas").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Rondas");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1810,7 +1904,7 @@
         if (document.getElementById("tab-resumo").classList.contains("active") && !algumModalAberto_()) renderResumo();
       } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de rondas:", err);
+      rondaListenerAtivo = false; falhaListener_("Rondas", "rondas", err, iniciarListenerRondas_, function () { return rondaListenerAtivo; });
     });
   }
   function salvarRondasFirestoreLote_(itens) {
@@ -1847,6 +1941,9 @@
     if (pressaoListenerAtivo || !db) return;
     pressaoListenerAtivo = true;
     db.collection("pressao").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Pressão");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1873,7 +1970,7 @@
       try { if (document.getElementById("tab-pressao").classList.contains("active") && !algumModalAberto_()) renderPressaoIdeal(); } catch (e) {}
       try { updateBadge(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de pressão:", err);
+      pressaoListenerAtivo = false; falhaListener_("Pressão", "pressao", err, iniciarListenerPressao_, function () { return pressaoListenerAtivo; });
     });
   }
   function salvarPressaoFirestore_(id, campos, novo) {
@@ -1902,6 +1999,9 @@
     if (pressaoSetorListenerAtivo || !db) return;
     pressaoSetorListenerAtivo = true;
     db.collection("pressao_setor").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Pressão do setor");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1917,7 +2017,7 @@
       pressaoSetorRecords = novos;
       try { if (document.getElementById("tab-pressao").classList.contains("active") && !algumModalAberto_()) renderPressaoIdeal(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de pressão do setor:", err);
+      pressaoSetorListenerAtivo = false; falhaListener_("Pressão do setor", "pressao_setor", err, iniciarListenerPressaoSetor_, function () { return pressaoSetorListenerAtivo; });
     });
   }
   function getUltimaPressaoSetor_(setor) {
@@ -1958,6 +2058,9 @@
     if (geradorListenerAtivo || !db) return;
     geradorListenerAtivo = true;
     db.collection("gerador").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Gerador");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -1974,7 +2077,7 @@
       saveGeradorRecords();
       try { if (document.getElementById("tab-gerador").classList.contains("active") && !algumModalAberto_()) renderGerador(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de gerador:", err);
+      geradorListenerAtivo = false; falhaListener_("Gerador", "gerador", err, iniciarListenerGerador_, function () { return geradorListenerAtivo; });
     });
   }
   function salvarGeradorFirestore_(id, campos, novo) {
@@ -2028,6 +2131,9 @@
     if (alarmesDeifListenerAtivo || !db) return;
     alarmesDeifListenerAtivo = true;
     db.collection("alarmes_deif").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Alarmes DEIF");
       if (snapshot.empty) {
         // Primeira vez que alguém usa - semeia a base inicial sozinho.
         // Dois cuidados que faltavam (e podiam DUPLICAR a lista inteira):
@@ -2056,7 +2162,7 @@
       alarmesDeif = novos;
       try { if (document.getElementById("tab-gerador").classList.contains("active") && !algumModalAberto_()) renderGerador(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de alarmes DEIF:", err);
+      alarmesDeifListenerAtivo = false; falhaListener_("Alarmes DEIF", "alarmes_deif", err, iniciarListenerAlarmesDeif_, function () { return alarmesDeifListenerAtivo; });
     });
   }
 
@@ -2067,6 +2173,9 @@
     if (geradorAlarmesListenerAtivo || !db) return;
     geradorAlarmesListenerAtivo = true;
     db.collection("gerador_alarmes").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Histórico de alarmes");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -2082,7 +2191,7 @@
       geradorAlarmesRecords = novos;
       try { if (document.getElementById("tab-gerador").classList.contains("active") && !algumModalAberto_()) renderGerador(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de histórico de alarmes:", err);
+      geradorAlarmesListenerAtivo = false; falhaListener_("Histórico de alarmes", "gerador_alarmes", err, iniciarListenerGeradorAlarmes_, function () { return geradorAlarmesListenerAtivo; });
     });
   }
   function salvarGeradorAlarmeFirestore_(id, campos, novo) {
@@ -2119,6 +2228,9 @@
     if (anotacoesListenerAtivo || !db) return;
     anotacoesListenerAtivo = true;
     db.collection("anotacoes").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Anotações");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -2133,7 +2245,7 @@
       saveAnotacoesRecords();
       try { if (document.getElementById("tab-anotacoes").classList.contains("active") && anotacoesLiberado) renderAnotacoes(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de anotações:", err);
+      anotacoesListenerAtivo = false; falhaListener_("Anotações", "anotacoes", err, iniciarListenerAnotacoes_, function () { return anotacoesListenerAtivo; });
     });
   }
   function salvarAnotacaoFirestore_(id, campos, novo) {
@@ -2169,6 +2281,9 @@
     if (escalaListenerAtivo || !db) return;
     escalaListenerAtivo = true;
     db.collection("escala").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Escala");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -2183,7 +2298,7 @@
       saveEscalaRecords();
       try { if (document.getElementById("tab-escala").classList.contains("active") && !algumModalAberto_()) renderEscala(); } catch (e) {}
     }, function (err) {
-      console.error("[firebase] erro no listener de escala:", err);
+      escalaListenerAtivo = false; falhaListener_("Escala", "escala", err, iniciarListenerEscala_, function () { return escalaListenerAtivo; });
     });
   }
   function salvarEscalaFirestore_(id, campos, novo) {
@@ -2236,6 +2351,9 @@
     if (plantaoPadroesListenerAtivo || !db) return;
     plantaoPadroesListenerAtivo = true;
     db.collection("escala_plantao_padrao").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Plantão (padrão)");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -2243,7 +2361,7 @@
       });
       plantaoPadroes = novos;
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
-    }, function (err) { console.error("[firebase] erro no listener de padrão do plantão:", err); });
+    }, function (err) { plantaoPadroesListenerAtivo = false; falhaListener_("Plantão (padrão)", "escala_plantao_padrao", err, iniciarListenerPlantaoPadroes_, function () { return plantaoPadroesListenerAtivo; }); });
   }
   function getPadraoPessoa_(pessoa) {
     return plantaoPadroes.find(function (p) { return p.pessoa === pessoa; }) || null;
@@ -2272,6 +2390,9 @@
     if (plantaoRegistrosListenerAtivo || !db) return;
     plantaoRegistrosListenerAtivo = true;
     db.collection("escala_plantao").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Plantão (registros)");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -2284,7 +2405,7 @@
       });
       plantaoRegistros = novos;
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
-    }, function (err) { console.error("[firebase] erro no listener de registros do plantão:", err); });
+    }, function (err) { plantaoRegistrosListenerAtivo = false; falhaListener_("Plantão (registros)", "escala_plantao", err, iniciarListenerPlantaoRegistros_, function () { return plantaoRegistrosListenerAtivo; }); });
   }
   function getRegistroPontual_(pessoa, data) {
     return plantaoRegistros.find(function (r) { return r.pessoa === pessoa && r.data === data; }) || null;
@@ -2316,6 +2437,9 @@
     if (plantaoSubstituicoesListenerAtivo || !db) return;
     plantaoSubstituicoesListenerAtivo = true;
     db.collection("escala_plantao_substituicoes").onSnapshot(function (snapshot) {
+      // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
+      // (a primeira costuma vir do cache do celular).
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Plantão (substituições)");
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
@@ -2324,7 +2448,7 @@
       });
       plantaoSubstituicoes = novos;
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
-    }, function (err) { console.error("[firebase] erro no listener de substituições do plantão:", err); });
+    }, function (err) { plantaoSubstituicoesListenerAtivo = false; falhaListener_("Plantão (substituições)", "escala_plantao_substituicoes", err, iniciarListenerPlantaoSubstituicoes_, function () { return plantaoSubstituicoesListenerAtivo; }); });
   }
   function getSubstituicaoAtiva_(pessoa, dataStr) {
     return plantaoSubstituicoes.find(function (s) {
@@ -7514,6 +7638,22 @@
 
   function refreshSyncPill() {
     var pill = document.getElementById("sync-pill");
+    // Listener do Firebase caído vem ANTES de tudo: com ele caído, a tela
+    // pode estar desatualizada e o "Tudo enviado" não seria confiável.
+    var caidos = Object.keys(listenersComErro);
+    if (caidos.length) {
+      updateSyncUI("warn", "⚠️ Firebase caiu — toque para ver");
+      if (pill) pill.classList.remove("sync-pill-ok");
+      var detFb = document.getElementById("sync-detalhes");
+      if (detFb) {
+        var prox = Math.min.apply(null, caidos.map(function (n) { return listenersComErro[n].proxima || Date.now(); }));
+        detFb.innerHTML = '<b>O app não está recebendo atualizações de:</b><br>' +
+          caidos.map(function (n) { return '• ' + escapeHtml(n) + ' — ' + escapeHtml(listenersComErro[n].motivo); }).join('<br>') +
+          '<br><br>Os dados dessas telas podem estar desatualizados. O app tenta religar sozinho ' +
+          '(próxima tentativa por volta das ' + new Date(prox).toTimeString().slice(0, 5) + ') - ou toque em ⟳ pra tentar agora.';
+      }
+      return;
+    }
     if (!config.url) {
       updateSyncUI("warn", "Sincronização não configurada");
       if (pill) pill.classList.remove("sync-pill-ok");
@@ -8675,7 +8815,7 @@
       trySync();
     });
 
-    document.getElementById("btn-sync-now").addEventListener("click", function () { trySync(); });
+    document.getElementById("btn-sync-now").addEventListener("click", function () { religarListenersAgora_(); trySync(); });
     document.getElementById("sync-pill").addEventListener("click", function (e) {
       if (e.target.id === "btn-sync-now") return; // não conflita com o botão de sincronizar
       var det = document.getElementById("sync-detalhes");
@@ -9044,13 +9184,16 @@
     window.addEventListener("online", function () {
       refreshSyncPill(); trySync();
       setTimeout(reenviarFotosPendentes_, 3000);
+      setTimeout(function () { religarListenersAgora_(10000); }, 2000);
     });
     setTimeout(reenviarFotosPendentes_, 15000);
     setInterval(reenviarFotosPendentes_, 10 * 60 * 1000);
     // No celular, o app fica "congelado" quando está em segundo plano e o
     // relógio de 10 min para. Por isso também confere ao voltar pra tela.
     document.addEventListener("visibilitychange", function () {
-      if (document.visibilityState === "visible") setTimeout(reenviarFotosPendentes_, 5000);
+      if (document.visibilityState !== "visible") return;
+      setTimeout(reenviarFotosPendentes_, 5000);
+      religarListenersAgora_(30000);
     });
     // Gatilho extra, além do Background Sync: toda vez que a tela volta a
     // ficar visível (ex.: notificação, desbloqueou o celular), tenta
