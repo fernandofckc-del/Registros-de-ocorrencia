@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v110';
+  var APP_CACHE_NAME = 'registro-irrigacao-v111';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1401,37 +1401,146 @@
     });
   }
 
-  // Fotos que ficaram em base64 (sem internet na hora de salvar) agora sobem
-  // SOZINHAS: quando a internet volta, ao abrir o app e a cada 10 min. Antes
-  // só subiam se alguém apertasse "Tentar subir agora" na tela de envio.
+  // ================= REENVIO AUTOMÁTICO DE FOTOS =================
+  // Quando falta internet na hora de salvar, a foto fica guardada DENTRO do
+  // registro em base64 ("data:image..."). Este motor procura essas fotos nas
+  // partes do app listadas abaixo e, quando tem internet, sobe pro Drive e
+  // troca o base64 pelo link - sozinho: quando a internet volta, ao abrir o
+  // app, quando o app volta pra frente da tela e a cada 10 min.
+  //
+  // Pra ligar o reenvio em outra aba no futuro, basta acrescentar uma linha
+  // aqui: a coleção do Firestore, de onde vêm os registros e quais campos
+  // têm foto ("campoLista" = várias fotos numa lista; "campos" = uma foto
+  // por campo). "emEdicao" diz qual registro está aberto na tela agora - esse
+  // fica pra depois, porque ao salvar a própria tela já sobe a foto.
+  var FONTES_FOTOS_PENDENTES = [
+    { nome: "ocorrência", plural: "ocorrências", colecao: "ocorrencias",
+      registros: function () { return records; }, campoLista: "fotos",
+      emEdicao: function () { return telaAtiva_("tab-registrar") ? editingId : null; } },
+    { nome: "bombeamento", plural: "bombeamentos", colecao: "bombeamento",
+      registros: function () { return bombRecords; }, campos: ["fotoInicio", "fotoFim"],
+      emEdicao: function () { return telaAtiva_("modal-bomb-overlay") ? editingBombId : null; } }
+  ];
+  function telaAtiva_(id) {
+    var el = document.getElementById(id);
+    return !!(el && el.classList.contains("active"));
+  }
+  function ehBase64_(f) { return typeof f === "string" && f.indexOf("data:image") === 0; }
+
+  // Lista as fotos ainda em base64 de UM registro, guardando de onde cada
+  // uma veio (qual campo ou qual posição da lista) pra devolver o link do
+  // Drive exatamente no mesmo lugar.
+  function fotosPendentesDoRegistro_(fonte, r) {
+    var lista = [];
+    if (fonte.campoLista) {
+      (r[fonte.campoLista] || []).forEach(function (f, i) {
+        if (ehBase64_(f)) lista.push({ pos: i, foto: f });
+      });
+    } else {
+      fonte.campos.forEach(function (c) {
+        if (ehBase64_(r[c])) lista.push({ campo: c, foto: r[c] });
+      });
+    }
+    return lista;
+  }
+
+  // Grava os links SÓ SE a foto no servidor ainda for a mesma que foi
+  // enviada. Sem essa conferência, dava pra acontecer: o envio demora, a
+  // pessoa troca a foto nesse meio-tempo, e o reenvio chega depois e
+  // sobrescreve a foto NOVA com o link da ANTIGA. A "transação" do Firestore
+  // lê e grava de uma vez só, sem ninguém mexer no meio.
+  function gravarLinksSeNaoMudou_(colecao, id, antes, depois) {
+    var ref = db.collection(colecao).doc(id);
+    return db.runTransaction(function (t) {
+      return t.get(ref).then(function (doc) {
+        if (!doc.exists) return false;
+        var d = doc.data();
+        if (d.excluido) return false;
+        var igual = Object.keys(antes).every(function (c) {
+          return JSON.stringify(d[c]) === JSON.stringify(antes[c]);
+        });
+        if (!igual) return false; // foto mudou nesse meio-tempo - não mexe
+        t.update(ref, depois);
+        return true;
+      });
+    });
+  }
+
+  // Se a foto subiu pro Drive mas a gravação do link falhar sempre (ex.:
+  // regra do Firestore bloqueando), o app mandaria a MESMA foto de novo a
+  // cada 10 min, enchendo o Drive de cópias. Depois de 3 falhas assim, esse
+  // registro fica de fora até o app ser aberto de novo.
+  var falhasGravacaoFoto = {};
+
+  function reenviarFotosDeUmRegistro_(fonte, r) {
+    var pend = fotosPendentesDoRegistro_(fonte, r);
+    if (!pend.length) return Promise.resolve(false);
+    var chave = fonte.colecao + "/" + r.id;
+    // Manda SÓ as fotos em base64 (as que já são link ficam onde estão).
+    return postToBackend({ token: config.token, action: "upload_fotos_ocorrencia", fotos: pend.map(function (p) { return p.foto; }), id: uid() })
+      .then(function (res) {
+        var urls = res && res.ok && res.urls;
+        if (!urls || urls.length !== pend.length) return false;
+        var todasValidas = urls.every(function (u) { return typeof u === "string" && /^https?:\/\//.test(u); });
+        if (!todasValidas) return false;
+        var antes = {}, depois = {};
+        if (fonte.campoLista) {
+          var original = r[fonte.campoLista] || [];
+          var nova = original.slice();
+          pend.forEach(function (p, k) { nova[p.pos] = urls[k]; });
+          antes[fonte.campoLista] = original;
+          depois[fonte.campoLista] = nova;
+        } else {
+          pend.forEach(function (p, k) { antes[p.campo] = p.foto; depois[p.campo] = urls[k]; });
+        }
+        return gravarLinksSeNaoMudou_(fonte.colecao, r.id, antes, depois).catch(function (err) {
+          falhasGravacaoFoto[chave] = (falhasGravacaoFoto[chave] || 0) + 1;
+          console.error("[fotos] subiu pro Drive mas não consegui gravar o link (" + chave + "):", err);
+          return false;
+        });
+      });
+  }
+
   var reenvioFotosRodando = false;
-  function reenviarFotosPendentesOcorrencias_() {
+  function reenviarFotosPendentes_() {
     if (reenvioFotosRodando || !db || !navigator.onLine) return;
     if (!config || !config.url || !config.token) return;
-    var pendentes = (records || []).filter(function (r) {
-      return (r.fotos || []).some(function (f) { return String(f).indexOf("data:image") === 0; });
+    var fila = [];
+    FONTES_FOTOS_PENDENTES.forEach(function (fonte) {
+      var aberto = fonte.emEdicao ? fonte.emEdicao() : null;
+      (fonte.registros() || []).forEach(function (r) {
+        if (!r || !r.id) return;
+        // Registro criado sem internet ainda não chegou no servidor - espera
+        // ele chegar primeiro, senão não tem onde gravar o link.
+        if (r._pendenteFirestore) return;
+        if (aberto && aberto === r.id) return;
+        if ((falhasGravacaoFoto[fonte.colecao + "/" + r.id] || 0) >= 3) return;
+        if (fotosPendentesDoRegistro_(fonte, r).length) fila.push({ fonte: fonte, r: r });
+      });
     });
-    if (!pendentes.length) return;
+    if (!fila.length) return;
     reenvioFotosRodando = true;
-    var subiram = 0;
-    // Uma ocorrência por vez, pra não entupir a internet fraca do campo.
-    pendentes.reduce(function (cadeia, r) {
+    var subiram = {};
+    // Um registro por vez, pra não entupir a internet fraca do campo.
+    fila.reduce(function (cadeia, item) {
       return cadeia.then(function () {
-        return postToBackend({ token: config.token, action: "upload_fotos_ocorrencia", fotos: r.fotos, id: uid() })
-          .then(function (res) {
-            if (res && res.ok && res.urls && res.urls.length === r.fotos.length) {
-              subiram++;
-              return db.collection("ocorrencias").doc(r.id).update({ fotos: res.urls }).catch(function (err) {
-                console.error("[fotos] não consegui gravar os links:", err);
-              });
-            }
-          }).catch(function () { /* sem internet de novo - tenta na próxima */ });
+        if (!navigator.onLine) return; // internet caiu no meio - o resto fica pra próxima
+        return reenviarFotosDeUmRegistro_(item.fonte, item.r).then(function (ok) {
+          if (ok) subiram[item.fonte.nome] = (subiram[item.fonte.nome] || 0) + 1;
+        }).catch(function (err) {
+          console.warn("[fotos] reenvio não deu agora, tenta depois:", err);
+        });
       });
     }, Promise.resolve()).then(function () {
       reenvioFotosRodando = false;
-      if (subiram) showToast("📷 Fotos pendentes de " + subiram + " ocorrência(s) subiram pro Drive.");
+      var partes = FONTES_FOTOS_PENDENTES.filter(function (f) { return subiram[f.nome]; }).map(function (f) {
+        var q = subiram[f.nome];
+        return q + " " + (q > 1 ? f.plural : f.nome);
+      });
+      if (partes.length) showToast("📷 Fotos pendentes subiram pro Drive (" + partes.join(", ") + ").");
     });
   }
+  // ================= FIM REENVIO AUTOMÁTICO DE FOTOS =================
 
   function resolverUmaFoto_(foto) {
     if (!foto) return Promise.resolve("");
@@ -5952,6 +6061,7 @@
               html += '<div style="text-align:center;">' +
                 '<img data-ver-foto="' + urlFoto_(rec.fotoInicio) + '" data-ver-legenda="Bomba ' + n + ' · início · ' + escapeHtml(legendaFoto_(rec, "inicio")) + '" src="' + urlFoto_(rec.fotoInicio) + '" alt="Foto do início" style="width:78px;height:78px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;display:block;cursor:pointer;">' +
                 '<div style="font-size:9px;color:#6B6153;margin-top:2px;font-weight:700;">INÍCIO</div>' +
+                (ehBase64_(rec.fotoInicio) ? '<div style="font-size:8.5px;color:#B4442E;font-weight:700;">⏳ aguardando envio</div>' : '') +
                 '<div style="font-size:8.5px;color:#8A8072;">' + escapeHtml(legendaFoto_(rec, "inicio")) + '</div>' +
               '</div>';
             }
@@ -5959,6 +6069,7 @@
               html += '<div style="text-align:center;">' +
                 '<img data-ver-foto="' + urlFoto_(rec.fotoFim) + '" data-ver-legenda="Bomba ' + n + ' · fim · ' + escapeHtml(legendaFoto_(rec, "fim")) + '" src="' + urlFoto_(rec.fotoFim) + '" alt="Foto do fim" style="width:78px;height:78px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;display:block;cursor:pointer;">' +
                 '<div style="font-size:9px;color:#6B6153;margin-top:2px;font-weight:700;">FIM</div>' +
+                (ehBase64_(rec.fotoFim) ? '<div style="font-size:8.5px;color:#B4442E;font-weight:700;">⏳ aguardando envio</div>' : '') +
                 '<div style="font-size:8.5px;color:#8A8072;">' + escapeHtml(legendaFoto_(rec, "fim")) + '</div>' +
               '</div>';
             }
@@ -8932,10 +9043,15 @@
 
     window.addEventListener("online", function () {
       refreshSyncPill(); trySync();
-      setTimeout(reenviarFotosPendentesOcorrencias_, 3000);
+      setTimeout(reenviarFotosPendentes_, 3000);
     });
-    setTimeout(reenviarFotosPendentesOcorrencias_, 15000);
-    setInterval(reenviarFotosPendentesOcorrencias_, 10 * 60 * 1000);
+    setTimeout(reenviarFotosPendentes_, 15000);
+    setInterval(reenviarFotosPendentes_, 10 * 60 * 1000);
+    // No celular, o app fica "congelado" quando está em segundo plano e o
+    // relógio de 10 min para. Por isso também confere ao voltar pra tela.
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") setTimeout(reenviarFotosPendentes_, 5000);
+    });
     // Gatilho extra, além do Background Sync: toda vez que a tela volta a
     // ficar visível (ex.: notificação, desbloqueou o celular), tenta
     // enviar o que estiver pendente. Não depende do Android liberar tempo
