@@ -997,8 +997,10 @@
     <button class="photo-btn" id="btn-acesso-tentar" style="background:#2F7DB0;margin-bottom:8px;">🔒 Ativar acesso da equipe agora</button>
     <button class="photo-btn" id="btn-dispositivos" style="background:#4C7C59">📱 Ver celulares da equipe</button>
     <div id="cfg-dispositivos-lista" style="display:none;font-size:12.5px;margin-top:8px;background:#FBF8F0;border:1px solid #E4DCC8;border-radius:6px;padding:8px 10px;"></div>
-    <div class="modal-sub" style="margin-top:12px;"><b>Criar a conta da equipe no Firebase</b> (uma vez só, pelo administrador): e-mail <b>equipe@registroocorrencia.app</b> e senha <b>equipe-</b> seguido da chave de sincronização. Exemplo: chave abc123 → senha equipe-abc123.</div>
-    <button class="photo-btn" id="btn-copiar-senha-equipe" style="background:#8A5A44">📋 Copiar senha da conta da equipe</button>
+    <div id="cfg-criar-conta-bloco">
+      <div class="modal-sub" style="margin-top:12px;"><b>Criar a conta da equipe</b> (uma vez só, pelo administrador): toque no botão abaixo no <b>seu</b> celular. O app cria a conta no Firebase com a chave deste celular - sem digitar nada no Console.</div>
+      <button class="photo-btn" id="btn-criar-conta-equipe" style="background:#8A5A44">🛠️ Criar conta da equipe (administrador)</button>
+    </div>
 
     <hr style="margin:22px 0; border:none; border-top:1px dashed #D2C7AB;">
 
@@ -1065,7 +1067,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v113';
+  var APP_CACHE_NAME = 'registro-irrigacao-v114';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1253,7 +1255,11 @@
       "auth/user-disabled": "a conta da equipe está desativada no Firebase",
       "auth/too-many-requests": "muitas tentativas - o Firebase pediu pra esperar um pouco",
       "auth/network-request-failed": "estava sem internet na hora da tentativa",
-      "pendentes": "ainda tinha registro deste celular subindo - tenta de novo mais tarde"
+      "pendentes": "ainda tinha registro deste celular subindo - tenta de novo mais tarde",
+      "auth/email-already-in-use": "a conta da equipe já existe no Firebase. Exclua ela no Console (Authentication → Usuários) e toque aqui de novo",
+      "auth/admin-restricted-operation": "a criação de contas está desligada no Firebase (Authentication → Configurações → Ações do usuário)",
+      "auth/weak-password": "a senha ficou curta demais",
+      "auth/invalid-email": "e-mail inválido"
     };
     return m[codigo] || codigo || "";
   }
@@ -1290,7 +1296,14 @@
   // 4) só então troca. Se não der pra esvaziar a fila (internet ruim), não
   // troca agora - tenta de novo depois, sem perder nada.
   var virandoEquipe = false;
-  function tentarVirarEquipe_(forcar) {
+  function tentarVirarEquipe_(forcar) { return trocarParaEquipe_("entrar", forcar); }
+  // modo "entrar": a conta da equipe já existe - só faz login nela.
+  // modo "criar": o ADMINISTRADOR cria a conta pelo próprio app. Assim o
+  // e-mail e a senha saem exatamente iguais aos que os outros celulares vão
+  // usar - sem risco de erro de digitação no Console. Ao criar, o Firebase
+  // já deixa este celular logado nela, por isso passa pela mesma troca segura.
+  function trocarParaEquipe_(modo, forcar) {
+    var criar = modo === "criar";
     if (virandoEquipe || !db || !navigator.onLine) return Promise.resolve(false);
     if (tipoLoginAtual_() !== "anonimo" || !senhaEquipe_()) return Promise.resolve(false);
     if (!forcar) {
@@ -1302,18 +1315,25 @@
     var travou = false;
     return comLimite_(db.waitForPendingWrites(), 20000).then(function () {
       travou = true;
-      travaTela_(true, "🔒 Ativando o acesso da equipe neste celular...");
+      travaTela_(true, criar ? "🛠️ Criando a conta da equipe..." : "🔒 Ativando o acesso da equipe neste celular...");
       return comLimite_(db.waitForPendingWrites(), 10000);
     }).then(function () {
+      if (criar) return firebase.auth().createUserWithEmailAndPassword(EMAIL_EQUIPE, senhaEquipe_());
       marcarTentativaEquipe_();
       return firebase.auth().signInWithEmailAndPassword(EMAIL_EQUIPE, senhaEquipe_());
     }).then(function () {
       guardarErroEquipe_("");
-      showToast("🔒 Acesso da equipe ativado neste celular.");
+      showToast(criar ? "🔒 Conta da equipe criada e ativada neste celular." : "🔒 Acesso da equipe ativado neste celular.");
       registrarDispositivo_(true);
       return true;
     }).catch(function (err) {
       var codigo = (err && err.code) || "erro";
+      if (criar) {
+        // falha ao CRIAR não é problema de login deste celular - só avisa
+        console.warn("[firebase] não criou a conta da equipe:", codigo);
+        showToast("⚠️ Não criou: " + motivoAuth_(codigo));
+        return false;
+      }
       guardarErroEquipe_(codigo);
       console.warn("[firebase] não ativou a conta da equipe agora:", codigo);
       registrarDispositivo_(true);
@@ -1391,6 +1411,8 @@
     el.innerHTML = html;
     el.style.background = cor;
     if (btn) btn.style.display = (t === "anonimo" && senhaEquipe_()) ? "" : "none";
+    var blocoCriar = document.getElementById("cfg-criar-conta-bloco");
+    if (blocoCriar) blocoCriar.style.display = (t === "anonimo" && senhaEquipe_()) ? "" : "none";
   }
 
   function carregarListaDispositivos_() {
@@ -9076,15 +9098,11 @@
       tentarVirarEquipe_(true);
     });
     document.getElementById("btn-dispositivos").addEventListener("click", carregarListaDispositivos_);
-    document.getElementById("btn-copiar-senha-equipe").addEventListener("click", function () {
-      var senha = senhaEquipe_();
-      if (!senha) { showToast("Preencha e salve o Token primeiro."); return; }
-      var feito = function () { showToast("Senha copiada. Cole no Firebase ao criar o usuário."); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(senha).then(feito).catch(function () { window.prompt("Copie a senha:", senha); });
-      } else {
-        window.prompt("Copie a senha:", senha);
-      }
+    document.getElementById("btn-criar-conta-equipe").addEventListener("click", function () {
+      if (!navigator.onLine) { showToast("Precisa de internet pra criar a conta."); return; }
+      if (!senhaEquipe_()) { showToast("Preencha e salve o Token primeiro."); return; }
+      if (!window.confirm("Criar a conta da equipe no Firebase usando a chave deste celular?\n\nUse só se a conta ainda não existir no Console (ou se você acabou de excluir a antiga).")) return;
+      trocarParaEquipe_("criar", true);
     });
     document.getElementById("btn-close-modal").addEventListener("click", function () {
       document.getElementById("modal-overlay").classList.remove("active");
