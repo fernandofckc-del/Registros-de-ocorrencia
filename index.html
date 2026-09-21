@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v107';
+  var APP_CACHE_NAME = 'registro-irrigacao-v108';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2474,7 +2474,15 @@
       return;
     }
 
-    var linksFoto = fotosProntas.map(urlFoto_);
+    var linksFotoCompridos = fotosProntas.map(urlFoto_);
+    resultEl.textContent = "Preparando link mais curto...";
+    var prontoLinksCurtos = linksFotoCompridos.length
+      ? postToBackend({ token: config.token, action: "encurtar_links", links: linksFotoCompridos }).then(function (res) {
+          return (res && res.ok && res.links) ? res.links : linksFotoCompridos; // se falhar, usa o comprido mesmo
+        }).catch(function () { return linksFotoCompridos; })
+      : Promise.resolve([]);
+
+    prontoLinksCurtos.then(function (linksFoto) {
     var textoMsg = "🌱 Ocorrência Operacional\n" +
       "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
       "Tipo: " + r.tipo + "\n" +
@@ -2565,6 +2573,7 @@
         });
       });
     }
+    }); // fim do prontoLinksCurtos.then(...)
   }
 
   function startEdit(id) {
