@@ -1054,7 +1054,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v108';
+  var APP_CACHE_NAME = 'registro-irrigacao-v109';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2428,6 +2428,7 @@
     document.getElementById("modal-enviar-overlay").classList.remove("active");
     enviarOcorrenciaAtualId = null;
   }
+  var URL_BASE_APP = "https://fernandofckc-del.github.io/Registros-de-ocorrencia/";
   function confirmarEnvioOcorrencia_() {
     var r = records.find(function (x) { return x.id === enviarOcorrenciaAtualId; });
     if (!r) return;
@@ -2444,8 +2445,8 @@
     if (!querWhatsapp && !querEmail) { resultEl.className = "test-result fail"; resultEl.textContent = "Marca pelo menos um canal (WhatsApp ou e-mail)."; return; }
 
     // Olha TODAS as fotos da ocorrência (não só a primeira) - uma foto ainda
-    // em base64 (não subiu pro Drive ainda) não entra na mensagem de link,
-    // mas ainda pode ser tentada de novo ou anexada de verdade depois.
+    // em base64 (não subiu pro Drive ainda) não entra no link nem no e-mail,
+    // mas ainda pode ser tentada de novo.
     var todasFotos = r.fotos || [];
     var fotosProntas = todasFotos.filter(function (f) { return f && String(f).indexOf("data:image") !== 0; });
     var fotosPendentes = todasFotos.filter(function (f) { return f && String(f).indexOf("data:image") === 0; });
@@ -2474,28 +2475,20 @@
       return;
     }
 
-    var linksFotoCompridos = fotosProntas.map(urlFoto_);
-    resultEl.textContent = "Preparando link mais curto...";
-    var prontoLinksCurtos = linksFotoCompridos.length
-      ? postToBackend({ token: config.token, action: "encurtar_links", links: linksFotoCompridos }).then(function (res) {
-          return (res && res.ok && res.links) ? res.links : linksFotoCompridos; // se falhar, usa o comprido mesmo
-        }).catch(function () { return linksFotoCompridos; })
-      : Promise.resolve([]);
-
-    prontoLinksCurtos.then(function (linksFoto) {
-    var textoMsg = "🌱 Ocorrência Operacional\n" +
-      "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
-      "Tipo: " + r.tipo + "\n" +
-      (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
-      "Data: " + fmtDate(r.data) + "\n" +
-      "Descrição: " + r.descricao +
-      (linksFoto.length ? "\n" + (linksFoto.length > 1 ? "Fotos:\n" + linksFoto.join("\n") : "Foto: " + linksFoto[0]) : "");
+    // Em vez de colar o texto todo + um link por foto na mensagem (o que
+    // ficava grande e travava o WhatsApp em celulares mais fracos), manda
+    // UM link só - o da página que mostra a ocorrência com as fotos já
+    // abertas na tela, sem precisar clicar foto por foto.
+    var linkPagina = URL_BASE_APP + "visualizar-ocorrencia.html?id=" + encodeURIComponent(r.id);
+    var textoMsg = "🌱 Nova ocorrência: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + " - " + r.tipo + "\n" +
+      "Veja os detalhes e as fotos aqui:\n" + linkPagina;
 
     // Em vez de abrir tudo de uma vez (o celular trava/bloqueia quando o
     // app tenta abrir várias janelas sozinho), monta um botão pra CADA
     // combinação de contato+canal, e a pessoa toca em cada um. Um toque
     // direto do usuário nunca é bloqueado, diferente de abrir tudo em código.
     var prontos = [];
+    var emailsParaEnvioAutomatico = [];
     chavesMarcadas.forEach(function (chave) {
       var c = currentContatosAviso[chave] || {};
       var nomeContato = c.nome || chave;
@@ -2508,15 +2501,11 @@
         });
       }
       if (querEmail && c.email) {
-        var assunto = "Ocorrência Operacional - " + r.setor + " - " + r.tipo;
-        prontos.push({
-          label: "✉️ E-mail — " + nomeContato,
-          url: "mailto:" + c.email + "?subject=" + encodeURIComponent(assunto) + "&body=" + encodeURIComponent(textoMsg)
-        });
+        emailsParaEnvioAutomatico.push({ email: c.email, nome: nomeContato });
       }
     });
 
-    if (!prontos.length) {
+    if (!prontos.length && !emailsParaEnvioAutomatico.length) {
       resultEl.className = "test-result fail";
       resultEl.textContent = "Nenhum contato marcado tem esse canal cadastrado.";
       return;
@@ -2526,27 +2515,57 @@
     document.getElementById("enviar-canal-wrap").style.display = "none";
     document.getElementById("btn-confirmar-enviar").style.display = "none";
     resultEl.className = "test-result ok";
+
+    var botaoEmailAuto = "";
+    if (emailsParaEnvioAutomatico.length) {
+      botaoEmailAuto = '<button class="save-btn" id="btn-email-automatico" style="background:#8A5A44;margin-top:0;margin-bottom:6px;">✉️ Enviar E-mail Automático (com fotos anexadas)</button>' +
+        '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Manda sozinho pra: ' + emailsParaEnvioAutomatico.map(function (e) { return escapeHtml(e.nome); }).join(", ") + '. Sem abrir nada.</div>';
+    }
     var botaoAnexar = "";
-    if (fotosProntas.length && navigator.share) {
+    if (fotosProntas.length && querWhatsapp && navigator.share) {
       botaoAnexar = '<button class="save-btn" id="btn-anexar-fotos-verdade" style="background:#25A244;margin-top:0;margin-bottom:10px;">📎 Compartilhar com as Fotos de Verdade Anexadas</button>' +
         '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Abre o menu de compartilhar do celular com ' + fotosProntas.length + ' foto(s) de verdade - você escolhe o contato/grupo do WhatsApp na hora.</div>';
     }
-    resultEl.innerHTML = botaoAnexar + '<b>Ou toca em cada um pra abrir (só com o link da foto, direto pro contato):</b><br><br>' +
-      prontos.map(function (p, i) {
-        return '<a href="' + p.url + '" target="_blank" data-abrir-envio="' + i + '" style="display:block;background:#2F7DB0;color:#fff;text-decoration:none;text-align:center;padding:10px;border-radius:6px;margin-bottom:8px;font-weight:700;">' + p.label + '</a>';
-      }).join("");
+    resultEl.innerHTML = botaoEmailAuto + botaoAnexar +
+      (prontos.length ? '<b>Ou toca pra abrir o WhatsApp (manda o link da página):</b><br><br>' +
+        prontos.map(function (p, i) {
+          return '<a href="' + p.url + '" target="_blank" data-abrir-envio="' + i + '" style="display:block;background:#2F7DB0;color:#fff;text-decoration:none;text-align:center;padding:10px;border-radius:6px;margin-bottom:8px;font-weight:700;">' + p.label + '</a>';
+        }).join("") : "");
+
+    var btnEmailAuto = document.getElementById("btn-email-automatico");
+    if (btnEmailAuto) {
+      btnEmailAuto.addEventListener("click", function () {
+        btnEmailAuto.disabled = true;
+        btnEmailAuto.textContent = "Enviando...";
+        postToBackend({
+          token: config.token, action: "enviar_email_ocorrencia",
+          destinatarios: emailsParaEnvioAutomatico.map(function (e) { return e.email; }),
+          assunto: "Ocorrência Operacional - " + r.setor + " - " + r.tipo,
+          setor: r.setor, cultura: r.cultura || "", tipo: r.tipo,
+          operacaoCausadora: r.operacaoCausadora || "", data: fmtDate(r.data), descricao: r.descricao || "",
+          fotos: fotosProntas, link: linkPagina
+        }).then(function (res) {
+          if (res && res.ok) {
+            showToast("E-mail enviado!");
+            btnEmailAuto.textContent = "✅ E-mail Enviado";
+          } else {
+            showToast("Erro ao enviar: " + ((res && res.error) || "motivo desconhecido"));
+            btnEmailAuto.disabled = false;
+            btnEmailAuto.textContent = "✉️ Enviar E-mail Automático (com fotos anexadas)";
+          }
+        }).catch(function () {
+          showToast("Sem conexão pra enviar o e-mail agora.");
+          btnEmailAuto.disabled = false;
+          btnEmailAuto.textContent = "✉️ Enviar E-mail Automático (com fotos anexadas)";
+        });
+      });
+    }
 
     var btnAnexar = document.getElementById("btn-anexar-fotos-verdade");
     if (btnAnexar) {
       btnAnexar.addEventListener("click", function () {
         btnAnexar.disabled = true;
         btnAnexar.textContent = "Preparando fotos...";
-        var textoLegenda = "🌱 Ocorrência Operacional\n" +
-          "Setor: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + "\n" +
-          "Tipo: " + r.tipo + "\n" +
-          (r.operacaoCausadora ? "Operação causadora: " + r.operacaoCausadora + "\n" : "") +
-          "Data: " + fmtDate(r.data) + "\n" +
-          "Descrição: " + r.descricao;
         Promise.all(fotosProntas.map(function (f, i) {
           return fetch(urlFoto_(f)).then(function (resp) {
             if (!resp.ok) throw new Error("Falha ao buscar foto " + (i + 1));
@@ -2555,9 +2574,9 @@
             return new File([blob], "ocorrencia_foto" + (i + 1) + ".jpg", { type: blob.type || "image/jpeg" });
           });
         })).then(function (arquivos) {
-          var dadosShare = { files: arquivos, text: textoLegenda, title: "Ocorrência Operacional" };
+          var dadosShare = { files: arquivos, text: textoMsg, title: "Ocorrência Operacional" };
           if (navigator.canShare && !navigator.canShare(dadosShare)) {
-            showToast("O celular não aceitou anexar essas fotos - tenta pelos links abaixo.");
+            showToast("O celular não aceitou anexar essas fotos - tenta pelo link do WhatsApp.");
             btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
             return;
           }
@@ -2568,12 +2587,11 @@
           });
         }).catch(function (err) {
           console.error("[enviar ocorrência] erro ao buscar fotos pra anexar:", err);
-          showToast("Não consegui baixar as fotos pra anexar - tenta pelos links abaixo, ou confere a internet.");
+          showToast("Não consegui baixar as fotos pra anexar - tenta pelo link, ou confere a internet.");
           btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
         });
       });
     }
-    }); // fim do prontoLinksCurtos.then(...)
   }
 
   function startEdit(id) {

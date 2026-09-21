@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ocorrência Operacional</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: #F3EEE0; color: #2A2620;
+    min-height: 100vh;
+  }
+  .topo {
+    background: #2F5A3F; color: #F3EEE0; padding: 22px 18px 18px;
+  }
+  .topo .rotulo { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #9FC3B8; margin-bottom: 4px; }
+  .topo .titulo { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 21px; }
+  .conteudo { padding: 18px; max-width: 560px; margin: 0 auto; }
+  .card {
+    background: #FFFDF8; border: 1px solid #DCD3BC; border-radius: 10px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .linha { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #EFE7D3; font-size: 14px; }
+  .linha:last-child { border-bottom: none; }
+  .linha .rot { color: #6B6153; font-weight: 600; }
+  .linha .val { text-align: right; font-weight: 600; max-width: 62%; }
+  .descricao { font-size: 14px; line-height: 1.5; margin-top: 10px; white-space: pre-wrap; }
+  .fotos-titulo { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #6B6153; margin: 18px 0 8px; }
+  .foto-item { margin-bottom: 12px; }
+  .foto-item img {
+    width: 100%; border-radius: 8px; border: 1px solid #DCD3BC; display: block;
+    background: #EFE7D3;
+  }
+  .estado { text-align: center; padding: 60px 18px; color: #6B6153; font-size: 14px; }
+  .estado.erro { color: #B4442E; }
+  .rodape { text-align: center; font-size: 11px; color: #9A8F7A; padding: 20px; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div class="estado" id="carregando">Carregando ocorrência...</div>
+  </div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+  var firebaseConfig = {
+    apiKey: "AIzaSyAzsUSbMQsjMkADnOToZ3fMWEsPgbAOatg",
+    authDomain: "registroocorrencia-94e27.firebaseapp.com",
+    projectId: "registroocorrencia-94e27",
+    storageBucket: "registroocorrencia-94e27.firebasestorage.app",
+    messagingSenderId: "597413327398",
+    appId: "1:597413327398:web:d6a87eaa7872203434ace7"
+  };
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function fmtDate(iso) {
+    if (!iso) return "";
+    var p = String(iso).split("T")[0].split("-");
+    if (p.length < 3) return iso;
+    return p[2] + "/" + p[1] + "/" + p[0];
+  }
+  // Mesma conversão de link que o app usa - transforma o link "uc?id=" (que
+  // baixa o arquivo) num link "thumbnail?id=" (que carrega direto como
+  // imagem numa tag <img>, sem precisar baixar nada).
+  function urlFotoEmbed_(url) {
+    if (!url) return "";
+    var m = String(url).match(/drive\.google\.com\/uc\?id=([^&]+)/);
+    if (m) return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w1200";
+    return url;
+  }
+
+  function mostrarErro_(msg) {
+    document.getElementById("app").innerHTML = '<div class="estado erro">' + escapeHtml(msg) + '</div>';
+  }
+
+  function montarPagina_(r) {
+    var html = '<div class="topo"><div class="rotulo">Controle de Campo</div><div class="titulo">🌱 Ocorrência Operacional</div></div>';
+    html += '<div class="conteudo">';
+    html += '<div class="card">';
+    html += '<div class="linha"><span class="rot">Setor</span><span class="val">' + escapeHtml(r.setor || "") + (r.cultura ? " (" + escapeHtml(r.cultura) + ")" : "") + '</span></div>';
+    html += '<div class="linha"><span class="rot">Tipo</span><span class="val">' + escapeHtml(r.tipo || "") + '</span></div>';
+    if (r.operacaoCausadora) html += '<div class="linha"><span class="rot">Operação causadora</span><span class="val">' + escapeHtml(r.operacaoCausadora) + '</span></div>';
+    html += '<div class="linha"><span class="rot">Data</span><span class="val">' + escapeHtml(fmtDate(r.data)) + '</span></div>';
+    if (r.descricao) html += '<div class="descricao">' + escapeHtml(r.descricao) + '</div>';
+    html += '</div>';
+
+    var fotos = (r.fotos || []).filter(function (f) { return f && String(f).indexOf("data:image") !== 0; });
+    if (fotos.length) {
+      html += '<div class="fotos-titulo">' + fotos.length + (fotos.length > 1 ? " Fotos" : " Foto") + '</div>';
+      fotos.forEach(function (f) {
+        html += '<div class="foto-item"><img src="' + escapeHtml(urlFotoEmbed_(f)) + '" loading="lazy" alt="Foto da ocorrência"></div>';
+      });
+    }
+    html += '</div>';
+    html += '<div class="rodape">Controle de Campo · Irrigação</div>';
+    document.getElementById("app").innerHTML = html;
+  }
+
+  function carregar_() {
+    var params = new URLSearchParams(window.location.search);
+    var id = params.get("id");
+    if (!id) { mostrarErro_("Link inválido - não veio o identificador da ocorrência."); return; }
+
+    firebase.initializeApp(firebaseConfig);
+    firebase.auth().signInAnonymously().then(function () {
+      return firebase.firestore().collection("ocorrencias").doc(id).get();
+    }).then(function (doc) {
+      if (!doc.exists) { mostrarErro_("Essa ocorrência não foi encontrada (pode ter sido apagada)."); return; }
+      var r = doc.data();
+      if (r.excluido) { mostrarErro_("Essa ocorrência foi apagada."); return; }
+      montarPagina_(r);
+    }).catch(function (err) {
+      console.error("[visualizar-ocorrencia] erro:", err);
+      mostrarErro_("Não consegui carregar essa ocorrência agora. Confere sua internet e tenta de novo.");
+    });
+  }
+  carregar_();
+</script>
+</body>
+</html>
