@@ -302,8 +302,16 @@
           <span>✏️ Editando ocorrência existente</span>
           <button id="btn-cancel-edit" style="background:none;border:none;color:#96351B;font-weight:700;cursor:pointer;font-size:12.5px;">Cancelar</button>
         </div>
+        <label id="vistoria-linha" style="display:flex;align-items:center;gap:9px;background:#EEF5EA;border:1px solid #B9D3AC;border-radius:6px;padding:9px 11px;margin-bottom:12px;font-size:13px;font-weight:700;color:#2F6B1F;cursor:pointer;">
+          <input type="checkbox" id="f-modo-vistoria" style="width:18px;height:18px;margin:0;"> 🚶 Modo vistoria (registro rápido)
+        </label>
+        <div id="vistoria-painel" style="display:none;background:#F2F8ED;border:1px solid #B9D3AC;border-radius:6px;padding:9px 11px;margin-bottom:12px;font-size:12px;color:#3A5A2A;">
+          <div id="vistoria-info">Fazenda, setor, data e encarregado ficam fixos. Depois de salvar, só o problema é limpo.</div>
+          <div id="vistoria-gps" style="font-size:11.5px;color:#6B6153;margin-top:3px;"></div>
+          <button class="photo-btn" id="btn-encerrar-vistoria" style="background:#4C7C59;padding:7px;font-size:12px;margin-top:7px;">✅ Encerrar vistoria e ver o resumo</button>
+        </div>
         <div class="field">
-          <span class="field-label">Cultura</span>
+          <span class="field-label">Fazenda / Cultura</span>
           <select id="f-cultura"></select>
         </div>
         <div class="field">
@@ -475,6 +483,15 @@
 
 <!-- MODAL DE LEITURA DE PRESSÃO -->
 <!-- MODAL DE LEITURA DO GERADOR -->
+<div class="modal-overlay" id="modal-resumo-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-resumo">✕</button>
+    <div class="modal-title">📋 Resumo das ocorrências</div>
+    <div class="modal-sub">Soma o que precisa comprar e separa por causa, pra mostrar pro responsável. O Excel sai com tudo detalhado.</div>
+    <div id="resumo-conteudo"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-gerador-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-gerador">✕</button>
@@ -1085,7 +1102,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v117';
+  var APP_CACHE_NAME = 'registro-irrigacao-v118';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1679,7 +1696,7 @@
           id: doc.id, data: d.data, setor: d.setor, tipo: d.tipo, causa: d.causa,
           operacaoCausadora: d.operacaoCausadora || "", quantidade: d.quantidade || 1,
           encarregado: d.encarregado || "", descricao: d.descricao || "", acao: d.acao || "",
-          status: d.status || "Aberto", fotos: d.fotos || [], cultura: d.cultura || "",
+          status: d.status || "Aberto", fotos: d.fotos || [], cultura: d.cultura || "", gps: d.gps || null,
           _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
           _pendingDelete: false
         });
@@ -3060,6 +3077,101 @@
     if (!ehOperacional) document.getElementById("f-operacao-causadora").value = "";
   }
 
+  // ================= VISTORIA, GPS E RESUMO PRA COMPRA (v118) =================
+  // Cada tipo de ocorrência gasta um material. É isso que transforma a
+  // vistoria na conta do que precisa comprar, sem digitar duas vezes.
+  // Tipo que não estiver nesta lista entra no resumo com o próprio nome, pra
+  // não sumir da conta. Pra mudar o material, é só editar aqui.
+  var MATERIAL_POR_TIPO = {
+    "Microaspersor quebrado": ["Microaspersor", "Estaca de microaspersor"],
+    "Conector Quebrado": ["Conector Y"],
+    "Mangueira Cortada": ["União / luva de emenda"],
+    "Mangueira Cortarda": ["União / luva de emenda"],
+    "Mangueira atropelada": ["União / luva de emenda"],
+    "Mangueira Furada (Espinho/Roseta)": ["Tarraxa / reparo de furo"],
+    "Mangueira Desconectada": ["Espigão / conector inicial"]
+  };
+  function materiaisDoTipo_(tipo) {
+    return MATERIAL_POR_TIPO[tipo] || [String(tipo || "Sem tipo") + " (definir material)"];
+  }
+
+  // ---- GPS ----
+  // A posição é lida em segundo plano enquanto a vistoria está ligada. Na
+  // hora de salvar o app só pega a última leitura - assim o registro
+  // continua instantâneo, sem ficar esperando satélite.
+  var ultimaPosicao_ = null, watchGps_ = null;
+  function ligarGps_() {
+    if (watchGps_ !== null || !navigator.geolocation) return;
+    try {
+      watchGps_ = navigator.geolocation.watchPosition(function (pos) {
+        ultimaPosicao_ = { lat: pos.coords.latitude, lng: pos.coords.longitude,
+                           precisao: Math.round(pos.coords.accuracy || 0), quando: Date.now() };
+        atualizarAvisoGps_();
+      }, function () {
+        watchGps_ = null; ultimaPosicao_ = null; atualizarAvisoGps_(true);
+      }, { enableHighAccuracy: true, maximumAge: 30000, timeout: 20000 });
+    } catch (e) { watchGps_ = null; }
+  }
+  function desligarGps_() {
+    if (watchGps_ !== null && navigator.geolocation) {
+      try { navigator.geolocation.clearWatch(watchGps_); } catch (e) {}
+    }
+    watchGps_ = null;
+  }
+  function atualizarAvisoGps_(negado) {
+    var el = document.getElementById("vistoria-gps");
+    if (!el) return;
+    if (negado) { el.textContent = "📍 GPS não liberado - os pontos vão ser salvos sem localização."; return; }
+    el.textContent = ultimaPosicao_
+      ? ("📍 GPS pronto (precisão de uns " + ultimaPosicao_.precisao + " m) - cada ponto guarda onde foi.")
+      : "📍 Procurando o GPS...";
+  }
+  function posicaoParaSalvar_() {
+    if (!ultimaPosicao_) return null;
+    if (Date.now() - ultimaPosicao_.quando > 3 * 60 * 1000) return null; // leitura velha demais
+    return { lat: ultimaPosicao_.lat, lng: ultimaPosicao_.lng, precisao: ultimaPosicao_.precisao };
+  }
+  function linkMapa_(gps) { return "https://www.google.com/maps?q=" + gps.lat + "," + gps.lng; }
+
+  // ---- modo vistoria ----
+  var VISTORIA_KEY = "modo_vistoria_v1";
+  var vistoriaContagem = 0;
+  function modoVistoriaLigado_() {
+    var c = document.getElementById("f-modo-vistoria");
+    return !!(c && c.checked);
+  }
+  function aplicarModoVistoria_() {
+    var ligado = modoVistoriaLigado_();
+    var painel = document.getElementById("vistoria-painel");
+    if (painel) painel.style.display = ligado ? "block" : "none";
+    try { localStorage.setItem(VISTORIA_KEY, ligado ? "1" : ""); } catch (e) {}
+    if (ligado) { ligarGps_(); atualizarAvisoGps_(); } else { desligarGps_(); vistoriaContagem = 0; }
+    atualizarInfoVistoria_();
+  }
+  function atualizarInfoVistoria_() {
+    var el = document.getElementById("vistoria-info");
+    if (!el) return;
+    el.textContent = vistoriaContagem
+      ? (vistoriaContagem + " ponto(s) registrado(s) nesta vistoria. Fazenda, setor, data e encarregado continuam fixos.")
+      : "Fazenda, setor, data e encarregado ficam fixos. Depois de salvar, só o problema é limpo.";
+  }
+  // limpa só o problema - o resto fica pro próximo ponto da vistoria
+  function limparSoOProblema_() {
+    document.getElementById("f-tipo").value = "";
+    document.getElementById("f-causa").value = "";
+    document.getElementById("f-operacao-causadora").value = "";
+    document.getElementById("f-descricao").value = "";
+    document.getElementById("f-acao").value = "";
+    document.getElementById("f-quantidade").value = "1";
+    pendingFotos = [];
+    renderFotoGallery();
+    editingId = null;
+    document.getElementById("edit-banner").style.display = "none";
+    document.getElementById("btn-salvar").textContent = "Salvar Ocorrência";
+    atualizarVisibilidadeOperacaoCausadora_();
+  }
+  // ================= FIM VISTORIA/GPS =================
+
   function resetForm() {
     populateOcorrenciaSetorSelect(document.getElementById("f-cultura").value, "");
     document.getElementById("f-data").value = todayStr();
@@ -3413,6 +3525,182 @@
   }
 
   // ---------- render ----------
+  // ---- resumo: soma material e causa a partir das ocorrências filtradas ----
+  function resumoOcorrencias_(lista) {
+    var porMaterial = {}, porCausa = {}, porOperacao = {}, porSetor = {};
+    lista.forEach(function (r) {
+      var q = parseInt(r.quantidade, 10); if (!isFinite(q) || q < 1) q = 1;
+      materiaisDoTipo_(r.tipo).forEach(function (m) {
+        if (!porMaterial[m]) porMaterial[m] = { qtd: 0, ocorrencias: 0, tipos: {} };
+        porMaterial[m].qtd += q; porMaterial[m].ocorrencias++; porMaterial[m].tipos[r.tipo || "Sem tipo"] = true;
+      });
+      var causa = r.causa || "Sem causa";
+      if (!porCausa[causa]) porCausa[causa] = { qtd: 0, ocorrencias: 0 };
+      porCausa[causa].qtd += q; porCausa[causa].ocorrencias++;
+      if (r.operacaoCausadora) {
+        if (!porOperacao[r.operacaoCausadora]) porOperacao[r.operacaoCausadora] = { qtd: 0, ocorrencias: 0 };
+        porOperacao[r.operacaoCausadora].qtd += q; porOperacao[r.operacaoCausadora].ocorrencias++;
+      }
+      var st = r.setor || "Sem setor";
+      if (!porSetor[st]) porSetor[st] = { qtd: 0, ocorrencias: 0 };
+      porSetor[st].qtd += q; porSetor[st].ocorrencias++;
+    });
+    function emLista(obj, extra) {
+      return Object.keys(obj).map(function (k) {
+        var o = { nome: k, qtd: obj[k].qtd, ocorrencias: obj[k].ocorrencias };
+        if (extra && obj[k].tipos) o.tipos = Object.keys(obj[k].tipos).join(", ");
+        return o;
+      }).sort(function (a, b) { return b.qtd - a.qtd; });
+    }
+    return { materiais: emLista(porMaterial, true), causas: emLista(porCausa),
+             operacoes: emLista(porOperacao), setores: emLista(porSetor),
+             ocorrencias: lista.length,
+             total: lista.reduce(function (a, r) { var q = parseInt(r.quantidade, 10); return a + (isFinite(q) && q > 0 ? q : 1); }, 0) };
+  }
+
+  // filtros do resumo (ficam guardados enquanto o app está aberto)
+  var resumoFiltro = { cultura: "Todas", periodo: "30", status: "Todas", ini: "", fim: "" };
+  function ocorrenciasDoResumo_() {
+    var hoje = parseISODate(todayStr());
+    return records.filter(function (r) {
+      if (r._pendingDelete) return false;
+      if (resumoFiltro.cultura !== "Todas" && r.cultura !== resumoFiltro.cultura) return false;
+      if (resumoFiltro.status === "Pendentes" && r.status === "Resolvido") return false;
+      var d = parseISODate(r.data);
+      if (!d) return true;
+      if (resumoFiltro.periodo === "tudo") return true;
+      if (resumoFiltro.periodo === "periodo") {
+        var i = resumoFiltro.ini ? parseISODate(resumoFiltro.ini) : null;
+        var f = resumoFiltro.fim ? parseISODate(resumoFiltro.fim) : null;
+        if (i && d < i) return false;
+        if (f && d > f) return false;
+        return true;
+      }
+      var dias = parseInt(resumoFiltro.periodo, 10) || 30;
+      return hoje && (hoje.getTime() - d.getTime()) / 86400000 <= dias;
+    });
+  }
+  function abrirResumoCompra_(culturaInicial, dataInicial) {
+    if (culturaInicial) resumoFiltro.cultura = culturaInicial;
+    if (dataInicial) { resumoFiltro.periodo = "periodo"; resumoFiltro.ini = dataInicial; resumoFiltro.fim = dataInicial; }
+    document.getElementById("modal-resumo-overlay").classList.add("active");
+    renderResumoCompra_();
+  }
+  function renderResumoCompra_() {
+    var lista = ocorrenciasDoResumo_();
+    var res = resumoOcorrencias_(lista);
+    var nomes = (currentCulturas.length ? currentCulturas : CULTURAS_PADRAO).map(function (c) { return c.nome || c; });
+    records.forEach(function (r) { if (r.cultura && nomes.indexOf(r.cultura) === -1) nomes.push(r.cultura); });
+    var html = '<div class="field"><span class="field-label">Fazenda / Cultura</span><select id="resumo-cultura">' +
+      ["Todas"].concat(nomes).map(function (nn) {
+        return '<option value="' + escapeHtml(nn) + '"' + (resumoFiltro.cultura === nn ? " selected" : "") + '>' + escapeHtml(nn) + "</option>";
+      }).join("") + "</select></div>";
+    html += '<div class="field"><span class="field-label">Período</span><select id="resumo-periodo">' +
+      [["7", "Últimos 7 dias"], ["30", "Últimos 30 dias"], ["90", "Últimos 90 dias"], ["tudo", "Tudo"], ["periodo", "Escolher datas"]].map(function (o) {
+        return '<option value="' + o[0] + '"' + (resumoFiltro.periodo === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      }).join("") + "</select></div>";
+    if (resumoFiltro.periodo === "periodo") {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+        '<div class="field"><span class="field-label">De</span><input type="date" id="resumo-ini" value="' + escapeHtml(resumoFiltro.ini) + '"></div>' +
+        '<div class="field"><span class="field-label">Até</span><input type="date" id="resumo-fim" value="' + escapeHtml(resumoFiltro.fim) + '"></div>' +
+      '</div>';
+    }
+    html += '<div class="field"><span class="field-label">Quais ocorrências</span><select id="resumo-status">' +
+      [["Todas", "Todas"], ["Pendentes", "Só as que ainda não foram resolvidas"]].map(function (o) {
+        return '<option value="' + o[0] + '"' + (resumoFiltro.status === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      }).join("") + "</select></div>";
+
+    if (!lista.length) {
+      html += '<div class="empty-state" style="padding:18px 10px;">Nenhuma ocorrência nesse filtro.</div>';
+    } else {
+      html += '<div style="background:#F2F8ED;border-radius:6px;padding:9px 11px;margin:6px 0 10px;font-size:12.5px;">' +
+        "<b>" + res.ocorrencias + "</b> ocorrência(s) · <b>" + res.total + "</b> ponto(s) com problema</div>";
+      html += '<div class="panel-title" style="font-size:14px;">🛒 Pra comprar</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:12px;">' +
+        '<tr style="background:#4C6B2F;color:#fff;"><th style="text-align:left;padding:5px 7px;">Item</th><th style="padding:5px 7px;width:70px;">Qtd</th></tr>' +
+        res.materiais.map(function (m, i) {
+          return '<tr style="background:' + (i % 2 ? "#FBF8F0" : "#fff") + ';"><td style="padding:5px 7px;border-bottom:1px solid #E4DCC8;">' + escapeHtml(m.nome) +
+            '<div style="font-size:10.5px;color:#8A8072;">' + escapeHtml(m.tipos || "") + "</div></td>" +
+            '<td style="padding:5px 7px;text-align:center;font-weight:700;border-bottom:1px solid #E4DCC8;">' + m.qtd + "</td></tr>";
+        }).join("") + "</table>";
+      html += '<div class="panel-title" style="font-size:14px;">📌 Por causa (pro responsável)</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:8px;">' +
+        '<tr style="background:#8A5A44;color:#fff;"><th style="text-align:left;padding:5px 7px;">Causa</th><th style="padding:5px 7px;width:70px;">Pontos</th></tr>' +
+        res.causas.map(function (c, i) {
+          return '<tr style="background:' + (i % 2 ? "#FBF8F0" : "#fff") + ';"><td style="padding:5px 7px;border-bottom:1px solid #E4DCC8;">' + escapeHtml(c.nome) + "</td>" +
+            '<td style="padding:5px 7px;text-align:center;font-weight:700;border-bottom:1px solid #E4DCC8;">' + c.qtd + "</td></tr>";
+        }).join("") + "</table>";
+      if (res.operacoes.length) {
+        html += '<div style="font-size:12px;color:#6B6153;margin-bottom:12px;">Dentro das causas de operação: ' +
+          res.operacoes.map(function (o) { return "<b>" + escapeHtml(o.nome) + "</b> " + o.qtd; }).join(" · ") + "</div>";
+      }
+      html += '<button class="save-btn" id="btn-baixar-resumo" style="background:#2F7DB0;margin-top:4px;">📥 Baixar Excel</button>' +
+        '<div id="resumo-result" class="test-result"></div>';
+    }
+    document.getElementById("resumo-conteudo").innerHTML = html;
+
+    function liga(id, campo) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener("change", function () { resumoFiltro[campo] = el.value; renderResumoCompra_(); });
+    }
+    liga("resumo-cultura", "cultura"); liga("resumo-periodo", "periodo"); liga("resumo-status", "status");
+    liga("resumo-ini", "ini"); liga("resumo-fim", "fim");
+    var btn = document.getElementById("btn-baixar-resumo");
+    if (btn) btn.addEventListener("click", function () { baixarResumoExcel_(lista, res); });
+  }
+
+  async function baixarResumoExcel_(lista, res) {
+    var resultEl = document.getElementById("resumo-result");
+    resultEl.style.display = "block"; resultEl.className = "test-result";
+    if (typeof ExcelJS === "undefined") { resultEl.className = "test-result fail"; resultEl.textContent = "A biblioteca do Excel não carregou - precisa de internet uma vez pra isso."; return; }
+    resultEl.textContent = "Montando o arquivo...";
+    var wb = new ExcelJS.Workbook();
+    function novaAba_(nome, colunas, linhas) {
+      var ws = wb.addWorksheet(nome);
+      ws.columns = colunas.map(function (c) { return { header: c.titulo, key: c.chave, width: c.largura || 16 }; });
+      ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+      ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4C6B2F" } };
+      linhas.forEach(function (l) { ws.addRow(l); });
+      ws.autoFilter = { from: "A1", to: String.fromCharCode(65 + colunas.length - 1) + "1" };
+    }
+    novaAba_("Pra comprar", [
+      { titulo: "Item", chave: "item", largura: 32 }, { titulo: "Quantidade", chave: "qtd", largura: 12 },
+      { titulo: "Veio de (tipos)", chave: "tipos", largura: 40 }, { titulo: "Ocorrências", chave: "ocorrencias", largura: 12 }
+    ], res.materiais.map(function (m) { return { item: m.nome, qtd: m.qtd, tipos: m.tipos || "", ocorrencias: m.ocorrencias }; }));
+    novaAba_("Por causa", [
+      { titulo: "Causa", chave: "causa", largura: 24 }, { titulo: "Pontos", chave: "qtd", largura: 10 },
+      { titulo: "Ocorrências", chave: "ocorrencias", largura: 12 }
+    ], res.causas.map(function (c) { return { causa: c.nome, qtd: c.qtd, ocorrencias: c.ocorrencias }; })
+       .concat(res.operacoes.map(function (o) { return { causa: "   ↳ operação: " + o.nome, qtd: o.qtd, ocorrencias: o.ocorrencias }; })));
+    novaAba_("Por setor", [
+      { titulo: "Setor", chave: "setor", largura: 16 }, { titulo: "Pontos", chave: "qtd", largura: 10 },
+      { titulo: "Ocorrências", chave: "ocorrencias", largura: 12 }
+    ], res.setores.map(function (x) { return { setor: x.nome, qtd: x.qtd, ocorrencias: x.ocorrencias }; }));
+    novaAba_("Ocorrências", [
+      { titulo: "Data", chave: "data", largura: 12 }, { titulo: "Fazenda/Cultura", chave: "cultura", largura: 16 },
+      { titulo: "Setor", chave: "setor", largura: 12 }, { titulo: "Tipo", chave: "tipo", largura: 26 },
+      { titulo: "Quantidade", chave: "quantidade", largura: 11 }, { titulo: "Causa", chave: "causa", largura: 18 },
+      { titulo: "Operação Causadora", chave: "operacao", largura: 20 }, { titulo: "Descrição", chave: "descricao", largura: 38 },
+      { titulo: "Status", chave: "status", largura: 13 }, { titulo: "Local (mapa)", chave: "mapa", largura: 34 },
+      { titulo: "Fotos", chave: "fotos", largura: 40 }
+    ], lista.slice().sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); }).map(function (r) {
+      return { data: fmtDate(r.data), cultura: r.cultura || "", setor: r.setor || "", tipo: r.tipo || "",
+               quantidade: r.quantidade || 1, causa: r.causa || "", operacao: r.operacaoCausadora || "",
+               descricao: r.descricao || "", status: r.status || "", mapa: r.gps ? linkMapa_(r.gps) : "",
+               fotos: (r.fotos || []).map(urlFoto_).join(" | ") };
+    }));
+    var buffer = await wb.xlsx.writeBuffer();
+    var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "ocorrencias_" + (resumoFiltro.cultura === "Todas" ? "todas" : resumoFiltro.cultura.toLowerCase().replace(/[^a-z0-9]+/g, "")) + "_" + todayStr() + ".xlsx";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    resultEl.className = "test-result ok";
+    resultEl.textContent = "Baixado! Confere na pasta de downloads.";
+  }
+
   function filterPillsHtml_(grupo, opcoes, atual) {
     return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' +
       opcoes.map(function (op) {
@@ -3583,13 +3871,18 @@
         return valor === "Todos" || r.status === valor;
       }).length;
     }
-    var opcoesCultura = ["Todas", "Cacau", "Coco"].map(function (op) { return op + " (" + contarPor_("cultura", op) + ")"; });
+    // a lista vem das culturas/fazendas cadastradas (antes era fixa em Cacau e
+    // Coco, e a Palmeiras não dava pra filtrar)
+    var nomesCultura = (currentCulturas.length ? currentCulturas : CULTURAS_PADRAO).map(function (c) { return c.nome || c; });
+    visible.forEach(function (r) { if (r.cultura && nomesCultura.indexOf(r.cultura) === -1) nomesCultura.push(r.cultura); });
+    var opcoesCultura = ["Todas"].concat(nomesCultura).map(function (op) { return op + " (" + contarPor_("cultura", op) + ")"; });
     var opcoesStatus = ["Todos"].concat(STATUSES).map(function (op) { return op + " (" + contarPor_("status", op) + ")"; });
 
     var filtrosHtml =
       '<div class="field" style="margin-bottom:10px;">' +
         '<input type="text" id="historico-busca" placeholder="🔎 Buscar por setor, descrição, encarregado..." value="' + escapeHtml(historicoBusca) + '">' +
       '</div>' +
+      '<button class="photo-btn" id="btn-resumo-compra" style="background:#8A5A44;padding:8px;font-size:12.5px;margin-bottom:10px;">📋 Resumo pra compra e pro responsável</button>' +
       filterPillsHtml_("cultura", opcoesCultura, rotuloComContagem_(historicoFiltroCultura, opcoesCultura)) +
       filterPillsHtml_("status", opcoesStatus, rotuloComContagem_(historicoFiltroStatus, opcoesStatus));
 
@@ -3652,6 +3945,7 @@
           '<p class="tag-desc">' + escapeHtml(r.descricao) + '</p>' +
           '<div>' + syncBadgeHtml_(r) + '</div>' +
           (r.acao ? '<p class="tag-acao"><b>Ação:</b> ' + escapeHtml(r.acao) + '</p>' : '') +
+          (r.gps ? '<div style="margin-top:4px;"><a href="' + linkMapa_(r.gps) + '" target="_blank" rel="noopener" style="font-size:11.5px;color:#2F7DB0;font-weight:700;text-decoration:none;">📍 Ver o ponto no mapa</a></div>' : '') +
           ((r.fotos && r.fotos.length) ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">' +
             r.fotos.map(function (f) { return '<img class="tag-photo" data-ver-foto="' + urlFoto_(f) + '" data-ver-legenda="' + escapeHtml(r.setor + " · " + fmtDate(r.data)) + '" style="width:calc(50% - 3px);margin-top:0;cursor:pointer;" src="' + urlFoto_(f) + '" alt="Foto da ocorrência">'; }).join('') +
             '</div>' : '') +
@@ -3704,6 +3998,8 @@
     });
     var buscaEl = document.getElementById("historico-busca");
     if (buscaEl) {
+      var btnResumo = document.getElementById("btn-resumo-compra");
+      if (btnResumo) btnResumo.addEventListener("click", function () { abrirResumoCompra_(); });
       buscaEl.addEventListener("input", function () {
         historicoBusca = buscaEl.value;
         var posicao = buscaEl.selectionStart;
@@ -8313,6 +8609,8 @@
         encarregado: encarregado, descricao: descricao, acao: acao, fotos: urls,
         excluido: false
       };
+      var posic = ehNovo ? posicaoParaSalvar_() : null;
+      if (posic) campos.gps = posic;   // guarda onde o ponto foi registrado
       if (ehNovo) campos.status = "Aberto";
       if (temFotoBase64_(urls)) agendarReenvioFotos_();
       return salvarOcorrenciaFirestore_(idAlvo, campos, ehNovo);
@@ -8326,8 +8624,16 @@
       }
       salvandoOcorrencia = false;
       if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = textoOriginalBtn; }
-      resetForm();
-      switchTab("historico");
+      if (ehNovo && modoVistoriaLigado_()) {
+        // vistoria: continua no formulário, pronto pro próximo ponto
+        vistoriaContagem++;
+        limparSoOProblema_();
+        atualizarInfoVistoria_();
+        showToast("Ponto " + vistoriaContagem + " registrado. Próximo!");
+      } else {
+        resetForm();
+        switchTab("historico");
+      }
     }).catch(function () {
       salvandoOcorrencia = false;
       if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = textoOriginalBtn; }
@@ -9332,6 +9638,12 @@
       } catch (e) {}
       loadOperador();
       try {
+        if (localStorage.getItem(VISTORIA_KEY)) {
+          document.getElementById("f-modo-vistoria").checked = true;
+          aplicarModoVistoria_();
+        }
+      } catch (e) {}
+      try {
         var cH = localStorage.getItem(RONDAS_HORARIOS_CACHE_KEY);
         if (cH) currentRondasHorarios = JSON.parse(cH);
       } catch (e) {}
@@ -9404,6 +9716,18 @@
     document.getElementById("f-foto-input-galeria").addEventListener("change", processarArquivosFoto_);
 
     document.getElementById("btn-salvar").addEventListener("click", handleSave);
+    document.getElementById("f-modo-vistoria").addEventListener("change", aplicarModoVistoria_);
+    document.getElementById("btn-encerrar-vistoria").addEventListener("click", function () {
+      var cultura = document.getElementById("f-cultura").value;
+      var dataVis = document.getElementById("f-data").value;
+      document.getElementById("f-modo-vistoria").checked = false;
+      aplicarModoVistoria_();
+      resetForm();
+      abrirResumoCompra_(cultura, dataVis);
+    });
+    document.getElementById("btn-close-resumo").addEventListener("click", function () {
+      document.getElementById("modal-resumo-overlay").classList.remove("active");
+    });
     document.getElementById("btn-cancel-edit").addEventListener("click", cancelEdit);
 
     document.getElementById("btn-save-manut").addEventListener("click", handleSaveManutencao);
