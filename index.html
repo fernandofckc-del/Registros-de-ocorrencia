@@ -1085,7 +1085,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v115';
+  var APP_CACHE_NAME = 'registro-irrigacao-v116';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4586,24 +4586,46 @@
   // vazões bem diferentes entre si, e o app acusava parada em noite que a
   // bomba tinha rodado direto. A referência é a média das duas melhores
   // rodadas - "melhor" porque quanto menos parada, mais perto da vazão real.
+  // ---- Vazão NORMAL de cada bomba ----
+  // Antes a referência era a média das 2 MELHORES rodadas da bomba. Com
+  // isso quase toda noite normal parecia "fraca": o app avisava "provavelmente
+  // parou" em 8 de cada 10 rodadas (medido nos dados de 14/08 a 21/09) - e
+  // alerta que toca toda hora a equipe aprende a ignorar. Agora a referência
+  // é a vazão TÍPICA da bomba: a mediana das últimas 30 rodadas boas (3 h ou
+  // mais, sem "não ligou", sem rodada estimada, sem leitura impossível).
+  // A mediana não se deixa levar por uma noite muito boa ou muito ruim.
+  var cacheVazaoNormal_ = { base: null, valores: {} };
   function vazaoReferenciaBomba_(n) {
+    if (cacheVazaoNormal_.base !== bombRecords) cacheVazaoNormal_ = { base: bombRecords, valores: {} };
+    var k = String(n);
+    if (Object.prototype.hasOwnProperty.call(cacheVazaoNormal_.valores, k)) return cacheVazaoNormal_.valores[k];
+    var rods = bombRecords.filter(function (r) {
+      return !r._pendingDelete && String(r.bomba) === k && !r.estimado && !ehNaoLigou_(r) && r.horarioInicio && r.horarioFim;
+    }).sort(function (a, b) { return momentoRodada_(b) - momentoRodada_(a); });
     var vals = [];
-    bombRecords.filter(function (r) { return !r._pendingDelete && String(r.bomba) === String(n); })
-      .forEach(function (r) {
-        var c = consumoRodada_(r);
-        if (c === null || !r.horarioInicio || !r.horarioFim) return;
-        var min = minutosDeHora_(r.horarioFim) - minutosDeHora_(r.horarioInicio);
-        if (min < 0) min += 1440;
-        if (min < 60) return;                       // rodada curta demais distorce
-        var v = c / (min / 60);
-        // descarta leitura impossível (erro de digitação infla a referência)
-        if (v > vazaoNominalBomba * 1.3 || v <= 0) return;
-        vals.push(v);
-      });
-    if (!vals.length) return null;
-    vals.sort(function (a, b) { return b - a; });
-    return vals.length === 1 ? vals[0] : (vals[0] + vals[1]) / 2;
+    for (var i = 0; i < rods.length && vals.length < 30; i++) {
+      var c = consumoRodada_(rods[i]);
+      if (c === null || c <= 0) continue;
+      var min = minutosDeHora_(rods[i].horarioFim) - minutosDeHora_(rods[i].horarioInicio);
+      if (min < 0) min += 1440;
+      if (min < 180) continue;                       // rodada curta distorce
+      var v = c / (min / 60);
+      if (v > vazaoNominalBomba * 1.3) continue;     // leitura impossível (erro de digitação)
+      vals.push(v);
+    }
+    var res = null;
+    if (vals.length >= 3) {
+      vals.sort(function (a, b) { return a - b; });
+      var meio = Math.floor(vals.length / 2);
+      res = vals.length % 2 ? vals[meio] : (vals[meio - 1] + vals[meio]) / 2;
+    }
+    cacheVazaoNormal_.valores[k] = res;
+    return res;
   }
+  // Faixa de tolerância em volta da vazão normal: variação de pressão, setor
+  // e leitura arredondada fazem uma noite render 10% a mais ou a menos sem
+  // nada de errado. Só vira alerta o que sai MUITO da faixa.
+  var TOL_PAROU = 85, TOL_PAROU_FORTE = 70, TOL_ALTO = 125;
 
   function analiseRodada_(r) {
     if (ehNaoLigou_(r)) return null; // não ligou não é "parada" - é outra coisa
@@ -4616,11 +4638,19 @@
     var paradaMin = reg - efetivoMin;
     var fimEstimado = minToTimeBomb_(minutosDeHora_(r.horarioInicio) + efetivoMin);
     var vazaoReal = reg > 0 ? (c / (reg / 60)) : 0;
+    var pctRef = ref ? (reg > 0 ? (vazaoReal / ref * 100) : (c > 0 ? 9999 : 0)) : 0;
+    // alerta só fora da faixa: abaixo de 85% (parou um tempo), abaixo de 70%
+    // (parou bastante) ou acima de 125% (volume impossível pro tempo = leitura
+    // ou horário digitado errado). Rodada de menos de 1 h não dá pra julgar parada.
+    var alerta = null;
+    if (pctRef > TOL_ALTO && c >= 50) alerta = "alto";
+    else if (reg >= 60 && pctRef < TOL_PAROU_FORTE) alerta = "parou-forte";
+    else if (reg >= 60 && pctRef < TOL_PAROU) alerta = "parou";
     return {
       consumo: c, registradoMin: reg, efetivoMin: efetivoMin, paradaMin: paradaMin,
       fimEstimado: fimEstimado, vazaoReal: vazaoReal, referencia: ref,
       pctNominal: vazaoNominalBomba ? (vazaoReal / vazaoNominalBomba * 100) : 0,
-      pctReferencia: ref ? (vazaoReal / ref * 100) : 0
+      pctReferencia: pctRef, alerta: alerta
     };
   }
   function minToTimeBomb_(min) {
@@ -6564,19 +6594,18 @@
             '<div>' + syncBadgeHtml_(rec) + '</div>';
           var an = analiseRodada_(rec);
           if (an) {
-            var corA = an.paradaMin > 90 ? "#B4442E" : (an.paradaMin > 30 ? "#B8862B" : "#2F6B1F");
-            var fundoA = an.paradaMin > 90 ? "#FBEDE8" : (an.paradaMin > 30 ? "#FBF4E4" : "#F2F8ED");
+            var forte = an.alerta === "parou-forte" || an.alerta === "alto";
+            var corA = forte ? "#B4442E" : (an.alerta === "parou" ? "#B8862B" : "#2F6B1F");
+            var fundoA = forte ? "#FBEDE8" : (an.alerta === "parou" ? "#FBF4E4" : "#F2F8ED");
             html += '<div style="background:' + fundoA + ';border-radius:4px;padding:7px 9px;margin-top:6px;font-size:11.5px;color:#4A4136;">' +
               '<div style="font-size:9.5px;font-family:\'IBM Plex Mono\',monospace;color:#6B6153;letter-spacing:.05em;">CONFERÊNCIA PELO VOLUME</div>' +
-              'Vazão real: <b>' + Math.round(an.vazaoReal) + ' m³/h</b> · nominal ' + vazaoNominalBomba + ' (' + Math.round(an.pctNominal) + '%)' +
-              '<br>Comparando com o melhor desta bomba (' + Math.round(an.referencia) + ' m³/h): rodou <b>' +
-              formatHoras_(an.efetivoMin) + '</b> de ' + formatHoras_(an.registradoMin) + ' registrados';
-            if (an.paradaMin > 30) {
+              'Vazão real: <b>' + Math.round(an.vazaoReal) + ' m³/h</b> · <b style="color:' + corA + ';">' + Math.round(an.pctReferencia) + '%</b> do normal desta bomba (' + Math.round(an.referencia) + ' m³/h)';
+            if (an.alerta === "parou" || an.alerta === "parou-forte") {
               html += '<div style="color:' + corA + ';font-weight:700;margin-top:3px;">' +
-                (an.paradaMin > 90 ? '🚨' : '⚠') + ' Provavelmente parou às <b>' + an.fimEstimado + '</b> — ' +
-                formatHoras_(an.paradaMin) + ' sem bombear.</div>';
-            } else if (an.paradaMin < -30) {
-              html += '<div style="color:#B4442E;font-weight:700;margin-top:3px;">⚠ Volume alto demais para o tempo registrado. Confira a leitura ou o horário.</div>';
+                (an.alerta === "parou-forte" ? '🚨' : '⚠') + ' Rendeu só ' + Math.round(an.pctReferencia) + '% do normal: pelo volume, rodou uns <b>' +
+                formatHoras_(an.efetivoMin) + '</b> dos ' + formatHoras_(an.registradoMin) + ' registrados — pode ter parado por volta de <b>' + an.fimEstimado + '</b>.</div>';
+            } else if (an.alerta === "alto") {
+              html += '<div style="color:#B4442E;font-weight:700;margin-top:3px;">⚠ Volume alto demais para o tempo registrado (' + Math.round(Math.min(an.pctReferencia, 999)) + '% do normal). Confira a leitura ou o horário.</div>';
             }
             html += '</div>';
           }
@@ -6835,10 +6864,12 @@
         '</div>';
       if (paradas.length) {
         var totalParado = paradas.reduce(function (a, p) { return a + p.paradaMin; }, 0);
+        // volume que faltou: horas paradas x vazão NORMAL de cada bomba (antes usava 325 m³/h pra todas)
+        var m3Faltou = paradas.reduce(function (a, p) { return a + (p.paradaMin / 60) * (p.referencia || vazaoNominalBomba); }, 0);
         html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:9px 12px;margin-top:4px;">' +
           '<div style="font-size:11px;font-weight:700;color:#8A2E2E;">🚨 ' + paradas.length + ' parada(s) que passaram despercebidas</div>' +
           '<div style="font-size:12px;color:#8A2E2E;margin-top:2px;">Somando <b>' + formatHoras_(totalParado) + '</b> de bomba desligada sem registro — cerca de <b>' +
-          Math.round(totalParado / 60 * vazaoNominalBomba).toLocaleString("pt-BR") + ' m³</b> que deixaram de ser bombeados.</div>' +
+          Math.round(m3Faltou).toLocaleString("pt-BR") + ' m³</b> que deixaram de ser bombeados.</div>' +
         '</div>';
       }
       html += '</div>';
@@ -6863,13 +6894,13 @@
       // --- paradas detectadas ---
       if (paradas.length) {
         html += '<div class="card"><h3 class="panel-title">🚨 Paradas detectadas pelo volume</h3>' +
-          '<div class="modal-sub" style="margin-bottom:8px;">Comparando o volume medido com a vazão esperada, dá pra saber quanto tempo a bomba realmente rodou — e quando ela provavelmente parou.</div>';
+          '<div class="modal-sub" style="margin-bottom:8px;">Rodadas que renderam menos de 85% da vazão normal da bomba. Pelo volume medido dá pra estimar quanto tempo ela rodou de fato — e quando provavelmente parou.</div>';
         paradas.forEach(function (p) {
-          html += '<div style="background:#FBEDE8;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
-            '<b>' + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b>' +
+          html += '<div style="background:' + (p.forte ? '#FBEDE8' : '#FBF4E4') + ';border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
+            '<b>' + (p.forte ? '🚨 ' : '⚠ ') + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b> · rendeu ' + Math.round(p.pct) + '% do normal' +
             '<br>Ligou ' + escapeHtml(p.inicio) + ', registrado até ' + escapeHtml(p.fim) +
-            '<br>Rodou de fato <b>' + formatHoras_(p.efetivoMin) + '</b> — provavelmente parou às <b>' + p.fimEstimado + '</b>' +
-            '<br><span style="color:#8A2E2E;font-weight:700;">' + formatHoras_(p.paradaMin) + ' sem bombear</span>' +
+            '<br>Rodou de fato uns <b>' + formatHoras_(p.efetivoMin) + '</b> — provavelmente parou por volta de <b>' + p.fimEstimado + '</b>' +
+            '<br><span style="color:#8A2E2E;font-weight:700;">~' + formatHoras_(p.paradaMin) + ' sem bombear</span>' +
           '</div>';
         });
         html += '</div>';
@@ -6897,7 +6928,7 @@
           html += '<div style="background:#FBF4E4;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
             '<b>' + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b>' +
             '<br>' + Math.round(p.consumo).toLocaleString("pt-BR") + ' m³ em ' + escapeHtml(p.inicio) + '–' + escapeHtml(p.fim) +
-            '<br>Daria <b>' + Math.round(p.vazaoReal) + ' m³/h</b> (' + Math.round(p.pctNominal) + '% do esperado)' +
+            '<br>Daria <b>' + Math.round(p.vazaoReal) + ' m³/h</b> (' + Math.round(Math.min(p.pctReferencia, 999)) + '% do normal desta bomba)' +
             '<br><span style="color:#7A5A18;font-weight:700;">Precisaria de mais ' + formatHoras_(p.excedenteMin) + ' de bomba para esse volume.</span>' +
           '</div>';
         });
@@ -7301,9 +7332,10 @@
       if (ini && d < ini) return;
       if (fim && d > fim) return;
       var a = analiseRodada_(r);
-      if (!a || a.paradaMin <= 60) return;
+      if (!a || (a.alerta !== "parou" && a.alerta !== "parou-forte")) return;
       out.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
-                 efetivoMin: a.efetivoMin, paradaMin: a.paradaMin, fimEstimado: a.fimEstimado });
+                 efetivoMin: a.efetivoMin, paradaMin: a.paradaMin, fimEstimado: a.fimEstimado,
+                 pct: a.pctReferencia, referencia: a.referencia, forte: a.alerta === "parou-forte" });
     });
     out.sort(function (a, b) { return b.paradaMin - a.paradaMin; });
     return out;
@@ -7322,9 +7354,9 @@
       if (ini && d < ini) return;
       if (fim && d > fim) return;
       var a = analiseRodada_(r);
-      if (!a || a.paradaMin >= -30) return;
+      if (!a || a.alerta !== "alto") return;
       out.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
-                 consumo: a.consumo, vazaoReal: a.vazaoReal, pctNominal: a.pctNominal,
+                 consumo: a.consumo, vazaoReal: a.vazaoReal, pctNominal: a.pctNominal, pctReferencia: a.pctReferencia,
                  excedenteMin: -a.paradaMin });
     });
     out.sort(function (a, b) { return b.pctNominal - a.pctNominal; });
@@ -7992,7 +8024,7 @@
       if (durMin >= 15 && refV > 0) {
         var vol = (lf - li) * 10, vaz = vol / (durMin / 60), pct = vaz / refV;
         var fimPelaVazao = minToTimeBomb_(minutosDeHora_(hiV) + (vol / refV) * 60);
-        if (pct > 1.3) {
+        if (pct > TOL_ALTO / 100) {
           avisos.push("Volume <b>alto demais</b> pro tempo: daria <b>" + Math.round(vaz) + " m³/h</b> (" + Math.round(pct * 100) +
             "% do normal dessa bomba, ~" + Math.round(refV) + " m³/h). Confira a leitura final ou os horários. Pela vazão normal, esse volume terminaria por volta de <b>" + fimPelaVazao + "</b>.");
         } else if (pct < 0.5) {
@@ -8150,7 +8182,7 @@
           var dMin = minutosDeHora_(horarioFim) - minutosDeHora_(horarioInicio); if (dMin <= 0) dMin += 1440;
           var refS = vazaoReferenciaBomba_(bombaAlvo) || vazaoNominalBomba;
           var vazS = ((lfN - liN) * 10) / (dMin / 60);
-          if (dMin >= 15 && refS > 0 && vazS > refS * 1.3) {
+          if (dMin >= 15 && refS > 0 && vazS > refS * (TOL_ALTO / 100)) {
             if (!window.confirm("O volume está alto demais pro tempo registrado: daria " + Math.round(vazS) + " m³/h, " + Math.round(vazS / refS * 100) + "% do normal da Bomba " + bombaAlvo + ".\n\nNormalmente é leitura ou horário digitado errado. Salvar mesmo assim?")) return;
           }
         }
