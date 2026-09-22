@@ -1085,7 +1085,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v116';
+  var APP_CACHE_NAME = 'registro-irrigacao-v117';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1712,7 +1712,7 @@
     // Firestore) desde o primeiro instante. Então: espera no máximo 2,5 s;
     // se o servidor não respondeu até lá, segue como "salvo no celular".
     // Se o servidor recusar depois, o aviso do catch acima aparece igual.
-    var limite = new Promise(function (resolve) { setTimeout(function () { resolve("local"); }, 2500); });
+    var limite = new Promise(function (resolve) { setTimeout(function () { resolve("local"); }, 1200); });
     return Promise.race([escrita.then(function () { return "servidor"; }), limite]);
   }
   function atualizarStatusOcorrenciaFirestore_(id, status) {
@@ -1809,7 +1809,16 @@
       emEdicao: function () { return telaAtiva_("tab-registrar") ? editingId : null; } },
     { nome: "bombeamento", plural: "bombeamentos", colecao: "bombeamento",
       registros: function () { return bombRecords; }, campos: ["fotoInicio", "fotoFim"],
-      emEdicao: function () { return telaAtiva_("modal-bomb-overlay") ? editingBombId : null; } }
+      emEdicao: function () { return telaAtiva_("modal-bomb-overlay") ? editingBombId : null; } },
+    // (v117) as outras abas com foto também salvam na hora e sobem a foto depois
+    { nome: "ronda", plural: "rondas", colecao: "rondas",
+      registros: function () { return rondaRecords; }, campos: ["fotoPainel"] },
+    { nome: "leitura do gerador", plural: "leituras do gerador", colecao: "gerador",
+      registros: function () { return geradorRecords; }, campos: ["foto"] },
+    { nome: "anotação", plural: "anotações", colecao: "anotacoes",
+      registros: function () { return anotacoesRecords; }, campos: ["foto"] },
+    { nome: "alarme", plural: "alarmes", colecao: "gerador_alarmes",
+      registros: function () { return geradorAlarmesRecords; }, campos: ["foto"] }
   ];
   function telaAtiva_(id) {
     var el = document.getElementById(id);
@@ -1892,8 +1901,14 @@
   }
 
   var reenvioFotosRodando = false;
-  function reenviarFotosPendentes_() {
-    if (reenvioFotosRodando || !db || !navigator.onLine) return;
+  var reenvioPedidoDurante_ = false; // alguém pediu envio enquanto outro estava rodando
+  function reenviarFotosPendentes_(opcoes) {
+    var silencioso = !!(opcoes && opcoes.silencioso);
+    // Já está enviando? Anota o pedido: quando terminar, roda de novo pra
+    // pegar o que foi salvo nesse meio-tempo (senão a foto nova esperaria
+    // até a próxima rodada de 10 min).
+    if (reenvioFotosRodando) { reenvioPedidoDurante_ = true; return; }
+    if (!db || !navigator.onLine) return;
     if (!config || !config.url || !config.token) return;
     var fila = [];
     FONTES_FOTOS_PENDENTES.forEach(function (fonte) {
@@ -1927,8 +1942,33 @@
         var q = subiram[f.nome];
         return q + " " + (q > 1 ? f.plural : f.nome);
       });
-      if (partes.length) showToast("📷 Fotos pendentes subiram pro Drive (" + partes.join(", ") + ").");
+      if (partes.length && !silencioso) showToast("📷 Fotos pendentes subiram pro Drive (" + partes.join(", ") + ").");
+      if (reenvioPedidoDurante_) {
+        reenvioPedidoDurante_ = false;
+        setTimeout(function () { reenviarFotosPendentes_({ silencioso: true }); }, 1000);
+      }
     });
+  }
+
+  // ================= SALVAR NA HORA, FOTO DEPOIS (v117) =================
+  // A demora de ~10 s pra salvar era a FOTO: o app esperava ela subir pro
+  // Drive (pelo Apps Script, que é lento pra acordar e ainda mais lento com
+  // a internet fraca do campo) antes de gravar o registro. Agora o registro é
+  // gravado na hora, com a foto dentro dele, e a tela fecha em seguida. A
+  // foto sobe pro Drive em segundo plano (é o mesmo envio automático que já
+  // existia pras fotos que ficavam presas) e o link entra no lugar dela.
+  // O registro precisa chegar no Firestore antes (é lá que o link é gravado),
+  // então tenta algumas vezes nos segundos seguintes - sem nada pendente, a
+  // tentativa não faz nada.
+  var timersReenvio_ = [];
+  function agendarReenvioFotos_() {
+    timersReenvio_.forEach(function (t) { clearTimeout(t); });
+    timersReenvio_ = [2500, 8000, 20000, 60000].map(function (ms) {
+      return setTimeout(function () { reenviarFotosPendentes_({ silencioso: true }); }, ms);
+    });
+  }
+  function temFotoBase64_(lista) {
+    return (lista || []).some(function (f) { return ehBase64_(f); });
   }
   // ================= FIM REENVIO AUTOMÁTICO DE FOTOS =================
 
@@ -5814,13 +5854,14 @@
     var btnSalvarAnotacao = document.getElementById("btn-salvar-anotacao");
     if (btnSalvarAnotacao) btnSalvarAnotacao.disabled = true;
     showToast("Salvando...");
-    resolverUmaFoto_(fotoParaSalvar).then(function (urlFoto) {
+    Promise.resolve(fotoParaSalvar || "").then(function (urlFoto) { // salva na hora; a foto sobe depois
       var campos = { texto: texto, foto: urlFoto || "", excluido: false };
       if (ehNovo) {
         campos.dataHora = new Date().toISOString();
         campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
       }
       salvarAnotacaoFirestore_(idAlvo, campos, ehNovo);
+      if (ehBase64_(campos.foto)) agendarReenvioFotos_();
       pendingFotoAnotacao = null;
       salvandoAnotacao = false;
       if (btnSalvarAnotacao) btnSalvarAnotacao.disabled = false;
@@ -6035,6 +6076,7 @@
       excluido: false
     };
     salvarGeradorAlarmeFirestore_(uid(), campos, true);
+    if (ehBase64_(campos.foto)) agendarReenvioFotos_(); // antes a foto do alarme ficava pra sempre dentro do registro
     fecharModalAlarme_();
     showToast("Alarme registrado no histórico.");
   }
@@ -6163,13 +6205,14 @@
     var btnSalvarGerador = document.getElementById("btn-save-gerador");
     if (btnSalvarGerador) btnSalvarGerador.disabled = true;
     showToast("Salvando...");
-    resolverUmaFoto_(pendingFotoGerador).then(function (urlFoto) {
+    Promise.resolve(pendingFotoGerador || "").then(function (urlFoto) { // salva na hora; a foto sobe depois
       var campos = {
         data: data, horasOperacao: horas, litrosCombustivel: litros, energiaKwh: kwh,
         tensaoBateria: bateria, foto: urlFoto || "", observacao: obs, excluido: false
       };
       if (ehNovo) campos.responsavel = (typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "";
       salvarGeradorFirestore_(idAlvo, campos, ehNovo);
+      if (ehBase64_(campos.foto)) agendarReenvioFotos_();
       salvandoGerador = false;
       if (btnSalvarGerador) btnSalvarGerador.disabled = false;
       fecharModalGerador_();
@@ -7920,12 +7963,9 @@
     if (btnSalvarRonda) btnSalvarRonda.disabled = true;
     showToast("Salvando...");
 
-    Promise.all([
-      resolverUmaFoto_(pendingFotosPainel[1]),
-      resolverUmaFoto_(pendingFotosPainel[2]),
-      resolverUmaFoto_(pendingFotosPainel[3]),
-      resolverUmaFoto_(pendingFotosPainel[4])
-    ]).then(function (fotosResolvidas) {
+    // não espera as fotos subirem (eram até 4 envios pro Drive de uma vez):
+    // grava já e as fotos sobem em segundo plano
+    Promise.resolve([pendingFotosPainel[1] || "", pendingFotosPainel[2] || "", pendingFotosPainel[3] || "", pendingFotosPainel[4] || ""]).then(function (fotosResolvidas) {
       var houveParada = false;
       var itensParaSalvar = [];
       for (var n = 1; n <= 4; n++) {
@@ -7958,6 +7998,7 @@
         }
       }
       salvarRondasFirestoreLote_(itensParaSalvar);
+      if (temFotoBase64_(fotosResolvidas)) agendarReenvioFotos_();
       salvandoRonda = false;
       if (btnSalvarRonda) btnSalvarRonda.disabled = false;
       fecharModalRonda();
@@ -8192,10 +8233,9 @@
       if (btnSalvarBomb) { btnSalvarBomb.disabled = true; }
       showToast("Salvando...");
 
-      Promise.all([
-        resolverUmaFoto_(pendingFotoBombInicio),
-        resolverUmaFoto_(pendingFotoBombFim)
-      ]).then(function (resultado) {
+      // não espera a foto subir pro Drive (era isso que demorava ~10 s):
+      // grava já, com a foto dentro do registro, e ela sobe em segundo plano
+      reduzirFotosSeGrande_([pendingFotoBombInicio || "", pendingFotoBombFim || ""]).then(function (resultado) {
         var campos = {
           data: dataReg, bomba: bombaAlvo,
           horarioInicio: horarioInicio, horarioFim: horarioFim,
@@ -8205,6 +8245,7 @@
           naoLigou: naoLigou, motivoNaoLigou: naoLigou ? motivoNaoLigou : ""
         };
         salvarBombeamentoFirestore_(idAlvo, campos, ehNovo);
+        if (temFotoBase64_([campos.fotoInicio, campos.fotoFim])) agendarReenvioFotos_();
 
         if (dataReg !== bombData) {
           // registro foi movido pra outro dia - leva a tela junto, senão ele
@@ -8264,7 +8305,8 @@
     if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = ehNovo ? "Salvando..." : "Atualizando..."; }
     showToast(ehNovo ? "Salvando..." : "Atualizando...");
 
-    resolverFotosOcorrencia_(fotosParaSalvar).then(reduzirFotosSeGrande_).then(function (urls) {
+    // não espera as fotos subirem pro Drive: grava já e elas sobem depois
+    reduzirFotosSeGrande_(fotosParaSalvar).then(function (urls) {
       var campos = {
         cultura: cultura, setor: setor, data: data, tipo: tipo, causa: causa,
         operacaoCausadora: operacaoCausadora, quantidade: quantidade,
@@ -8272,9 +8314,12 @@
         excluido: false
       };
       if (ehNovo) campos.status = "Aberto";
+      if (temFotoBase64_(urls)) agendarReenvioFotos_();
       return salvarOcorrenciaFirestore_(idAlvo, campos, ehNovo);
     }).then(function (onde) {
-      if (onde === "local") {
+      if (onde === "local" && navigator.onLine) {
+        showToast(ehNovo ? "Ocorrência registrada." : "Ocorrência atualizada.");
+      } else if (onde === "local") {
         showToast((ehNovo ? "Ocorrência registrada" : "Ocorrência atualizada") + " no celular - sobe sozinha quando tiver internet.");
       } else {
         showToast(ehNovo ? "Ocorrência registrada." : "Ocorrência atualizada.");
