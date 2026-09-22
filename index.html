@@ -747,6 +747,24 @@
         <div style="font-size:11px;color:#8A8072;margin-top:3px;">Se o registro foi lançado no dia errado, é só corrigir aqui.</div>
       </div>
 
+      <label id="bomb-naoligou-linha" style="display:flex;align-items:center;gap:9px;background:#FBEDE8;border:1px solid #E8C4BA;border-radius:4px;padding:9px 11px;margin-bottom:10px;font-size:13px;font-weight:700;color:#8A2E2E;cursor:pointer;">
+        <input type="checkbox" id="bomb-naoligou" style="width:18px;height:18px;margin:0;"> ⛔ A bomba não ligou
+      </label>
+      <div id="bomb-naoligou-box" style="display:none;margin-bottom:10px;">
+        <div class="field"><span class="field-label">Por que não ligou?</span>
+          <select id="bomb-naoligou-motivo">
+            <option value="">— escolha —</option>
+            <option>Entrada de ar</option>
+            <option>Falta de energia</option>
+            <option>Defeito na bomba ou no painel</option>
+            <option>Manutenção</option>
+            <option>Não estava programada</option>
+            <option>Outro (explique na observação)</option>
+          </select>
+        </div>
+        <div style="font-size:11.5px;color:#8A8072;">Não precisa de horário de fim nem de leitura final. Se quiser, anote a leitura do visor em "Leitura Inicial".</div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="field"><span class="field-label">Horário Início</span><input id="bomb-horario-inicio" type="time"></div>
         <div class="field"><span class="field-label">Horário Fim</span><input id="bomb-horario-fim" type="time"></div>
@@ -1067,7 +1085,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v114';
+  var APP_CACHE_NAME = 'registro-irrigacao-v115';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2120,6 +2138,8 @@
           leituraInicial: d.leituraInicial !== undefined ? d.leituraInicial : "",
           leituraFinal: d.leituraFinal !== undefined ? d.leituraFinal : "",
           fotoInicio: d.fotoInicio || "", fotoFim: d.fotoFim || "", observacao: d.observacao || "",
+          naoLigou: d.naoLigou === true, motivoNaoLigou: d.motivoNaoLigou || "",
+          estimado: d.estimado === true, correcao: d.correcao || "",
           _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
           _pendingDelete: false
         });
@@ -2146,7 +2166,7 @@
     if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
     db.collection("bombeamento").doc(id).update({ excluido: true }).catch(function (err) {
       console.error("[firebase] erro ao apagar bombeamento:", err);
-      showToast("Erro ao apagar - tenta de novo.");
+      avisarErroFirestore_(err);
     });
   }
 
@@ -3326,7 +3346,7 @@
     var abertasCount = records.filter(function (r) { return !r._pendingDelete && r.status !== "Resolvido"; }).length;
     var hojeBadge = todayStr();
     var bombasEsquecidasCount = bombRecords.filter(function (r) {
-      return !r._pendingDelete && !r.horarioFim && r.data && dataAntes_(r.data, hojeBadge);
+      return rodadaAberta_(r) && r.data && dataAntes_(r.data, hojeBadge);
     }).length;
     var br = document.getElementById("nav-badge-resumo");
     if (br) {
@@ -3407,8 +3427,8 @@
     // e continua sem fechar, é sinal de que ficou esquecida - foi
     // exatamente o que aconteceu com a Bomba 1 na noite de 23/08.
     var bombasEsquecidas = bombRecords.filter(function (r) {
-      return !r._pendingDelete && !r.horarioFim && r.data && dataAntes_(r.data, hoje);
-    }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+      return rodadaAberta_(r) && r.data && dataAntes_(r.data, hoje);
+    }).sort(function (a, b) { return momentoRodada_(a) - momentoRodada_(b); });
 
     // ---- KPIs do topo ----
     var maisVelha = abertas.length ? abertas[0] : null;
@@ -4586,6 +4606,7 @@
   }
 
   function analiseRodada_(r) {
+    if (ehNaoLigou_(r)) return null; // não ligou não é "parada" - é outra coisa
     var c = consumoRodada_(r);
     if (c === null || !r.horarioInicio || !r.horarioFim) return null;
     var reg = minutosDeHora_(r.horarioFim) - minutosDeHora_(r.horarioInicio);
@@ -4619,6 +4640,64 @@
   }
 
   function round2Bomb_(n) { return Math.round(n * 100) / 100; }
+
+  // ================= BOMBA "NÃO LIGOU" E RODADA ABERTA =================
+  // Rodada de 0 m³ = a bomba realmente não ligou (entrada de ar, falta de
+  // energia...). Antes ela entrava nas contas como se tivesse ficado a noite
+  // toda ligada e parada: inflava as "horas de bomba" e aparecia como parada
+  // no relatório. Agora vira "não ligou": não conta hora nem vazão e aparece
+  // separado. Vale pra marcação nova (campo naoLigou) e também pros registros
+  // antigos de 0 m³ (leitura final igual à inicial, ou 1 de diferença, que é
+  // o arredondamento do visor).
+  function ehNaoLigou_(r) {
+    if (!r) return false;
+    if (r.naoLigou === true) return true;
+    if (!r.horarioFim) return false;
+    var li = parseFloat(r.leituraInicial), lf = parseFloat(r.leituraFinal);
+    return isFinite(li) && isFinite(lf) && (lf - li) >= 0 && (lf - li) <= 1;
+  }
+  function leituraVazia_(v) {
+    return v === "" || v === undefined || v === null || (typeof v === "number" && isNaN(v));
+  }
+  // Rodada ligada que ainda não teve o desligamento COMPLETO registrado:
+  // falta o horário de fim OU a leitura final.
+  function rodadaAberta_(r) {
+    if (!r || r._pendingDelete || ehNaoLigou_(r) || !r.horarioInicio) return false;
+    return !r.horarioFim || leituraVazia_(r.leituraFinal);
+  }
+  // data + horário de início, em ms, no "relógio local" (pra ordenar e contar horas)
+  function momentoRodada_(r) {
+    var d = parseISODate(r.data);
+    if (!d) return 0;
+    return d.getTime() + (r.horarioInicio ? minutosDeHora_(r.horarioInicio) : 0) * 60000;
+  }
+  function horasLigada_(r) {
+    var a = new Date();
+    var agora = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) + (a.getHours() * 60 + a.getMinutes()) * 60000;
+    return (agora - momentoRodada_(r)) / 3600000;
+  }
+  // Rodadas abertas de QUALQUER dia (antes só se olhava o dia da tela - por
+  // isso uma rodada salva no dia errado, ou esquecida de ontem, passava
+  // batida). Só entram as dos últimos 7 dias: um registro velho esquecido não
+  // trava a operação da noite - esse aparece no Resumo pro administrador.
+  var DIAS_RODADA_ABERTA = 7;
+  function rodadasAbertas_(bomba) {
+    var hoje = parseISODate(todayStr());
+    return bombRecords.filter(function (r) {
+      if (!rodadaAberta_(r)) return false;
+      if (bomba !== undefined && bomba !== null && String(r.bomba) !== String(bomba)) return false;
+      var d = parseISODate(r.data);
+      return !!d && !!hoje && (hoje.getTime() - d.getTime()) / 86400000 <= DIAS_RODADA_ABERTA;
+    }).sort(function (a, b) { return momentoRodada_(b) - momentoRodada_(a); });
+  }
+  // Última leitura final registrada de uma bomba (a rodada mais recente).
+  function ultimaLeituraBomba_(bomba, ignorarId) {
+    var cand = bombRecords.filter(function (r) {
+      return !r._pendingDelete && String(r.bomba) === String(bomba) && r.id !== ignorarId && isFinite(parseFloat(r.leituraFinal));
+    }).sort(function (a, b) { return momentoRodada_(b) - momentoRodada_(a); });
+    return cand.length ? { valor: parseFloat(cand[0].leituraFinal), rec: cand[0] } : null;
+  }
+  // ================= FIM NÃO LIGOU / RODADA ABERTA =================
 
   // ================= PRESSÃO IDEAL NAS VÁLVULAS =================
   function getCulturaDoSetorPressao_(nomeSetor) {
@@ -5377,11 +5456,14 @@
       { titulo: "Data", chave: "data", largura: 12 }, { titulo: "Bomba", chave: "bomba", largura: 8 },
       { titulo: "Início", chave: "inicio", largura: 9 }, { titulo: "Fim", chave: "fim", largura: 9 },
       { titulo: "Leitura Inicial", chave: "leituraInicial", largura: 14 }, { titulo: "Leitura Final", chave: "leituraFinal", largura: 13 },
-      { titulo: "Consumo (m³)", chave: "consumo", largura: 13 }, { titulo: "Observação", chave: "observacao", largura: 30 }
+      { titulo: "Consumo (m³)", chave: "consumo", largura: 13 }, { titulo: "Observação", chave: "observacao", largura: 30 },
+      { titulo: "Situação", chave: "situacao", largura: 28 }, { titulo: "ID", chave: "id", largura: 16 }
     ], bombRecords.filter(function (r) { return !r._pendingDelete; }).map(function (r) {
+      var sit = ehNaoLigou_(r) ? ("Não ligou" + (r.motivoNaoLigou ? ": " + r.motivoNaoLigou : "")) :
+        (rodadaAberta_(r) ? "Em andamento" : (r.estimado ? "Estimada" : (r.correcao ? "Corrigida" : "")));
       return { data: fmtDate(r.data), bomba: r.bomba, inicio: r.horarioInicio || "", fim: r.horarioFim || "",
         leituraInicial: r.leituraInicial !== undefined ? r.leituraInicial : "", leituraFinal: r.leituraFinal !== undefined ? r.leituraFinal : "",
-        consumo: consumoRodada_(r), observacao: r.observacao || "" };
+        consumo: consumoRodada_(r), observacao: r.observacao || "", situacao: sit, id: r.id };
     }));
 
     // ---- Rondas Noturnas ----
@@ -6403,11 +6485,32 @@
     var sessoes = getBombDia(bombData);
     var html = '<div class="field"><span class="field-label">Data</span>' +
       '<input type="date" id="bomb-data-picker" value="' + bombData + '"></div>';
+    // Bombas ligadas no app agora - de QUALQUER dia. Antes, se a rodada ficava
+    // em outro dia (esquecida, ou salva no dia errado), ninguém via e acabava
+    // criando rodada nova pro desligamento.
+    var ligadasAgora = rodadasAbertas_();
+    if (ligadasAgora.length) {
+      html += '<div style="background:#EEF5EA;border:1px solid #B9D3AC;border-left:4px solid #4C7C59;border-radius:4px;padding:9px 11px;margin-bottom:10px;">' +
+        '<div style="font-weight:700;font-size:12.5px;color:#2F6B1F;margin-bottom:2px;">🟢 Ligadas no app agora</div>';
+      ligadasAgora.forEach(function (r) {
+        var h = horasLigada_(r);
+        var velha = h > 20;
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #D5E6CC;font-size:12px;color:#4A4136;">' +
+          '<span><b>Bomba ' + escapeHtml(r.bomba) + '</b> · desde ' + escapeHtml(r.horarioInicio) + ' de ' + escapeHtml(fmtDate(r.data).slice(0, 5)) +
+            (r.horarioFim ? ' <span style="color:#B8862B;font-weight:700;">· falta a leitura final</span>' : '') +
+            (velha ? '<br><span style="color:#B4442E;font-weight:700;">há ' + Math.round(h) + ' h — esqueceram de registrar o desligamento?</span>' : '') +
+          '</span>' +
+          '<button class="photo-btn" data-desligar-rodada="' + r.id + '" style="background:#C1501F;padding:6px 10px;font-size:11.5px;width:auto;margin:0;flex-shrink:0;">⏹ Desligar</button>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
     html += '<div class="list">';
     var totalDia = 0, temConsumoDia = false;
     for (var n = 1; n <= 4; n++) {
       var rodadas = getRodadasBomba(bombData, n);
-      var aberta = rodadas.find(function (r) { return !r.horarioFim; });
+      // rodada aberta dessa bomba em QUALQUER dia (não só no dia da tela)
+      var abertaGlobal = rodadasAbertas_(n)[0] || null;
       var somaBomba = 0, temSoma = false;
       rodadas.forEach(function (r) {
         var c = consumoRodada_(r);
@@ -6424,8 +6527,13 @@
       '</div>';
 
       if (!rodadas.length) {
-        html += '<div style="font-size:12px;color:#6B6153;margin:4px 0 8px;">Não iniciada hoje</div>' +
-          '<button class="photo-btn" data-nova-rodada="' + n + '" style="background:#4C7C59;padding:8px;font-size:12.5px;">▶️ Iniciar Bomba</button>';
+        if (abertaGlobal) {
+          html += '<div style="font-size:12px;color:#8A2E2E;margin:4px 0 8px;">Ainda ligada no app desde ' + escapeHtml(abertaGlobal.horarioInicio) + ' de ' + escapeHtml(fmtDate(abertaGlobal.data).slice(0, 5)) + ' — registre o desligamento antes de ligar de novo.</div>' +
+            '<button class="photo-btn" data-desligar-rodada="' + abertaGlobal.id + '" style="background:#C1501F;padding:8px;font-size:12.5px;">⏹ Registrar Desligamento</button>';
+        } else {
+          html += '<div style="font-size:12px;color:#6B6153;margin:4px 0 8px;">Não iniciada hoje</div>' +
+            '<button class="photo-btn" data-nova-rodada="' + n + '" style="background:#4C7C59;padding:8px;font-size:12.5px;">▶️ Iniciar Bomba</button>';
+        }
       } else {
         rodadas.forEach(function (rec, idx) {
           var c = consumoRodada_(rec);
@@ -6434,7 +6542,8 @@
             '<div style="display:flex;justify-content:space-between;align-items:center;">' +
               '<span style="font-size:11px;font-family:\'IBM Plex Mono\',monospace;color:#6B6153;font-weight:700;">' +
                 (rodadas.length > 1 ? 'RODADA ' + (idx + 1) : 'REGISTRO') +
-                (!rec.horarioFim ? ' · <span style="color:#2F6B1F;">EM ANDAMENTO</span>' : '') +
+                (rodadaAberta_(rec) ? ' · <span style="color:#2F6B1F;">EM ANDAMENTO</span>' : '') +
+                (ehNaoLigou_(rec) ? ' · <span style="color:#B4442E;">NÃO LIGOU</span>' : '') +
               '</span>' +
               '<span style="display:flex;gap:10px;">' +
                 '<button class="del-btn" data-edit-rodada="' + rec.id + '" title="Editar">✏️</button>' +
@@ -6442,8 +6551,13 @@
               '</span>' +
             '</div>' +
             '<div style="font-size:12.5px;color:#4A4136;margin-top:3px;">' +
-              '⏱ ' + escapeHtml(rec.horarioInicio || "—") + ' → ' + escapeHtml(rec.horarioFim || "rodando") +
-              '<br>💧 Consumo: <b>' + consumoTxt + '</b>' +
+              (ehNaoLigou_(rec)
+                ? '⛔ <b style="color:#B4442E;">A bomba não ligou</b>' + ((rec.motivoNaoLigou || "") ? ' — ' + escapeHtml(rec.motivoNaoLigou) : '') +
+                  '<br><span style="font-size:11.5px;color:#6B6153;">Tentativa às ' + escapeHtml(rec.horarioInicio || "—") + ' · não conta hora de bomba</span>'
+                : '⏱ ' + escapeHtml(rec.horarioInicio || "—") + ' → ' + escapeHtml(rec.horarioFim || "rodando") +
+                  '<br>💧 Consumo: <b>' + consumoTxt + '</b>') +
+              (rec.estimado ? '<br><span style="font-size:11px;color:#2F5F8A;font-weight:700;">📐 Rodada estimada: volume do hidrômetro, horário estimado</span>' : '') +
+              (rec.correcao ? '<br><span style="font-size:11px;color:#7A5A18;">✎ Corrigida: ' + escapeHtml(rec.correcao) + '</span>' : '') +
               (rec.responsavel ? '<br>👤 ' + escapeHtml(rec.responsavel) : "") +
               (rec.observacao ? '<br>📝 ' + escapeHtml(rec.observacao) : "") +
             '</div>' +
@@ -6486,14 +6600,19 @@
             }
             html += '</div>';
           }
-          if (!rec.horarioFim) {
-            html += '<button class="photo-btn" data-edit-rodada="' + rec.id + '" style="background:#C1501F;padding:7px;font-size:12px;margin-top:7px;">⏹ Registrar Desligamento</button>';
+          if (rodadaAberta_(rec)) {
+            html += '<button class="photo-btn" data-desligar-rodada="' + rec.id + '" style="background:#C1501F;padding:7px;font-size:12px;margin-top:7px;">' +
+              (!rec.horarioFim ? '⏹ Registrar Desligamento' : '⏹ Completar desligamento (falta a leitura final)') + '</button>';
           }
           html += '</div>';
         });
-        // só deixa abrir rodada nova quando a anterior já foi fechada
-        if (!aberta) {
+        // só deixa abrir rodada nova quando a anterior já foi fechada -
+        // olhando TODOS os dias, não só o da tela
+        if (!abertaGlobal) {
           html += '<button class="photo-btn" data-nova-rodada="' + n + '" style="background:#2F7DB0;padding:7px;font-size:12px;margin-top:8px;">➕ Nova rodada desta bomba</button>';
+        } else if (!mesmaDataStr_(abertaGlobal.data, bombData)) {
+          html += '<div style="font-size:11.5px;color:#8A2E2E;margin-top:8px;">Ainda ligada no app desde ' + escapeHtml(abertaGlobal.horarioInicio) + ' de ' + escapeHtml(fmtDate(abertaGlobal.data).slice(0, 5)) + '.</div>' +
+            '<button class="photo-btn" data-desligar-rodada="' + abertaGlobal.id + '" style="background:#C1501F;padding:7px;font-size:12px;margin-top:6px;">⏹ Registrar Desligamento</button>';
         }
       }
       html += '</div>';
@@ -6629,6 +6748,24 @@
         deleteBombRecord(b.getAttribute("data-del-bomb"));
       });
     });
+    el.querySelectorAll("[data-desligar-rodada]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        abrirDesligamento_(b.getAttribute("data-desligar-rodada"));
+      });
+    });
+  }
+  // Abre a rodada aberta pra registrar o desligamento - mesmo que ela seja de
+  // outro dia (leva a tela pro dia dela, senão o salvamento se perde).
+  function abrirDesligamento_(id) {
+    var rec = bombRecords.find(function (r) { return r.id === id; });
+    if (!rec) return;
+    if (!mesmaDataStr_(rec.data, bombData)) {
+      bombData = String(rec.data).length === 10 && rec.data.indexOf("-") === 4 ? rec.data : (function () {
+        var d = parseISODate(rec.data); return d ? d.toISOString().slice(0, 10) : bombData;
+      })();
+      try { renderBombeamento(); } catch (e) {}
+    }
+    openBombModal(rec.bomba, rec, { desligar: true });
   }
 
 
@@ -6678,7 +6815,8 @@
           '<button class="del-btn" data-rel-atalho="90" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">90 dias</button>' +
         '</div>' +
         '<button class="del-btn" id="btn-diagnostico-bombeamento" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">🔍 Achar leitura errada</button>' +
-      '</div>';
+      '</div>' +
+      '<button class="photo-btn" id="btn-corrigir-bomb-2109" style="background:#8A5A44;margin:0 0 12px;">🛠️ Aplicar correções do bombeamento (backup de 21/09)</button>';
 
     // ================= RELATÓRIO NA TELA =================
     if (!dados.dias.length) {
@@ -6732,6 +6870,19 @@
             '<br>Ligou ' + escapeHtml(p.inicio) + ', registrado até ' + escapeHtml(p.fim) +
             '<br>Rodou de fato <b>' + formatHoras_(p.efetivoMin) + '</b> — provavelmente parou às <b>' + p.fimEstimado + '</b>' +
             '<br><span style="color:#8A2E2E;font-weight:700;">' + formatHoras_(p.paradaMin) + ' sem bombear</span>' +
+          '</div>';
+        });
+        html += '</div>';
+      }
+
+      // --- vezes que a bomba não ligou ---
+      if (dados.naoLigou && dados.naoLigou.length) {
+        html += '<div class="card"><h3 class="panel-title">⛔ Vezes que a bomba não ligou</h3>' +
+          '<div class="modal-sub" style="margin-bottom:8px;">Rodadas de 0 m³ ou marcadas como "não ligou". Não entram nas horas de bomba nem na vazão.</div>';
+        dados.naoLigou.forEach(function (x) {
+          html += '<div style="background:#F4F0E6;border-radius:4px;padding:7px 10px;margin-bottom:5px;font-size:12px;color:#4A4136;">' +
+            '<b>' + escapeHtml(fmtDate(x.data)) + ' · Bomba ' + escapeHtml(x.bomba) + '</b>' +
+            (x.motivo ? ' — ' + escapeHtml(x.motivo) : '') +
           '</div>';
         });
         html += '</div>';
@@ -6800,6 +6951,7 @@
       });
     });
     document.getElementById("btn-diagnostico-bombeamento").addEventListener("click", abrirDiagnosticoBombeamento_);
+    document.getElementById("btn-corrigir-bomb-2109").addEventListener("click", aplicarCorrecoesBomb2109_);
     desenharGraficosNaTela_(dados);
     document.getElementById("btn-gerar-rel-pdf").addEventListener("click", gerarRelatorioBombeamentoPDF);
     document.getElementById("btn-compartilhar-rel").addEventListener("click", compartilharRelatorioImagem);
@@ -6847,11 +6999,16 @@
     var fim = relDataFim ? parseISODate(relDataFim) : null;
     var porDia = {}, porBomba = {}, horasTotais = 0, totalGeral = 0;
     var horasPorDiaBomba = {};
+    var naoLigou = [];
     bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
       var d = parseISODate(r.data);
       if (!d) return;
       if (ini && d < ini) return;
       if (fim && d > fim) return;
+      if (ehNaoLigou_(r)) {
+        naoLigou.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, motivo: r.motivoNaoLigou || r.observacao || "" });
+        return; // não soma hora de bomba (antes somava a noite inteira com 0 m³)
+      }
       var c = consumoRodada_(r);
       if (c === null) return;
       var b = parseInt(r.bomba, 10) || 0;
@@ -6867,8 +7024,9 @@
       horasPorDiaBomba[r.data][b] = (horasPorDiaBomba[r.data][b] || 0) + dur / 60;
     });
     var dias = Object.keys(porDia).sort();
+    naoLigou.sort(function (a, b) { return String(a.data) < String(b.data) ? -1 : 1; });
     return { porDia: porDia, porBomba: porBomba, dias: dias, totalGeral: totalGeral,
-             horasTotais: horasTotais, horasPorDiaBomba: horasPorDiaBomba };
+             horasTotais: horasTotais, horasPorDiaBomba: horasPorDiaBomba, naoLigou: naoLigou };
   }
 
 
@@ -7002,6 +7160,136 @@
     }
     alert(html);
   }
+
+  // ================= CORREÇÕES DO BOMBEAMENTO (backup de 21/09/2026) =================
+  // Lista montada a partir do backup de 21/09: rodadas esquecidas abertas,
+  // desligamentos salvos como rodada nova, leituras copiadas/digitadas
+  // erradas, repetidas, bombeamento sem registro e rodadas de 0 m³ (não ligou).
+  // SEGURANÇA: cada item só é aplicado se a rodada ainda estiver EXATAMENTE
+  // como no backup (data, bomba, horários e leituras). Se alguém mexeu nela
+  // depois, o item é pulado - nada é sobrescrito às cegas. Rodar de novo não
+  // duplica nada (o que já foi aplicado é reconhecido e pulado).
+  var CORRECOES_BOMB_2109 = [{"tipo":"editar","L":88,"orig":{"data":"2026-09-04","bomba":1,"hi":"21:26","hf":"","li":153954,"lf":154138},"novo":{"horarioFim":"05:40"},"motivo":"Faltava o horário de fim (05:40, quando alguém registrou a leitura final)"},{"tipo":"editar","L":89,"orig":{"data":"2026-09-04","bomba":2,"hi":"21:27","hf":"","li":9202,"lf":9394},"novo":{"horarioFim":"02:45"},"motivo":"Faltava o horário de fim (estimado pela vazão: ~02:45)"},{"tipo":"editar","L":90,"orig":{"data":"2026-09-04","bomba":3,"hi":"21:28","hf":"","li":193279,"lf":193425},"novo":{"horarioFim":"02:45"},"motivo":"Faltava o horário de fim (estimado pela vazão: ~02:45)"},{"tipo":"editar","L":91,"orig":{"data":"2026-09-04","bomba":4,"hi":"21:28","hf":"","li":139975,"lf":140108},"novo":{"horarioFim":"02:45"},"motivo":"Faltava o horário de fim (estimado pela vazão: ~02:45)"},{"tipo":"editar","L":92,"orig":{"data":"2026-09-05","bomba":2,"hi":"21:29","hf":"","li":9394,"lf":9534},"novo":{"horarioFim":"13:30","leituraFinal":"9976"},"motivo":"Faltava o fim e a leitura final não emendava com a rodada seguinte"},{"tipo":"editar","L":94,"orig":{"data":"2026-09-05","bomba":4,"hi":"21:30","hf":"","li":140108,"lf":140580},"novo":{"horarioFim":"13:30","leituraFinal":"140512"},"motivo":"Faltava o fim e a leitura final era maior que a inicial da rodada seguinte"},{"tipo":"editar","L":97,"orig":{"data":"2026-09-06","bomba":1,"hi":"21:21","hf":"04:30","li":154493,"lf":154638},"novo":{"leituraInicial":"154496"},"motivo":"Leitura inicial ajustada pra emendar com a rodada anterior"},{"tipo":"editar","L":101,"orig":{"data":"2026-09-07","bomba":1,"hi":"21:30","hf":"04:15","li":154493,"lf":154991},"novo":{"leituraInicial":"154847"},"motivo":"Leitura inicial copiada errada; volume separado entre dia (estimado) e noite"},{"tipo":"editar","L":102,"orig":{"data":"2026-09-07","bomba":2,"hi":"04:15","hf":"04:16","li":10223,"lf":10755},"novo":{"horarioInicio":"21:30","leituraInicial":"10511"},"motivo":"Criada só no desligamento; volume separado entre dia (estimado) e noite"},{"tipo":"editar","L":103,"orig":{"data":"2026-09-07","bomba":3,"hi":"04:16","hf":"04:16","li":194067,"lf":194520},"novo":{"horarioInicio":"21:30","leituraInicial":"194335"},"motivo":"Criada só no desligamento; volume separado entre dia (estimado) e noite"},{"tipo":"editar","L":104,"orig":{"data":"2026-09-07","bomba":4,"hi":"04:17","hf":"04:17","li":140683,"lf":140791},"novo":{"horarioInicio":"21:30"},"motivo":"Criada só no desligamento; início ajustado pra 21:30"},{"tipo":"editar","L":142,"orig":{"data":"2026-09-17","bomba":1,"hi":"21:30","hf":"","li":157295,"lf":null},"novo":{"horarioFim":"11:50","leituraFinal":"157601"},"motivo":"Ficou aberta: leitura final = inicial da rodada seguinte; fim estimado 11:50"},{"tipo":"editar","L":143,"orig":{"data":"2026-09-17","bomba":2,"hi":"21:30","hf":"","li":14458,"lf":null},"novo":{"horarioFim":"11:50","leituraFinal":"14979"},"motivo":"Ficou aberta: leitura final = inicial da rodada seguinte; fim estimado 11:50"},{"tipo":"editar","L":144,"orig":{"data":"2026-09-17","bomba":3,"hi":"21:30","hf":"","li":197482,"lf":null},"novo":{"horarioFim":"11:50","leituraFinal":"197873"},"motivo":"Ficou aberta: leitura final e fim estimados pela vazão"},{"tipo":"editar","L":145,"orig":{"data":"2026-09-17","bomba":4,"hi":"21:30","hf":"","li":143477,"lf":null},"novo":{"horarioFim":"11:50","leituraFinal":"143833"},"motivo":"Ficou aberta: leitura final = inicial da rodada seguinte; fim estimado 11:50"},{"tipo":"editar","L":148,"orig":{"data":"2026-09-18","bomba":3,"hi":"21:26","hf":"09:52","li":199786,"lf":198218},"novo":{"leituraInicial":"197873"},"motivo":"Leitura inicial digitada errada (dava consumo negativo) - estimada"},{"tipo":"editar","L":154,"orig":{"data":"2026-09-19","bomba":2,"hi":"17:19","hf":"09:30","li":15436,"lf":15842},"novo":{"data":"2026-09-20","horarioFim":"05:33","leituraInicial":"15842","leituraFinal":"16309"},"motivo":"Rodada de 20/09 17:19 salva no dia 19/09 com leituras copiadas; desligamento das 05:33 juntado"},{"tipo":"editar","L":155,"orig":{"data":"2026-09-19","bomba":4,"hi":"17:19","hf":"","li":144423,"lf":null},"novo":{"data":"2026-09-20","horarioFim":"05:37","leituraFinal":"144745"},"motivo":"Rodada de 20/09 17:19 salva no dia 19/09; desligamento das 05:37 juntado"},{"tipo":"editar","L":156,"orig":{"data":"2026-09-20","bomba":1,"hi":"21:24","hf":"","li":158113,"lf":158290},"novo":{"horarioFim":"05:35"},"motivo":"Faltava o horário de fim (05:35, junto com as outras bombas)"},{"tipo":"editar","L":157,"orig":{"data":"2026-09-20","bomba":3,"hi":"21:25","hf":"","li":198523,"lf":null},"novo":{"horarioFim":"05:36","leituraFinal":"198747"},"motivo":"Ficou aberta; desligamento das 05:36 (salvo à parte) juntado"},{"tipo":"editar","L":41,"orig":{"data":"2026-08-23","bomba":2,"hi":"21:25","hf":"07:45","li":4073,"lf":4479},"novo":{"leituraInicial":"4079"},"motivo":"Leitura inicial ajustada pra emendar com a rodada anterior"},{"tipo":"editar","L":45,"orig":{"data":"2026-08-24","bomba":2,"hi":"21:30","hf":"09:25","li":4476,"lf":4946},"novo":{"leituraInicial":"4479"},"motivo":"Leitura inicial ajustada pra emendar com a rodada anterior"},{"tipo":"duplicata","L":118,"orig":{"data":"2026-09-11","bomba":2,"hi":"21:30","hf":"07:50","li":12030,"lf":12411},"novo":{"leituraInicial":"12049"},"motivo":"Leitura inicial ajustada pra emendar com a rodada anterior (tinha registro repetido)"},{"tipo":"excluir","L":158,"orig":{"data":"2026-09-21","bomba":2,"hi":"05:33","hf":"05:33","li":null,"lf":16309},"motivo":"Era o desligamento da rodada de 20/09 salvo como rodada nova"},{"tipo":"excluir","L":161,"orig":{"data":"2026-09-21","bomba":2,"hi":"05:38","hf":"","li":null,"lf":null},"motivo":"Rodada vazia (sem leituras)"},{"tipo":"excluir","L":160,"orig":{"data":"2026-09-21","bomba":4,"hi":"05:37","hf":"05:37","li":null,"lf":144745},"motivo":"Era o desligamento da rodada de 20/09 salvo como rodada nova"},{"tipo":"excluir","L":159,"orig":{"data":"2026-09-21","bomba":3,"hi":"05:36","hf":"05:36","li":null,"lf":198747},"motivo":"Era o desligamento da rodada de 20/09 salvo como rodada nova"},{"tipo":"criar","novo":{"data":"2026-09-01","bomba":"1","horarioInicio":"08:00","horarioFim":"15:30","leituraInicial":"153016","leituraFinal":"153175"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-01","bomba":"2","horarioInicio":"08:00","horarioFim":"15:30","leituraInicial":"7772","leituraFinal":"8042"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-07","bomba":"1","horarioInicio":"08:00","horarioFim":"17:50","leituraInicial":"154638","leituraFinal":"154847"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-07","bomba":"2","horarioInicio":"08:00","horarioFim":"16:00","leituraInicial":"10223","leituraFinal":"10511"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-07","bomba":"3","horarioInicio":"08:00","horarioFim":"17:50","leituraInicial":"194067","leituraFinal":"194335"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-16","bomba":"1","horarioInicio":"08:00","horarioFim":"12:00","leituraInicial":"156961","leituraFinal":"157047"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-16","bomba":"2","horarioInicio":"08:00","horarioFim":"12:00","leituraInicial":"13962","leituraFinal":"14108"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-09-16","bomba":"3","horarioInicio":"08:00","horarioFim":"12:00","leituraInicial":"197054","leituraFinal":"197165"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"criar","novo":{"data":"2026-08-28","bomba":"3","horarioInicio":"08:00","horarioFim":"15:45","leituraInicial":"190499","leituraFinal":"190710"},"motivo":"Bombeamento sem registro: volume real do hidrômetro, horário estimado"},{"tipo":"naoLigou","L":34,"orig":{"data":"2026-08-21","bomba":3,"hi":"21:28","hf":"09:29","li":190219,"lf":190219},"novo":{"naoLigou":true,"motivoNaoLigou":"Não informado (0 m³ no hidrômetro)"},"motivo":"Marcada como 'não ligou' (0 m³)"},{"tipo":"naoLigou","L":38,"orig":{"data":"2026-08-22","bomba":3,"hi":"21:30","hf":"13:30","li":190219,"lf":190219},"novo":{"naoLigou":true,"motivoNaoLigou":"Não informado (0 m³ no hidrômetro)"},"motivo":"Marcada como 'não ligou' (0 m³)"},{"tipo":"naoLigou","L":42,"orig":{"data":"2026-08-23","bomba":3,"hi":"21:26","hf":"07:45","li":190219,"lf":190219},"novo":{"naoLigou":true,"motivoNaoLigou":"Imprevisto com a bomba"},"motivo":"Marcada como 'não ligou' (0 m³)"},{"tipo":"naoLigou","L":46,"orig":{"data":"2026-08-24","bomba":3,"hi":"21:31","hf":"09:25","li":190219,"lf":190220},"novo":{"naoLigou":true,"motivoNaoLigou":"Não estava operando normalmente"},"motivo":"Marcada como 'não ligou' (0 m³)"},{"tipo":"naoLigou","L":59,"orig":{"data":"2026-08-27","bomba":3,"hi":"21:30","hf":"21:30","li":190499,"lf":190499},"novo":{"naoLigou":true,"motivoNaoLigou":"Entrada de ar"},"motivo":"Marcada como 'não ligou' (0 m³)"},{"tipo":"naoLigou","L":95,"orig":{"data":"2026-09-05","bomba":1,"hi":"05:40","hf":"05:41","li":154138,"lf":154138},"novo":{"naoLigou":true,"motivoNaoLigou":"Não informado (0 m³ no hidrômetro)"},"motivo":"Marcada como 'não ligou' (0 m³)"},{"tipo":"editar","L":50,"orig":{"data":"2026-08-25","bomba":3,"hi":"21:24","hf":"13:56","li":190220,"lf":190278},"novo":{"data":"2026-08-26","horarioInicio":"11:40"},"motivo":"Pela observação, só ligou às 11:40 de 26/08 (entrada de ar na noite de 25/08)"},{"tipo":"criar","novo":{"data":"2026-08-25","bomba":"3","horarioInicio":"21:24","horarioFim":"21:24","leituraInicial":"190220","leituraFinal":"190220","naoLigou":true,"motivoNaoLigou":"Entrada de ar"},"motivo":"Noite de 25/08: não ligou por entrada de ar (conforme a observação da rodada)"}];
+
+  function leituraIgual_(v, alvo) {
+    if (alvo === null || alvo === undefined) return leituraVazia_(v);
+    var x = parseFloat(v);
+    return isFinite(x) && Math.abs(x - alvo) < 0.001;
+  }
+  function bateOrig_(r, o) {
+    return !r._pendingDelete && mesmaDataStr_(r.data, o.data) && String(r.bomba) === String(o.bomba) &&
+      (r.horarioInicio || "") === o.hi && (r.horarioFim || "") === o.hf &&
+      leituraIgual_(r.leituraInicial, o.li) && leituraIgual_(r.leituraFinal, o.lf);
+  }
+  // como a rodada fica DEPOIS da correção (pra reconhecer o que já foi aplicado)
+  function origCorrigido_(o, novo) {
+    var x = { data: o.data, bomba: o.bomba, hi: o.hi, hf: o.hf, li: o.li, lf: o.lf };
+    if (novo.data !== undefined) x.data = novo.data;
+    if (novo.horarioInicio !== undefined) x.hi = novo.horarioInicio;
+    if (novo.horarioFim !== undefined) x.hf = novo.horarioFim;
+    if (novo.leituraInicial !== undefined) x.li = parseFloat(novo.leituraInicial);
+    if (novo.leituraFinal !== undefined) x.lf = parseFloat(novo.leituraFinal);
+    return x;
+  }
+  function planejarCorrecoesBomb_() {
+    var plano = [], jaFeitos = 0, pulados = [];
+    CORRECOES_BOMB_2109.forEach(function (c) {
+      var ref = c.orig || c.novo;
+      var rot = fmtDate(ref.data).slice(0, 5) + " · Bomba " + ref.bomba + " · " + (c.orig ? (c.orig.hi || "?") : c.novo.horarioInicio);
+      if (c.tipo === "criar") {
+        var n = c.novo;
+        var existe = bombRecords.some(function (r) {
+          return !r._pendingDelete && mesmaDataStr_(r.data, n.data) && String(r.bomba) === String(n.bomba) &&
+            (r.horarioInicio || "") === n.horarioInicio &&
+            leituraIgual_(r.leituraInicial, parseFloat(n.leituraInicial)) && leituraIgual_(r.leituraFinal, parseFloat(n.leituraFinal));
+        });
+        if (existe) jaFeitos++; else plano.push({ c: c, recs: [] });
+        return;
+      }
+      var achados = bombRecords.filter(function (r) { return bateOrig_(r, c.orig); });
+      if (c.tipo === "duplicata") {
+        if (achados.length >= 2) { plano.push({ c: c, recs: achados }); return; }
+        var jaCorrigida = bombRecords.some(function (r) { return bateOrig_(r, origCorrigido_(c.orig, c.novo)); });
+        if (jaCorrigida && !achados.length) jaFeitos++; else pulados.push(rot + " (repetida)");
+        return;
+      }
+      if (achados.length === 1) {
+        if (c.tipo === "naoLigou" && achados[0].naoLigou === true) { jaFeitos++; return; }
+        plano.push({ c: c, recs: achados });
+        return;
+      }
+      if (achados.length > 1) { pulados.push(rot + " (tem mais de uma rodada igual)"); return; }
+      // não está mais como no backup: ou já foi corrigida/excluída, ou alguém mexeu depois
+      if (c.tipo === "excluir") {
+        // ainda existe uma rodada nesse dia/bomba/horário? então alguém mexeu nela - não exclui
+        var mexida = bombRecords.some(function (r) {
+          return !r._pendingDelete && mesmaDataStr_(r.data, c.orig.data) && String(r.bomba) === String(c.orig.bomba) && (r.horarioInicio || "") === c.orig.hi;
+        });
+        if (mexida) pulados.push(rot + " (mudou depois do backup)"); else jaFeitos++;
+        return;
+      }
+      if (c.tipo === "editar" && bombRecords.some(function (r) { return bateOrig_(r, origCorrigido_(c.orig, c.novo)); })) { jaFeitos++; return; }
+      pulados.push(rot + " (mudou depois do backup)");
+    });
+    return { plano: plano, jaFeitos: jaFeitos, pulados: pulados };
+  }
+  function aplicarCorrecoesBomb2109_() {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    if (!navigator.onLine) { showToast("Precisa de internet pra aplicar as correções."); return; }
+    var p = planejarCorrecoesBomb_();
+    var puladosTxt = p.pulados.length ? "\n\nNÃO vou mexer nestas (mudaram depois do backup):\n• " + p.pulados.join("\n• ") : "";
+    if (!p.plano.length) {
+      alert("Nada pra aplicar." + (p.jaFeitos ? "\n\n" + p.jaFeitos + " correção(ões) já estavam aplicadas." : "") + puladosTxt);
+      return;
+    }
+    var cont = { editar: 0, excluir: 0, criar: 0, naoLigou: 0, duplicata: 0 };
+    p.plano.forEach(function (it) { cont[it.c.tipo]++; });
+    var msg = "Correções do bombeamento (backup de 21/09):\n\n" +
+      "• " + (cont.editar + cont.duplicata) + " rodada(s) corrigida(s)\n" +
+      "• " + (cont.excluir + cont.duplicata) + " rodada(s) excluída(s) (repetida, vazia ou desligamento salvo à parte)\n" +
+      "• " + cont.criar + " rodada(s) nova(s) (bombeamento sem registro e noite em que não ligou)\n" +
+      "• " + cont.naoLigou + " rodada(s) de 0 m³ marcadas como \"não ligou\"" +
+      (p.jaFeitos ? "\n\n" + p.jaFeitos + " já estavam aplicadas." : "") + puladosTxt +
+      "\n\nAplicar agora?";
+    if (!window.confirm(msg)) return;
+    var lote = db.batch();
+    var ts = firebase.firestore.FieldValue.serverTimestamp();
+    var col = db.collection("bombeamento");
+    var qtd = 0;
+    p.plano.forEach(function (it) {
+      var c = it.c;
+      var marca = { correcao: c.motivo, corrigidoEm: "2026-09-21", atualizadoEm: ts };
+      if (c.tipo === "criar") {
+        var n = c.novo;
+        lote.set(col.doc(uid()), Object.assign({
+          data: n.data, bomba: n.bomba, horarioInicio: n.horarioInicio, horarioFim: n.horarioFim,
+          leituraInicial: n.leituraInicial, leituraFinal: n.leituraFinal,
+          fotoInicio: "", fotoFim: "", observacao: "", excluido: false, criadoEm: ts,
+          estimado: !n.naoLigou, naoLigou: !!n.naoLigou, motivoNaoLigou: n.motivoNaoLigou || ""
+        }, marca));
+        qtd++;
+      } else if (c.tipo === "excluir") {
+        lote.update(col.doc(it.recs[0].id), Object.assign({ excluido: true }, marca)); qtd++;
+      } else if (c.tipo === "duplicata") {
+        lote.update(col.doc(it.recs[0].id), Object.assign({}, c.novo, marca)); qtd++;
+        it.recs.slice(1).forEach(function (r) {
+          lote.update(col.doc(r.id), Object.assign({ excluido: true }, marca, { correcao: "Registro repetido (salvo duas vezes)" })); qtd++;
+        });
+      } else { // editar / naoLigou
+        lote.update(col.doc(it.recs[0].id), Object.assign({}, c.novo, marca)); qtd++;
+      }
+    });
+    travaTela_(true, "🛠️ Aplicando as correções do bombeamento...");
+    comLimite_(lote.commit(), 20000).then(function () {
+      travaTela_(false);
+      alert("✅ Pronto: " + qtd + " alteração(ões) aplicada(s) no bombeamento.");
+    }).catch(function (err) {
+      travaTela_(false);
+      if (err && err.code === "pendentes") alert("As correções já estão gravadas no celular e estão subindo pro Firebase (internet lenta). Deixe o app aberto uns minutos.");
+      else alert("⚠️ Não aplicou: " + motivoFirestore_(err));
+    });
+  }
+  // ================= FIM CORREÇÕES DO BOMBEAMENTO =================
 
   function paradasDetectadas_() {
     var ini = relDataInicio ? parseISODate(relDataInicio) : null;
@@ -7685,6 +7973,34 @@
     if (isFinite(li) && isFinite(lf) && lf < li) {
       avisos.push("A leitura final está <b>menor</b> que a inicial. Confira os dois campos.");
     }
+    var naoLigouMarcado = document.getElementById("bomb-naoligou") && document.getElementById("bomb-naoligou").checked;
+    // rodada NOVA com leitura inicial bem acima da última final: a bomba
+    // rodou sem registro nesse meio-tempo (foi o que aconteceu em 01/09, 07/09 e 16/09)
+    if (isFinite(li) && !editingBombId) {
+      var ult = ultimaLeituraBomba_(editingBombBomba, null);
+      if (ult && li > ult.valor + 2) {
+        avisos.push("A última leitura final da Bomba " + editingBombBomba + " foi <b>" + ult.valor.toLocaleString("pt-BR") +
+          "</b> (" + escapeHtml(fmtDate(ult.rec.data).slice(0, 5)) + "). Desde então o hidrômetro andou <b>" +
+          Math.round((li - ult.valor) * 10).toLocaleString("pt-BR") + " m³</b> sem registro. Se a bomba rodou nesse meio-tempo, registre essa rodada também.");
+      }
+    }
+    // vazão fora do normal (só quando tem leituras e horários completos)
+    var hiV = document.getElementById("bomb-horario-inicio").value, hfV = document.getElementById("bomb-horario-fim").value;
+    if (!naoLigouMarcado && isFinite(li) && isFinite(lf) && lf > li && hiV && hfV) {
+      var durMin = minutosDeHora_(hfV) - minutosDeHora_(hiV); if (durMin <= 0) durMin += 1440;
+      var refV = vazaoReferenciaBomba_(editingBombBomba) || vazaoNominalBomba;
+      if (durMin >= 15 && refV > 0) {
+        var vol = (lf - li) * 10, vaz = vol / (durMin / 60), pct = vaz / refV;
+        var fimPelaVazao = minToTimeBomb_(minutosDeHora_(hiV) + (vol / refV) * 60);
+        if (pct > 1.3) {
+          avisos.push("Volume <b>alto demais</b> pro tempo: daria <b>" + Math.round(vaz) + " m³/h</b> (" + Math.round(pct * 100) +
+            "% do normal dessa bomba, ~" + Math.round(refV) + " m³/h). Confira a leitura final ou os horários. Pela vazão normal, esse volume terminaria por volta de <b>" + fimPelaVazao + "</b>.");
+        } else if (pct < 0.5) {
+          avisos.push("Volume <b>baixo</b> pro tempo: " + Math.round(vaz) + " m³/h (" + Math.round(pct * 100) + "% do normal). " +
+            "Pela vazão normal, esse volume daria até umas <b>" + fimPelaVazao + "</b>. Se a bomba parou (ar, energia), anote na observação; se não, confira a leitura.");
+        }
+      }
+    }
     if (!avisos.length) { el.style.display = "none"; el.innerHTML = ""; return; }
     el.style.display = "block";
     el.innerHTML = '<b>⚠ Confira a leitura</b><br>' + avisos.join("<br><br>") +
@@ -7713,7 +8029,21 @@
     });
   }
 
-  function openBombModal(bomba, existente) {
+  function openBombModal(bomba, existente, opcoes) {
+    opcoes = opcoes || {};
+    // Não deixa ligar de novo uma bomba que ainda está "ligada" no app
+    // (em qualquer dia): primeiro registra o desligamento da rodada aberta.
+    if (!existente) {
+      var abertaAntes = rodadasAbertas_(bomba)[0];
+      if (abertaAntes) {
+        var quando = abertaAntes.horarioInicio + " de " + fmtDate(abertaAntes.data).slice(0, 5);
+        if (window.confirm("⛔ A Bomba " + bomba + " ainda está LIGADA no app (desde " + quando + ").\n\n" +
+            "Antes de registrar outra rodada, registre o desligamento dessa.\n\nToque OK pra registrar o desligamento agora.")) {
+          abrirDesligamento_(abertaAntes.id);
+        }
+        return;
+      }
+    }
     editingBombId = existente ? existente.id : null;
     editingBombBomba = bomba;
     var rodadasHoje = getRodadasBomba(bombData, bomba);
@@ -7733,12 +8063,46 @@
     document.getElementById("bomb-leitura-inicio").value = existente && existente.leituraInicial !== undefined ? existente.leituraInicial : "";
     document.getElementById("bomb-leitura-fim").value = existente && existente.leituraFinal !== undefined ? existente.leituraFinal : "";
     document.getElementById("bomb-observacao").value = existente ? (existente.observacao || "") : "";
+    // desligamento: já vem com a hora de agora (se ainda estava vazia)
+    if (existente && opcoes.desligar && !existente.horarioFim) {
+      document.getElementById("bomb-horario-fim").value = new Date().toTimeString().slice(0, 5);
+    }
+    var subEl = document.getElementById("bomb-modal-sub");
+    if (subEl) {
+      subEl.textContent = (existente && opcoes.desligar)
+        ? "Desligamento: confira o horário e anote a leitura do visor agora."
+        : "Registre o início e, mais tarde, volte aqui pra registrar o fim.";
+    }
+    // última leitura da bomba como dica (não preenche sozinho: tem que ler o visor)
+    var ultL = !existente ? ultimaLeituraBomba_(bomba, null) : null;
+    document.getElementById("bomb-leitura-inicio").placeholder = ultL ? ("Última: " + ultL.valor) : "Ex.: 2916";
+    // "não ligou"
+    var nl = !!existente && ehNaoLigou_(existente);
+    document.getElementById("bomb-naoligou").checked = nl;
+    var selMot = document.getElementById("bomb-naoligou-motivo");
+    var mot = existente ? (existente.motivoNaoLigou || "") : "";
+    if (mot && !Array.prototype.some.call(selMot.options, function (o) { return o.value === mot || o.text === mot; })) {
+      var op = document.createElement("option"); op.text = mot; op.value = mot; selMot.appendChild(op);
+    }
+    selMot.value = mot;
+    aplicarModoNaoLigou_();
     pendingFotoBombInicio = existente ? (existente.fotoInicio || null) : null;
     pendingFotoBombFim = existente ? (existente.fotoFim || null) : null;
     renderFotoBombPreview_("inicio", pendingFotoBombInicio);
     renderFotoBombPreview_("fim", pendingFotoBombFim);
     updateBombConsumoPreview();
     document.getElementById("modal-bomb-overlay").classList.add("active");
+  }
+  // Liga/desliga os campos que não fazem sentido quando a bomba não ligou.
+  function aplicarModoNaoLigou_() {
+    var nl = document.getElementById("bomb-naoligou").checked;
+    document.getElementById("bomb-naoligou-box").style.display = nl ? "block" : "none";
+    ["bomb-horario-fim", "bomb-leitura-fim"].forEach(function (id) {
+      var e = document.getElementById(id);
+      e.disabled = nl;
+      e.style.opacity = nl ? "0.45" : "";
+    });
+    try { updateBombConsumoPreview(); } catch (e) {}
   }
   function closeBombModal() {
     document.getElementById("modal-bomb-overlay").classList.remove("active");
@@ -7756,11 +8120,41 @@
       var leituraInicial = document.getElementById("bomb-leitura-inicio").value;
       var leituraFinal = document.getElementById("bomb-leitura-fim").value;
       var observacao = document.getElementById("bomb-observacao").value.trim();
+      var naoLigou = document.getElementById("bomb-naoligou").checked;
+      var motivoNaoLigou = document.getElementById("bomb-naoligou-motivo").value;
       if (!horarioInicio) { showToast("Preencha o horário de início."); return; }
 
       var idAlvo = editingBombId || uid();
       var ehNovo = !editingBombId;
       var bombaAlvo = editingBombBomba;
+
+      // (conferência de novo na hora de salvar - vale mesmo se a tela estava desatualizada)
+      if (ehNovo && rodadasAbertas_(bombaAlvo).length) {
+        showToast("⛔ A Bomba " + bombaAlvo + " ainda está ligada no app. Registre o desligamento dela primeiro.");
+        return;
+      }
+      if (ehNovo && !mesmaDataStr_(dataReg, todayStr())) {
+        if (!window.confirm("Você está registrando esta rodada no dia " + fmtDate(dataReg) + ", mas hoje é " + fmtDate(todayStr()) + ".\n\nSalvar nesse dia mesmo?")) return;
+      }
+      if (naoLigou) {
+        if (!motivoNaoLigou) { showToast("Escolha por que a bomba não ligou."); return; }
+        // não ligou: fecha na hora (não fica "em andamento") e não tem consumo
+        horarioFim = horarioInicio;
+        leituraFinal = leituraInicial;
+      } else {
+        var liN = parseFloat(leituraInicial), lfN = parseFloat(leituraFinal);
+        if (isFinite(liN) && isFinite(lfN) && lfN < liN) {
+          if (!window.confirm("A leitura final (" + lfN + ") está MENOR que a inicial (" + liN + "). O hidrômetro não anda pra trás.\n\nSó salve assim se o hidrômetro foi trocado ou zerado. Salvar mesmo assim?")) return;
+        }
+        if (isFinite(liN) && isFinite(lfN) && lfN > liN && horarioInicio && horarioFim) {
+          var dMin = minutosDeHora_(horarioFim) - minutosDeHora_(horarioInicio); if (dMin <= 0) dMin += 1440;
+          var refS = vazaoReferenciaBomba_(bombaAlvo) || vazaoNominalBomba;
+          var vazS = ((lfN - liN) * 10) / (dMin / 60);
+          if (dMin >= 15 && refS > 0 && vazS > refS * 1.3) {
+            if (!window.confirm("O volume está alto demais pro tempo registrado: daria " + Math.round(vazS) + " m³/h, " + Math.round(vazS / refS * 100) + "% do normal da Bomba " + bombaAlvo + ".\n\nNormalmente é leitura ou horário digitado errado. Salvar mesmo assim?")) return;
+          }
+        }
+      }
       salvandoBomb = true;
       var btnSalvarBomb = document.getElementById("btn-save-bomb");
       if (btnSalvarBomb) { btnSalvarBomb.disabled = true; }
@@ -7775,7 +8169,8 @@
           horarioInicio: horarioInicio, horarioFim: horarioFim,
           leituraInicial: leituraInicial, leituraFinal: leituraFinal,
           fotoInicio: resultado[0] || "", fotoFim: resultado[1] || "",
-          observacao: observacao, excluido: false
+          observacao: observacao, excluido: false,
+          naoLigou: naoLigou, motivoNaoLigou: naoLigou ? motivoNaoLigou : ""
         };
         salvarBombeamentoFirestore_(idAlvo, campos, ehNovo);
 
@@ -8944,6 +9339,7 @@
     });
 
     document.getElementById("btn-save-bomb").addEventListener("click", handleSaveBomb);
+    document.getElementById("bomb-naoligou").addEventListener("change", aplicarModoNaoLigou_);
     document.getElementById("btn-save-ronda").addEventListener("click", salvarRonda);
     document.getElementById("btn-save-pressao").addEventListener("click", salvarLeituraPressao_);
     document.getElementById("btn-close-pressao").addEventListener("click", fecharModalLeituraPressao_);
