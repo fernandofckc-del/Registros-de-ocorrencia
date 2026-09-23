@@ -683,7 +683,19 @@
       <input type="checkbox" id="plantao-destaque" style="width:auto;"> Destacar em vermelho
     </label>
     <button class="save-btn" id="btn-salvar-plantao-celula" style="background:#4C7C59;">Salvar</button>
+    <button class="photo-btn" id="btn-copiar-plantao-celula" style="background:#2F7DB0;margin-top:8px;">📋 Copiar este horário pra colar em outras células</button>
     <button class="photo-btn" id="btn-limpar-plantao-celula" style="background:#8A8072;margin-top:8px;">Limpar (voltar ao padrão)</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-plantao-imagem-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-imagem">✕</button>
+    <div class="modal-title">📤 Enviar a escala no WhatsApp</div>
+    <div class="modal-sub">É exatamente assim que eles vão ver: uma imagem por semana, no tamanho certo pro WhatsApp não reduzir nem borrar.</div>
+    <div id="plantao-imagem-previa"></div>
+    <button class="save-btn" id="btn-enviar-plantao-imagens" style="background:#25A244;">📤 Enviar as 2 semanas</button>
+    <div id="plantao-imagem-result" class="test-result"></div>
   </div>
 </div>
 
@@ -1149,7 +1161,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v120';
+  var APP_CACHE_NAME = 'registro-irrigacao-v121';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2992,24 +3004,33 @@
   }
   // Os turnos que a equipe usa, tirados dos próprios padrões: vira botão de
   // um toque (antes eram 4 relógios pra preencher em cada dia).
+  // turnos que nem sempre estão em algum padrão, mas a equipe usa
+  var TURNOS_BASE_PLANTAO = [
+    ["18:00", "22:00", "23:00", "06:00"], ["18:00", "23:00", "00:00", "06:00"],
+    ["06:00", "11:00", "12:00", "18:00"], ["06:00", "12:00", "13:00", "18:00"],
+    ["06:00", "12:00", "14:00", "17:00"]
+  ];
   function turnosProntosPlantao_() {
     var cont = {};
+    function conta(t, peso) {
+      if (!t || !t[0]) return;
+      var k = t.slice(0, 4).map(function (x) { return x || ""; }).join("|");
+      cont[k] = (cont[k] || 0) + peso;
+    }
+    TURNOS_BASE_PLANTAO.forEach(function (t) { conta(t, 0.5); });
+    // turnos já usados em exceções também viram botão
+    plantaoRegistros.forEach(function (r) { if (r.tipo === "horarios") conta(r.turnos, 1); });
     plantaoPadroes.forEach(function (p) {
       ["semanaA", "semanaB"].forEach(function (sem) {
         var dias = p[sem] || {};
         Object.keys(dias).forEach(function (d) {
           var c = dias[d];
           if (!c || c.tipo !== "horarios" || !c.turnos || !c.turnos[0]) return;
-          var k = c.turnos.slice(0, 4).map(function (x) { return x || ""; }).join("|");
-          cont[k] = (cont[k] || 0) + 1;
+          conta(c.turnos, 2);
         });
       });
     });
-    var lista = Object.keys(cont).sort(function (a, b) { return cont[b] - cont[a]; }).map(function (k) { return k.split("|"); });
-    if (!lista.length) {
-      lista = [["18:00", "22:00", "23:00", "06:00"], ["18:00", "23:00", "00:00", "06:00"], ["06:00", "11:00", "12:00", "18:00"], ["06:00", "12:00", "13:00", "18:00"]];
-    }
-    return lista;
+    return Object.keys(cont).sort(function (a, b) { return cont[b] - cont[a]; }).slice(0, 8).map(function (k) { return k.split("|"); });
   }
   function rotuloTurno_(t) {
     var a = t[0] && t[1] ? t[0] + "–" + t[1] : "";
@@ -5664,7 +5685,151 @@
 
     return canvas;
   }
+  // ================= IMAGEM DA ESCALA PRO WHATSAPP (v121) =================
+  // Uma imagem POR SEMANA, com 1.594 px de largura. Fica abaixo do limite de
+  // 1.600 px do WhatsApp, então ele não encolhe a imagem e a letra chega do
+  // mesmo tamanho que saiu, sem borrar. Antes era uma imagem só com as 2
+  // semanas, de quase 4.000 px: o WhatsApp reduzia pra menos da metade e a
+  // letra (que já era pequena) ficava ilegível no celular.
+  function construirImagemSemanaPlantao_(dias, pessoas, titulo) {
+    var NOME = 250, DIA = 192, TOPO = 100, CAB = 108, LIN = 116, RODAPE = 96;
+    var W = NOME + DIA * dias.length, H = TOPO + CAB + LIN * pessoas.length + RODAPE;
+    var cv = document.createElement("canvas");
+    cv.width = W; cv.height = H;
+    var ctx = cv.getContext("2d");
+    var FONTE = "Arial, Roboto, 'Helvetica Neue', sans-serif";
+    function fonte(px, bold) { ctx.font = (bold ? "bold " : "") + px + "px " + FONTE; }
+    // diminui a letra só o necessário pra caber (nunca corta nem espreme)
+    function caber(txt, px, bold, largMax) {
+      fonte(px, bold);
+      while (px > 16 && ctx.measureText(txt).width > largMax) { px -= 1; fonte(px, bold); }
+      return px;
+    }
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, W, H);
+    // título
+    ctx.fillStyle = "#3F5F26"; ctx.fillRect(0, 0, W, TOPO);
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left"; fonte(42, true);
+    ctx.fillText("Escala de Plantão", 28, TOPO / 2);
+    ctx.textAlign = "right"; fonte(36, true);
+    ctx.fillText(titulo, W - 28, TOPO / 2);
+    // cabeçalho dos dias (hoje em amarelo; dia com falta de gente em rosa)
+    var hoje = todayStr();
+    var cob = dias.map(function (d) { return coberturaPlantao_(pessoas, d); });
+    ctx.fillStyle = "#E9E2CF"; ctx.fillRect(0, TOPO, NOME, CAB);
+    ctx.fillStyle = "#241F1A"; ctx.textAlign = "left"; fonte(30, true);
+    ctx.fillText("Nome", 24, TOPO + CAB / 2);
+    dias.forEach(function (d, i) {
+      var x = NOME + i * DIA;
+      var p = d.split("-"), dt = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+      ctx.fillStyle = cob[i].falta ? "#F6C9BE" : (d === hoje ? "#FFE7A3" : (i % 2 ? "#E9E2CF" : "#F1EBDB"));
+      ctx.fillRect(x, TOPO, DIA, CAB);
+      ctx.fillStyle = "#241F1A"; ctx.textAlign = "center";
+      fonte(32, true); ctx.fillText(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()].slice(0, 3).toUpperCase(), x + DIA / 2, TOPO + 36);
+      fonte(28, false); ctx.fillText(fmtDate(d).slice(0, 5), x + DIA / 2, TOPO + 76);
+    });
+    // uma linha por pessoa
+    pessoas.forEach(function (pessoa, li) {
+      var y = TOPO + CAB + li * LIN;
+      ctx.fillStyle = li % 2 ? "#FAF7EF" : "#FFFFFF"; ctx.fillRect(0, y, W, LIN);
+      ctx.fillStyle = "#241F1A"; ctx.textAlign = "left";
+      fonte(caber(pessoa, 34, true, NOME - 40), true);
+      ctx.fillText(pessoa, 24, y + LIN / 2);
+      dias.forEach(function (d, i) {
+        var x = NOME + i * DIA;
+        var cel = getCelulaPlantao_(pessoa, d);
+        var linhas = [], cor = "#241F1A", fundo = null;
+        if (cel.tipo === "folga") { linhas = ["FOLGA"]; cor = "#7A7266"; fundo = "#EEEAE1"; }
+        else if (cel.tipo === "ferias") { linhas = [(cel.motivoAusencia || "Férias").toUpperCase()]; cor = "#8A4A12"; fundo = "#FBE1C4"; }
+        else if (cel.tipo === "horarios" && cel.turnos && cel.turnos[0]) {
+          var t = cel.turnos;
+          linhas.push(t[0] + "–" + (t[1] || ""));        // turno 1 em cima,
+          if (t[2] || t[3]) linhas.push((t[2] || "") + "–" + (t[3] || "")); // turno 2 embaixo
+        } else { linhas = ["—"]; cor = "#B8AE9C"; }
+        if (cel.motivo === "troca") { fundo = "#DDEBF8"; linhas[0] = "↔ " + linhas[0]; }
+        if (cel.tipo === "horarios" && (cel.destaque || cel.origem === "substituicao" || cel.motivo === "troca")) cor = "#B4442E";
+        if (fundo) { ctx.fillStyle = fundo; ctx.fillRect(x + 5, y + 5, DIA - 10, LIN - 10); }
+        var px = 30;
+        linhas.forEach(function (l) { px = Math.min(px, caber(l, 30, true, DIA - 20)); });
+        fonte(px, true); ctx.fillStyle = cor; ctx.textAlign = "center";
+        if (linhas.length === 1) ctx.fillText(linhas[0], x + DIA / 2, y + LIN / 2);
+        else {
+          ctx.fillText(linhas[0], x + DIA / 2, y + LIN / 2 - px * 0.64);
+          ctx.fillText(linhas[1], x + DIA / 2, y + LIN / 2 + px * 0.64);
+        }
+      });
+    });
+    // grade
+    var fimTab = TOPO + CAB + LIN * pessoas.length;
+    ctx.strokeStyle = "#CFC5AE"; ctx.lineWidth = 2;
+    for (var li2 = 0; li2 <= pessoas.length; li2++) {
+      var yy = TOPO + CAB + li2 * LIN; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke();
+    }
+    for (var ci = 0; ci <= dias.length; ci++) {
+      var xx = NOME + ci * DIA; ctx.beginPath(); ctx.moveTo(xx, TOPO); ctx.lineTo(xx, fimTab); ctx.stroke();
+    }
+    // rodapé com a legenda
+    ctx.fillStyle = "#F4F0E6"; ctx.fillRect(0, fimTab, W, RODAPE);
+    ctx.textAlign = "left"; ctx.fillStyle = "#4A4136"; fonte(26, false);
+    ctx.fillText("↔ troca   ·   vermelho = mudou do padrão   ·   laranja = férias/afastamento" + (cob.some(function (c) { return c.falta; }) ? "   ·   dia em rosa = falta gente" : ""), 24, fimTab + 34);
+    fonte(22, false); ctx.fillStyle = "#8A8072";
+    ctx.fillText("Gerado em " + fmtDate(todayStr()) + " às " + new Date().toTimeString().slice(0, 5), 24, fimTab + 70);
+    return cv;
+  }
+  var imagensPlantaoProntas_ = [];
   function compartilharPlantaoImagem_() {
+    if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
+    var dias = [];
+    for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
+    var semanas = [dias.slice(0, 7), dias.slice(7, 14)];
+    var box = document.getElementById("plantao-imagem-previa");
+    box.innerHTML = "Montando as imagens...";
+    document.getElementById("plantao-imagem-result").style.display = "none";
+    document.getElementById("modal-plantao-imagem-overlay").classList.add("active");
+    imagensPlantaoProntas_ = [];
+    var promessas = semanas.map(function (sem, idx) {
+      var titulo = fmtDate(sem[0]).slice(0, 5) + " a " + fmtDate(sem[6]).slice(0, 5);
+      var cv = construirImagemSemanaPlantao_(sem, pessoasDoBloco_(sem), titulo);
+      return new Promise(function (resolve) {
+        cv.toBlob(function (blob) {
+          var nome = "escala_plantao_" + sem[0] + "_a_" + sem[6] + ".png";
+          resolve({ titulo: titulo, url: cv.toDataURL("image/png"), arquivo: blob ? new File([blob], nome, { type: "image/png" }) : null, largura: cv.width, altura: cv.height });
+        }, "image/png");
+      });
+    });
+    Promise.all(promessas).then(function (imgs) {
+      imagensPlantaoProntas_ = imgs;
+      box.innerHTML = imgs.map(function (im, i) {
+        return '<div style="margin-bottom:14px;">' +
+          '<div style="font-weight:700;font-size:13px;margin-bottom:5px;">Semana ' + (i + 1) + ' · ' + escapeHtml(im.titulo) + '</div>' +
+          '<img src="' + im.url + '" alt="Escala semana ' + (i + 1) + '" style="width:100%;height:auto;border:1px solid #D2C7AB;border-radius:4px;display:block;">' +
+          '<button class="photo-btn" data-enviar-semana="' + i + '" style="background:#2F7DB0;margin-top:6px;font-size:12.5px;">📤 Enviar só esta semana</button>' +
+        '</div>';
+      }).join("");
+      box.querySelectorAll("[data-enviar-semana]").forEach(function (b) {
+        b.addEventListener("click", function () { enviarImagensPlantao_([imagensPlantaoProntas_[+b.getAttribute("data-enviar-semana")]]); });
+      });
+    });
+  }
+  function enviarImagensPlantao_(imgs) {
+    var arquivos = imgs.map(function (im) { return im.arquivo; }).filter(Boolean);
+    if (!arquivos.length) return;
+    if (navigator.canShare && navigator.canShare({ files: arquivos })) {
+      navigator.share({ files: arquivos, title: "Escala de Plantão" }).catch(function () {});
+      return;
+    }
+    // sem compartilhar direto (ex.: computador): baixa as imagens
+    imgs.forEach(function (im) {
+      var a = document.createElement("a");
+      a.href = im.url; a.download = im.arquivo.name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    });
+    var r = document.getElementById("plantao-imagem-result");
+    r.style.display = "block"; r.className = "test-result ok";
+    r.textContent = "Imagens baixadas — é só mandar pelo WhatsApp.";
+  }
+
+  function compartilharPlantaoImagemAntiga_() {
     if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
     var dias = [];
     for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
@@ -5706,6 +5871,11 @@
       '<button class="photo-btn" id="btn-plantao-troca" style="background:#2F7DB0;margin:0;">↔ Troca de plantão</button>' +
       '<button class="photo-btn" id="btn-plantao-ausencia" style="background:#4C7C59;margin:0;">🏖️ Férias ou afastamento</button>' +
     '</div>';
+    if (plantaoCopiado) {
+      html += '<div style="position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:8px;background:#E3EEF9;border:2px solid #2F7DB0;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:12.5px;color:#1F4E79;">' +
+        '<span>📋 <b>Colando: ' + escapeHtml(rotuloCopiado_(plantaoCopiado)) + '</b><br>Toque nas células onde quer colar.</span>' +
+        '<button class="photo-btn" id="btn-parar-colar-plantao" style="background:#2F7DB0;margin:0;width:auto;padding:7px 12px;flex-shrink:0;">✔ Pronto</button></div>';
+    }
     var diasDescobertos = dias.filter(function (d, i) { return cobertura[i].falta; });
     if (diasDescobertos.length) {
       html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#8A2E2E;">' +
@@ -5780,9 +5950,12 @@
     el.querySelectorAll("[data-plantao-cel]").forEach(function (td) {
       td.addEventListener("click", function () {
         var partes = td.getAttribute("data-plantao-cel").split("|");
-        abrirEditarCelulaPlantao_(partes[0], partes[1]);
+        if (plantaoCopiado) colarCelulaPlantao_(partes[0], partes[1]);   // modo colar
+        else abrirEditarCelulaPlantao_(partes[0], partes[1]);
       });
     });
+    var bParar = document.getElementById("btn-parar-colar-plantao");
+    if (bParar) bParar.addEventListener("click", pararDeColarPlantao_);
   }
 
   // ---- Modal: editar uma célula (pessoa + dia específico) ----
@@ -5852,6 +6025,47 @@
     showToast("Salvo.");
     renderPlantao();
   }
+  // ---- copiar e colar ----
+  // Copia o que está na tela (Folga, Férias ou os horários) e entra no modo
+  // colar: cada célula tocada recebe o horário na hora, sem abrir tela.
+  var plantaoCopiado = null;
+  function rotuloCopiado_(c) {
+    if (!c) return "";
+    if (c.tipo === "folga") return "Folga";
+    if (c.tipo === "ferias") return "Férias";
+    return rotuloTurno_(c.turnos);
+  }
+  function copiarCelulaPlantao_() {
+    if (!plantaoTipoSelecionado) { showToast("Escolhe Folga, Férias ou Trabalhando antes de copiar."); return; }
+    var turnos = [];
+    if (plantaoTipoSelecionado === "horarios") {
+      turnos = ["plantao-t1-ini", "plantao-t1-fim", "plantao-t2-ini", "plantao-t2-fim"].map(function (id) { return document.getElementById(id).value || ""; });
+      if (!turnos[0] && !turnos[1]) { showToast("Preenche o horário antes de copiar."); return; }
+    }
+    plantaoCopiado = { tipo: plantaoTipoSelecionado, turnos: turnos };
+    fecharModalPlantaoCelula_();
+    showToast("Copiado: " + rotuloCopiado_(plantaoCopiado) + ". Agora toque nas células onde quer colar.");
+    renderPlantao();
+  }
+  function colarCelulaPlantao_(pessoa, data) {
+    var c = plantaoCopiado;
+    if (!c) return;
+    var padrao = celulaSoPadraoPlantao_(pessoa, data);
+    var mesmoQuePadrao = padrao.tipo === c.tipo &&
+      (c.tipo !== "horarios" || (padrao.turnos || []).slice(0, 4).join("|") === c.turnos.slice(0, 4).join("|"));
+    var existente = getRegistroPontual_(pessoa, data);
+    if (mesmoQuePadrao && !getAusenciaAtiva_(pessoa, data) && !getSubstituicaoAtiva_(pessoa, data)) {
+      if (existente) apagarRegistroPlantao_(existente.id); // colou o próprio padrão: só volta ao normal
+    } else {
+      salvarRegistroPlantao_(existente ? existente.id : uid(), {
+        pessoa: pessoa, data: data, tipo: c.tipo, turnos: c.tipo === "horarios" ? c.turnos.slice(0, 4) : [], destaque: true
+      }, !existente);
+    }
+    showToast("Colado em " + pessoa + " · " + fmtDate(data).slice(0, 5));
+    setTimeout(renderPlantao, 60);
+  }
+  function pararDeColarPlantao_() { plantaoCopiado = null; renderPlantao(); }
+
   function limparCelulaPlantao_() {
     if (!plantaoCelulaAtual) return;
     var existente = getRegistroPontual_(plantaoCelulaAtual.pessoa, plantaoCelulaAtual.data);
@@ -10490,6 +10704,13 @@
       });
     });
     document.getElementById("btn-salvar-plantao-celula").addEventListener("click", salvarCelulaPlantao_);
+    document.getElementById("btn-copiar-plantao-celula").addEventListener("click", copiarCelulaPlantao_);
+    document.getElementById("btn-close-plantao-imagem").addEventListener("click", function () {
+      document.getElementById("modal-plantao-imagem-overlay").classList.remove("active");
+    });
+    document.getElementById("btn-enviar-plantao-imagens").addEventListener("click", function () {
+      if (imagensPlantaoProntas_.length) enviarImagensPlantao_(imagensPlantaoProntas_);
+    });
     document.getElementById("btn-limpar-plantao-celula").addEventListener("click", limparCelulaPlantao_);
     document.getElementById("btn-close-plantao-add").addEventListener("click", fecharModalPlantaoAdd_);
     document.getElementById("modal-plantao-add-overlay").addEventListener("click", function (e) {
