@@ -1,4 +1,4 @@
-var CACHE_NAME = 'registro-irrigacao-v119';
+var CACHE_NAME = 'registro-irrigacao-v120';
 var ASSETS = [
   './',
   './index.html',

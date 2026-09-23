@@ -774,6 +774,11 @@
       <span class="field-label">Pessoa</span>
       <select id="plantao-config-pessoa"></select>
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+      <button class="photo-btn" id="btn-plantao-tirar-fixo" style="background:#B4442E;margin:0;font-size:12.5px;">🚫 Tirar da escala fixa</button>
+      <button class="photo-btn" id="btn-plantao-novo-fixo" style="background:#2F7DB0;margin:0;font-size:12.5px;">➕ Colocar na escala fixa</button>
+    </div>
+    <div class="modal-sub" style="margin-top:-4px;margin-bottom:12px;">Quem sai da escala fixa continua aparecendo quando cobre alguém ou tem troca registrada. Colocar de volta recupera o padrão que ele tinha.</div>
     <div id="plantao-config-dias"></div>
     <button class="save-btn" id="btn-salvar-plantao-config" style="background:#8A5A44;">Salvar Padrão desta Pessoa</button>
   </div>
@@ -1144,7 +1149,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v119';
+  var APP_CACHE_NAME = 'registro-irrigacao-v120';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2727,7 +2732,44 @@
   // ---- Escala Plantão: padrão fixo (se repete toda semana) + exceções pontuais ----
   var DIAS_SEMANA_PLANTAO = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
   var DIAS_SEMANA_PLANTAO_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-  var PLANTONISTAS_FIXOS = ["Alex", "Yverson", "Ivonaldo", "André", "Josias", "Adilson"]; // duplas ficam lado a lado: Alex+Yverson, Ivonaldo+André
+  // Ordem de exibição (duplas lado a lado: Alex+Yverson, Ivonaldo+André).
+  // Quem é FIXO agora vem do banco (cada pessoa com padrão cadastrado e
+  // ativa) - antes a lista era escrita no código e não dava pra tirar
+  // ninguém pelo app. Esta lista só vale enquanto o banco ainda não carregou.
+  var PLANTONISTAS_ORDEM = ["Alex", "Yverson", "Ivonaldo", "André", "Josias"];
+  function plantonistasFixos_() {
+    // os da lista padrão continuam fixos até alguém tirar pelo app; quem
+    // foi colocado pelo app entra no fim
+    var nomes = [];
+    PLANTONISTAS_ORDEM.forEach(function (n) {
+      var d = getPadraoQualquer_(n);
+      if (!d || d.ativo !== false) nomes.push(n);
+    });
+    plantaoPadroes.forEach(function (p) {
+      if (p.pessoa && p.ativo !== false && nomes.indexOf(p.pessoa) === -1) nomes.push(p.pessoa);
+    });
+    function peso(n) {
+      var d = getPadraoQualquer_(n);
+      if (d && typeof d.ordem === "number") return d.ordem;
+      var i = PLANTONISTAS_ORDEM.indexOf(n);
+      return i > -1 ? i : 100;
+    }
+    return nomes.sort(function (a, b) { return (peso(a) - peso(b)) || (a < b ? -1 : 1); });
+  }
+  // quem aparece num bloco de 14 dias: os fixos + quem tem registro ou está
+  // cobrindo alguém nesses dias (a mesma conta pra grade e pra imagem do WhatsApp)
+  function pessoasDoBloco_(dias) {
+    var fixos = plantonistasFixos_(), extras = [];
+    plantaoRegistros.forEach(function (r) {
+      if (dias.indexOf(r.data) === -1) return;
+      if (fixos.indexOf(r.pessoa) === -1 && extras.indexOf(r.pessoa) === -1) extras.push(r.pessoa);
+    });
+    plantaoSubstituicoes.forEach(function (x) {
+      if (!x.substituto || fixos.indexOf(x.substituto) > -1 || extras.indexOf(x.substituto) > -1) return;
+      if (x.inicio <= dias[dias.length - 1] && (!x.fim || x.fim >= dias[0])) extras.push(x.substituto);
+    });
+    return fixos.concat(extras.sort());
+  }
   // Domingo de referência pra calcular se uma semana qualquer é "A" ou "B"
   // do ciclo que se alterna - a dupla que trabalha domingo numa semana
   // folga domingo (e trabalha segunda) na semana seguinte, e assim por
@@ -2763,13 +2805,18 @@
       var novos = [];
       snapshot.forEach(function (doc) {
         var d = doc.data();
-        novos.push({ id: doc.id, pessoa: d.pessoa, alterna: !!d.alterna, semanaA: d.semanaA || {}, semanaB: d.semanaB || {} });
+        novos.push({ id: doc.id, pessoa: d.pessoa, alterna: !!d.alterna, semanaA: d.semanaA || {}, semanaB: d.semanaB || {},
+                     ativo: d.ativo !== false, ordem: typeof d.ordem === "number" ? d.ordem : null });
       });
       plantaoPadroes = novos;
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
     }, function (err) { plantaoPadroesListenerAtivo = false; falhaListener_("Plantão (padrão)", "escala_plantao_padrao", err, iniciarListenerPlantaoPadroes_, function () { return plantaoPadroesListenerAtivo; }); });
   }
   function getPadraoPessoa_(pessoa) {
+    // quem saiu da escala fixa não tem mais padrão valendo
+    return plantaoPadroes.find(function (p) { return p.pessoa === pessoa && p.ativo !== false; }) || null;
+  }
+  function getPadraoQualquer_(pessoa) {
     return plantaoPadroes.find(function (p) { return p.pessoa === pessoa; }) || null;
   }
   function salvarPadraoPessoa_(pessoa, alterna, semanaA, semanaB) {
@@ -2996,7 +3043,7 @@
       var t = turnoDaCelula_(getCelulaPlantao_(p, dataStr));
       if (t) real[t]++;
     });
-    PLANTONISTAS_FIXOS.forEach(function (p) {
+    plantonistasFixos_().forEach(function (p) {
       var t = turnoDaCelula_(celulaSoPadraoPlantao_(p, dataStr));
       if (t) normal[t]++;
     });
@@ -3005,7 +3052,7 @@
 
   // todo mundo que aparece na escala (fixos, substitutos e quem já teve registro)
   function pessoasPlantao_() {
-    var lista = PLANTONISTAS_FIXOS.slice();
+    var lista = plantonistasFixos_();
     function add(n) { if (n && lista.indexOf(n) === -1) lista.push(n); }
     plantaoRegistros.forEach(function (r) { add(r.pessoa); });
     plantaoSubstituicoes.forEach(function (x) { add(x.substituto); });
@@ -3028,8 +3075,9 @@
   // devolve no dia Y"). Antes eram 4 telas, célula por célula.
   function abrirTrocaPlantao_() {
     document.getElementById("troca-dia").value = todayStr();
-    document.getElementById("troca-sai").innerHTML = opcoesPessoasHtml_(PLANTONISTAS_FIXOS[0]);
-    document.getElementById("troca-entra").innerHTML = opcoesPessoasHtml_(PLANTONISTAS_FIXOS[1]);
+    var fx = plantonistasFixos_();
+    document.getElementById("troca-sai").innerHTML = opcoesPessoasHtml_(fx[0]);
+    document.getElementById("troca-entra").innerHTML = opcoesPessoasHtml_(fx[1]);
     document.getElementById("troca-devolve").checked = false;
     document.getElementById("troca-dia2").value = "";
     document.getElementById("troca-dia2-wrap").style.display = "none";
@@ -3125,7 +3173,7 @@
   // cobre trabalha nos dias de trabalho dele.
   var ausenciaMotivo_ = "Férias";
   function abrirAusenciaPlantao_() {
-    document.getElementById("aus-pessoa").innerHTML = opcoesPessoasHtml_(PLANTONISTAS_FIXOS[0]);
+    document.getElementById("aus-pessoa").innerHTML = opcoesPessoasHtml_(plantonistasFixos_()[0]);
     document.getElementById("aus-cobre").innerHTML = opcoesPessoasHtml_("", true);
     document.getElementById("aus-ini").value = todayStr();
     document.getElementById("aus-fim").value = "";
@@ -5620,12 +5668,7 @@
     if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
     var dias = [];
     for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
-    var pessoasSubstitutas = [];
-    plantaoRegistros.forEach(function (r) {
-      if (dias.indexOf(r.data) === -1) return;
-      if (PLANTONISTAS_FIXOS.indexOf(r.pessoa) === -1 && pessoasSubstitutas.indexOf(r.pessoa) === -1) pessoasSubstitutas.push(r.pessoa);
-    });
-    var pessoas = PLANTONISTAS_FIXOS.concat(pessoasSubstitutas.sort());
+    var pessoas = pessoasDoBloco_(dias);
 
     showToast("Preparando imagem...");
     var canvas = construirCanvasPlantao_(dias, pessoas);
@@ -5655,19 +5698,7 @@
 
     // pessoas: os 6 fixos sempre aparecem; substitutos aparecem só se
     // tiverem algum registro pontual dentro desse bloco de 14 dias
-    var pessoasSubstitutas = [];
-    plantaoRegistros.forEach(function (r) {
-      if (dias.indexOf(r.data) === -1) return;
-      if (PLANTONISTAS_FIXOS.indexOf(r.pessoa) === -1 && pessoasSubstitutas.indexOf(r.pessoa) === -1) {
-        pessoasSubstitutas.push(r.pessoa);
-      }
-    });
-    // quem cobre alguém nesse bloco também aparece, mesmo sem registro pontual
-    plantaoSubstituicoes.forEach(function (x) {
-      if (!x.substituto || PLANTONISTAS_FIXOS.indexOf(x.substituto) > -1 || pessoasSubstitutas.indexOf(x.substituto) > -1) return;
-      if (x.inicio <= dias[13] && (!x.fim || x.fim >= dias[0])) pessoasSubstitutas.push(x.substituto);
-    });
-    var pessoas = PLANTONISTAS_FIXOS.concat(pessoasSubstitutas.sort());
+    var pessoas = pessoasDoBloco_(dias);
     var cobertura = dias.map(function (d) { return coberturaPlantao_(pessoas, d); });
 
     var html = '<div class="modal-sub" style="margin-bottom:10px;">Padrão fixo se repete sozinho toda semana. Pra troca ou férias use os botões abaixo; pra mudar um dia só, toque na célula.</div>';
@@ -5885,7 +5916,7 @@
   function confirmarAddSubstituto_() {
     var nome = document.getElementById("plantao-add-nome").value.trim();
     if (!nome) { showToast("Digita o nome."); return; }
-    if (PLANTONISTAS_FIXOS.indexOf(nome) > -1) { showToast("Essa pessoa já é fixa, não precisa adicionar."); return; }
+    if (plantonistasFixos_().indexOf(nome) > -1) { showToast("Essa pessoa já é fixa, não precisa adicionar."); return; }
     // cria uma entrada "vazia" (folga) só pra ele aparecer na grade dessa semana - a pessoa toca nas células depois pra preencher de verdade
     var dataAncora = plantaoInicioBloco;
     salvarRegistroPlantao_(uid(), { pessoa: nome, data: dataAncora, tipo: "folga", turnos: [], destaque: true }, true);
@@ -5990,10 +6021,52 @@
     postToBackend({ action: "verificar_admin", adminToken: senha }).then(function (res) {
       if (!res || !res.ok) { showToast((res && res.error) || "Senha incorreta."); return; }
       var sel = document.getElementById("plantao-config-pessoa");
-      sel.innerHTML = PLANTONISTAS_FIXOS.map(function (p) { return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>'; }).join("");
-      selecionarPessoaConfigPlantao_(PLANTONISTAS_FIXOS[0]);
+      preencherSelectFixosConfig_();
+      selecionarPessoaConfigPlantao_(plantonistasFixos_()[0]);
       document.getElementById("modal-plantao-config-overlay").classList.add("active");
     }).catch(function () { showToast("Erro de conexão."); });
+  }
+  function preencherSelectFixosConfig_(selecionar) {
+    var sel = document.getElementById("plantao-config-pessoa");
+    var fx = plantonistasFixos_();
+    sel.innerHTML = fx.map(function (p) { return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>'; }).join("");
+    if (selecionar && fx.indexOf(selecionar) > -1) sel.value = selecionar;
+  }
+  function tirarDaEscalaFixa_() {
+    var pessoa = document.getElementById("plantao-config-pessoa").value;
+    if (!pessoa || !db) return;
+    if (!window.confirm("Tirar " + pessoa + " da escala fixa?\n\nEle some da grade. Continua aparecendo só quando cobrir alguém ou tiver troca registrada.")) return;
+    var existente = getPadraoQualquer_(pessoa);
+    var ref = db.collection("escala_plantao_padrao").doc(existente ? existente.id : uid());
+    var dados = existente ? { ativo: false } : { pessoa: pessoa, ativo: false, alterna: false, semanaA: {}, semanaB: {} };
+    ref.set(dados, { merge: true }).catch(function (err) { avisarErroFirestore_(err); });
+    // atualiza já na tela (o banco confirma logo em seguida)
+    if (existente) existente.ativo = false; else plantaoPadroes.push({ id: ref.id, pessoa: pessoa, ativo: false, alterna: false, semanaA: {}, semanaB: {}, ordem: null });
+    showToast(pessoa + " saiu da escala fixa.");
+    var fx = plantonistasFixos_();
+    preencherSelectFixosConfig_(fx[0]);
+    if (fx.length) selecionarPessoaConfigPlantao_(fx[0]);
+    try { renderPlantao(); } catch (e) {}
+  }
+  function colocarNaEscalaFixa_() {
+    var nome = (window.prompt("Nome de quem entra na escala fixa:") || "").trim();
+    if (!nome || !db) return;
+    if (plantonistasFixos_().indexOf(nome) > -1) { showToast(nome + " já está na escala fixa."); return; }
+    var existente = getPadraoQualquer_(nome);
+    // entra no fim da lista (depois de todo mundo que já está nela)
+    var ordem = plantonistasFixos_().reduce(function (m, n) {
+      var d = getPadraoQualquer_(n), i = PLANTONISTAS_ORDEM.indexOf(n);
+      var w = (d && typeof d.ordem === "number") ? d.ordem : (i > -1 ? i : 100);
+      return Math.max(m, w);
+    }, PLANTONISTAS_ORDEM.length) + 1;
+    var ref = db.collection("escala_plantao_padrao").doc(existente ? existente.id : uid());
+    var dados = existente ? { ativo: true } : { pessoa: nome, ativo: true, ordem: ordem, alterna: false, semanaA: {}, semanaB: {} };
+    ref.set(dados, { merge: true }).catch(function (err) { avisarErroFirestore_(err); });
+    if (existente) existente.ativo = true; else plantaoPadroes.push({ id: ref.id, pessoa: nome, ativo: true, ordem: ordem, alterna: false, semanaA: {}, semanaB: {} });
+    showToast(existente ? nome + " voltou pra escala fixa, com o padrão que tinha." : nome + " entrou na escala fixa - agora é só marcar os dias dele.");
+    preencherSelectFixosConfig_(nome);
+    selecionarPessoaConfigPlantao_(nome);
+    try { renderPlantao(); } catch (e) {}
   }
   var plantaoConfigAlterna = false;
   var plantaoConfigSemanaEditando = "semanaA"; // qual das duas semanas está sendo editada agora na tela
@@ -10450,6 +10523,8 @@
     });
     document.getElementById("btn-salvar-plantao-config").addEventListener("click", salvarConfigPadraoPlantao_);
     document.getElementById("btn-preencher-plantao-auto").addEventListener("click", preencherPadroesAutomaticos_);
+    document.getElementById("btn-plantao-tirar-fixo").addEventListener("click", tirarDaEscalaFixa_);
+    document.getElementById("btn-plantao-novo-fixo").addEventListener("click", colocarNaEscalaFixa_);
     document.getElementById("btn-save-base-alarmes").addEventListener("click", salvarBaseAlarmes_);
     document.getElementById("modal-base-alarmes-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-base-alarmes-overlay") fecharBaseAlarmes_();
