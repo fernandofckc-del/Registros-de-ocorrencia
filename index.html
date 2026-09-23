@@ -1161,7 +1161,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v121';
+  var APP_CACHE_NAME = 'registro-irrigacao-v122';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2770,6 +2770,36 @@
   }
   // quem aparece num bloco de 14 dias: os fixos + quem tem registro ou está
   // cobrindo alguém nesses dias (a mesma conta pra grade e pra imagem do WhatsApp)
+  // Cor de cada plantonista: cada um acha a própria linha de olho, na grade e
+  // na imagem do WhatsApp. Folga continua cinza e férias continua laranja.
+  var CORES_PLANTAO = [
+    { forte: "#2F6FB0", clara: "#D6E8FB" }, // azul
+    { forte: "#3E8A3A", clara: "#DAF0D6" }, // verde
+    { forte: "#7446B0", clara: "#E7DCF6" }, // roxo
+    { forte: "#1F8A80", clara: "#D2EFEC" }, // turquesa
+    { forte: "#A8810F", clara: "#FFF0BD" }, // amarelo
+    { forte: "#B04477", clara: "#F9DAE7" }, // rosa
+    { forte: "#4450B0", clara: "#DDE1FA" }, // anil
+    { forte: "#6D8F1E", clara: "#E9F4CB" }, // oliva
+    { forte: "#1E86A8", clara: "#D3EFFA" }  // céu
+  ];
+  var COR_FIXA_PLANTAO = { "Alex": 0, "Yverson": 1, "Ivonaldo": 2, "André": 3, "Josias": 4, "Adilson": 5 };
+  function corPlantonista_(nome) {
+    var d = getPadraoQualquer_(nome);
+    if (d && typeof d.cor === "number" && CORES_PLANTAO[d.cor]) return CORES_PLANTAO[d.cor];
+    if (Object.prototype.hasOwnProperty.call(COR_FIXA_PLANTAO, nome)) return CORES_PLANTAO[COR_FIXA_PLANTAO[nome]];
+    var h = 0;
+    for (var i = 0; i < String(nome).length; i++) h = (h * 31 + String(nome).charCodeAt(i)) >>> 0;
+    return CORES_PLANTAO[h % CORES_PLANTAO.length];
+  }
+  // quem entra na escala fixa ganha uma cor que ninguém da escala está usando
+  function corLivrePlantao_() {
+    // conta todo mundo que aparece na escala (fixos, substitutos, quem já teve registro)
+    var usadas = pessoasPlantao_().map(function (n) { return CORES_PLANTAO.indexOf(corPlantonista_(n)); });
+    Object.keys(COR_FIXA_PLANTAO).forEach(function (n) { usadas.push(COR_FIXA_PLANTAO[n]); });
+    for (var i = 0; i < CORES_PLANTAO.length; i++) if (usadas.indexOf(i) === -1) return i;
+    return usadas.length % CORES_PLANTAO.length;
+  }
   function pessoasDoBloco_(dias) {
     var fixos = plantonistasFixos_(), extras = [];
     plantaoRegistros.forEach(function (r) {
@@ -2818,7 +2848,8 @@
       snapshot.forEach(function (doc) {
         var d = doc.data();
         novos.push({ id: doc.id, pessoa: d.pessoa, alterna: !!d.alterna, semanaA: d.semanaA || {}, semanaB: d.semanaB || {},
-                     ativo: d.ativo !== false, ordem: typeof d.ordem === "number" ? d.ordem : null });
+                     ativo: d.ativo !== false, ordem: typeof d.ordem === "number" ? d.ordem : null,
+                     cor: typeof d.cor === "number" ? d.cor : null });
       });
       plantaoPadroes = novos;
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
@@ -5613,6 +5644,14 @@
     var dia = String(d.getUTCDate()).padStart(2, "0");
     return ano + "-" + mes + "-" + dia;
   }
+  // A escala mostra a semana de SEGUNDA a domingo. (Só a exibição muda: o
+  // cálculo de semana A/B continua o mesmo, então nenhum dia muda de horário.)
+  function segundaDaSemana_(dataStr) {
+    var partes = dataStr.split("-");
+    var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+    dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+    return fmtISO_(dt);
+  }
   function domingoDaSemana_(dataStr) {
     var partes = dataStr.split("-");
     var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
@@ -5731,8 +5770,11 @@
     // uma linha por pessoa
     pessoas.forEach(function (pessoa, li) {
       var y = TOPO + CAB + li * LIN;
-      ctx.fillStyle = li % 2 ? "#FAF7EF" : "#FFFFFF"; ctx.fillRect(0, y, W, LIN);
-      ctx.fillStyle = "#241F1A"; ctx.textAlign = "left";
+      var corP = corPlantonista_(pessoa);
+      ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, y, W, LIN);
+      // nome na cor da pessoa (faixa forte, letra branca)
+      ctx.fillStyle = corP.forte; ctx.fillRect(0, y, NOME, LIN);
+      ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
       fonte(caber(pessoa, 34, true, NOME - 40), true);
       ctx.fillText(pessoa, 24, y + LIN / 2);
       dias.forEach(function (d, i) {
@@ -5745,8 +5787,9 @@
           var t = cel.turnos;
           linhas.push(t[0] + "–" + (t[1] || ""));        // turno 1 em cima,
           if (t[2] || t[3]) linhas.push((t[2] || "") + "–" + (t[3] || "")); // turno 2 embaixo
+          fundo = corP.clara;                                  // dia de trabalho na cor da pessoa
         } else { linhas = ["—"]; cor = "#B8AE9C"; }
-        if (cel.motivo === "troca") { fundo = "#DDEBF8"; linhas[0] = "↔ " + linhas[0]; }
+        if (cel.motivo === "troca") linhas[0] = "↔ " + linhas[0];
         if (cel.tipo === "horarios" && (cel.destaque || cel.origem === "substituicao" || cel.motivo === "troca")) cor = "#B4442E";
         if (fundo) { ctx.fillStyle = fundo; ctx.fillRect(x + 5, y + 5, DIA - 10, LIN - 10); }
         var px = 30;
@@ -5778,7 +5821,7 @@
   }
   var imagensPlantaoProntas_ = [];
   function compartilharPlantaoImagem_() {
-    if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
+    if (!plantaoInicioBloco) plantaoInicioBloco = segundaDaSemana_(todayStr());
     var dias = [];
     for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
     var semanas = [dias.slice(0, 7), dias.slice(7, 14)];
@@ -5830,7 +5873,7 @@
   }
 
   function compartilharPlantaoImagemAntiga_() {
-    if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
+    if (!plantaoInicioBloco) plantaoInicioBloco = segundaDaSemana_(todayStr());
     var dias = [];
     for (var i = 0; i < 14; i++) dias.push(addDiasStr_(plantaoInicioBloco, i));
     var pessoas = pessoasDoBloco_(dias);
@@ -5855,7 +5898,7 @@
 
   function renderPlantao() {
     var el = document.getElementById("plantao-content");
-    if (!plantaoInicioBloco) plantaoInicioBloco = domingoDaSemana_(todayStr());
+    if (!plantaoInicioBloco) plantaoInicioBloco = segundaDaSemana_(todayStr());
 
     // monta os 14 dias do bloco
     var dias = [];
@@ -5910,13 +5953,14 @@
     html += '</tr>';
 
     pessoas.forEach(function (pessoa) {
-      var qualquerDestaque = dias.some(function (d) { return getCelulaPlantao_(pessoa, d).destaque; });
-      var corNome = qualquerDestaque ? "#B4442E" : "#2A2620";
+      var corP = corPlantonista_(pessoa);
       html += '<tr>';
-      html += '<td style="position:sticky;left:0;background:#FFFDF8;padding:6px 8px;font-weight:700;color:' + corNome + ';border-top:1px solid #DCD3BC;z-index:1;">' + escapeHtml(pessoa) + '</td>';
+      html += '<td style="position:sticky;left:0;background:' + corP.forte + ';padding:6px 8px;font-weight:700;color:#FFFFFF;border-top:1px solid #DCD3BC;z-index:1;">' + escapeHtml(pessoa) + '</td>';
       dias.forEach(function (d, i) {
         var cel = getCelulaPlantao_(pessoa, d);
         var corFundo = (i % 2 === 0) ? "#FFFDF8" : "#F3EEE0";
+        // dia de trabalho na cor da pessoa; folga e férias ficam como sempre foram
+        if (cel.tipo === "horarios" && cel.turnos && cel.turnos[0]) corFundo = corP.clara;
         var separador = (i === 7) ? "border-left:3px solid #4C6B2F;" : "";
         var corTexto = cel.destaque ? "#B4442E" : "#2A2620";
         var texto = textoCelulaPlantao_(cel);
@@ -6274,9 +6318,10 @@
       return Math.max(m, w);
     }, PLANTONISTAS_ORDEM.length) + 1;
     var ref = db.collection("escala_plantao_padrao").doc(existente ? existente.id : uid());
-    var dados = existente ? { ativo: true } : { pessoa: nome, ativo: true, ordem: ordem, alterna: false, semanaA: {}, semanaB: {} };
+    var corNova = corLivrePlantao_();
+    var dados = existente ? { ativo: true } : { pessoa: nome, ativo: true, ordem: ordem, cor: corNova, alterna: false, semanaA: {}, semanaB: {} };
     ref.set(dados, { merge: true }).catch(function (err) { avisarErroFirestore_(err); });
-    if (existente) existente.ativo = true; else plantaoPadroes.push({ id: ref.id, pessoa: nome, ativo: true, ordem: ordem, alterna: false, semanaA: {}, semanaB: {} });
+    if (existente) existente.ativo = true; else plantaoPadroes.push({ id: ref.id, pessoa: nome, ativo: true, ordem: ordem, cor: corNova, alterna: false, semanaA: {}, semanaB: {} });
     showToast(existente ? nome + " voltou pra escala fixa, com o padrão que tinha." : nome + " entrou na escala fixa - agora é só marcar os dias dele.");
     preencherSelectFixosConfig_(nome);
     selecionarPessoaConfigPlantao_(nome);
