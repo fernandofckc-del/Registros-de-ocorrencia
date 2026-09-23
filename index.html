@@ -670,6 +670,8 @@
       <button class="del-btn" data-plantao-tipo="horarios" style="flex:1;padding:10px;">🕐 Trabalhando</button>
     </div>
     <div id="plantao-celula-horarios" style="display:none;">
+      <div style="font-size:11px;font-weight:700;color:#6B6153;margin-bottom:5px;">TURNOS PRONTOS (um toque)</div>
+      <div id="plantao-turnos-prontos" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
         <div class="field"><span class="field-label">Turno 1 - Início</span><input id="plantao-t1-ini" type="time"></div>
         <div class="field"><span class="field-label">Turno 1 - Fim</span><input id="plantao-t1-fim" type="time"></div>
@@ -682,6 +684,46 @@
     </label>
     <button class="save-btn" id="btn-salvar-plantao-celula" style="background:#4C7C59;">Salvar</button>
     <button class="photo-btn" id="btn-limpar-plantao-celula" style="background:#8A8072;margin-top:8px;">Limpar (voltar ao padrão)</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-plantao-troca-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-troca">✕</button>
+    <div class="modal-title">↔ Troca de plantão</div>
+    <div class="modal-sub">Quem trabalha no lugar de quem. Se o outro for devolver em outro dia, marque embaixo - o app ajusta os dois dias.</div>
+    <div class="field"><span class="field-label">Dia</span><input id="troca-dia" type="date"></div>
+    <div class="field"><span class="field-label">Quem ia trabalhar</span><select id="troca-sai"></select></div>
+    <div class="field"><span class="field-label">Quem vai trabalhar no lugar</span><select id="troca-entra"></select></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13px;">
+      <input type="checkbox" id="troca-devolve" style="width:auto;"> O outro devolve em outro dia
+    </label>
+    <div class="field" id="troca-dia2-wrap" style="display:none;"><span class="field-label">Dia da devolução</span><input id="troca-dia2" type="date"></div>
+    <div id="troca-previa" style="display:none;border-radius:6px;padding:9px 11px;font-size:12.5px;margin-bottom:10px;"></div>
+    <button class="save-btn" id="btn-confirmar-troca" style="background:#2F7DB0;">Confirmar troca</button>
+    <div id="troca-lista"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-plantao-ausencia-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-ausencia">✕</button>
+    <div class="modal-title">🏖️ Férias ou afastamento</div>
+    <div class="modal-sub">Quem sai aparece fora da escala no período, e quem cobre trabalha nos dias de trabalho dele.</div>
+    <div class="field"><span class="field-label">Quem vai sair</span><select id="aus-pessoa"></select></div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;">
+      <button class="del-btn" data-aus-motivo="Férias" style="flex:1;padding:9px;">🏖️ Férias</button>
+      <button class="del-btn" data-aus-motivo="Atestado" style="flex:1;padding:9px;">🩺 Atestado</button>
+      <button class="del-btn" data-aus-motivo="Afastamento" style="flex:1;padding:9px;">📋 Afastado</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="field"><span class="field-label">Saída</span><input id="aus-ini" type="date"></div>
+      <div class="field"><span class="field-label">Volta (último dia fora)</span><input id="aus-fim" type="date"></div>
+    </div>
+    <div class="field"><span class="field-label">Quem cobre</span><select id="aus-cobre"></select></div>
+    <div id="aus-previa" style="display:none;border-radius:6px;padding:9px 11px;font-size:12.5px;margin-bottom:10px;"></div>
+    <button class="save-btn" id="btn-confirmar-ausencia" style="background:#4C7C59;">Confirmar</button>
+    <div id="aus-lista"></div>
   </div>
 </div>
 
@@ -1102,7 +1144,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v118';
+  var APP_CACHE_NAME = 'registro-irrigacao-v119';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2764,6 +2806,7 @@
         novos.push({
           id: doc.id, pessoa: d.pessoa, data: d.data, tipo: d.tipo,
           turnos: Array.isArray(d.turnos) ? d.turnos : [], destaque: !!d.destaque,
+          motivo: d.motivo || "", com: d.com || "", grupoTroca: d.grupoTroca || "",
           _synced: !doc.metadata.hasPendingWrites
         });
       });
@@ -2808,7 +2851,8 @@
       snapshot.forEach(function (doc) {
         var d = doc.data();
         if (d.excluido) return;
-        novos.push({ id: doc.id, substituto: d.substituto, segueDe: d.segueDe, inicio: d.inicio, fim: d.fim || null });
+        novos.push({ id: doc.id, substituto: d.substituto || "", segueDe: d.segueDe, inicio: d.inicio, fim: d.fim || null,
+                     ausente: d.ausente === true, motivoAusencia: d.motivoAusencia || "" });
       });
       plantaoSubstituicoes = novos;
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
@@ -2816,7 +2860,7 @@
   }
   function getSubstituicaoAtiva_(pessoa, dataStr) {
     return plantaoSubstituicoes.find(function (s) {
-      if (s.substituto !== pessoa) return false;
+      if (!s.substituto || s.substituto !== pessoa) return false;
       if (dataStr < s.inicio) return false;
       if (s.fim && dataStr > s.fim) return false;
       return true;
@@ -2844,15 +2888,37 @@
   // (padrão dela, incluindo as exceções pontuais dela); 3) senão, se for uma
   // pessoa com padrão próprio, usa o padrão semanal dela pro dia da semana
   // correspondente; 4) senão, vazio.
-  function getCelulaPlantao_(pessoa, dataStr) {
+  // Férias/afastamento: a pessoa está fora nesse dia?
+  function getAusenciaAtiva_(pessoa, dataStr) {
+    return plantaoSubstituicoes.find(function (s) {
+      if (!s.ausente || s.segueDe !== pessoa) return false;
+      if (dataStr < s.inicio) return false;
+      if (s.fim && dataStr > s.fim) return false;
+      return true;
+    }) || null;
+  }
+  function getCelulaPlantao_(pessoa, dataStr, opcoes) {
     var pontual = getRegistroPontual_(pessoa, dataStr);
-    if (pontual) return { tipo: pontual.tipo, turnos: pontual.turnos, destaque: pontual.destaque, origem: "pontual", id: pontual.id };
+    if (pontual) return { tipo: pontual.tipo, turnos: pontual.turnos, destaque: pontual.destaque, origem: "pontual", id: pontual.id,
+                          motivo: pontual.motivo, com: pontual.com, grupoTroca: pontual.grupoTroca };
+
+    // de férias ou afastado nesse período (a menos que a pergunta seja "qual
+    // seria o horário dele", pra passar pro substituto)
+    if (!(opcoes && opcoes.ignorarAusencia)) {
+      var aus = getAusenciaAtiva_(pessoa, dataStr);
+      if (aus) return { tipo: "ferias", turnos: [], destaque: false, origem: "ausencia", id: null,
+                        motivoAusencia: aus.motivoAusencia || "Férias", cobertoPor: aus.substituto || "" };
+    }
 
     var substituicao = getSubstituicaoAtiva_(pessoa, dataStr);
     if (substituicao) {
-      var celOriginal = getCelulaPlantao_(substituicao.segueDe, dataStr);
-      // marca de onde veio, mas mantém o resto igual ao da pessoa original
-      return { tipo: celOriginal.tipo, turnos: celOriginal.turnos, destaque: celOriginal.destaque, origem: "substituicao", id: null, segueDe: substituicao.segueDe };
+      var celOriginal = getCelulaPlantao_(substituicao.segueDe, dataStr, { ignorarAusencia: true });
+      // Quem cobre trabalha nos dias de trabalho de quem saiu. Nos outros
+      // dias vale o padrão PRÓPRIO dele - antes ele herdava também as folgas
+      // de quem saiu e perdia os dias dele (problema quando quem cobre é fixo).
+      if (celOriginal.tipo === "horarios" || !getPadraoPessoa_(pessoa)) {
+        return { tipo: celOriginal.tipo, turnos: celOriginal.turnos, destaque: celOriginal.destaque, origem: "substituicao", id: null, segueDe: substituicao.segueDe };
+      }
     }
 
     var padrao = getPadraoPessoa_(pessoa);
@@ -2866,6 +2932,306 @@
     }
     return { tipo: "", turnos: [], destaque: false, origem: "vazio", id: null };
   }
+
+  // ================= ESCALA: TROCA, FÉRIAS, TURNOS PRONTOS E COBERTURA (v119) =================
+  // Texto que aparece na célula (grade e imagem do WhatsApp)
+  function textoCelulaPlantao_(cel) {
+    var t = "";
+    if (cel.tipo === "folga") t = "FOLGA";
+    else if (cel.tipo === "ferias") t = cel.motivoAusencia || "Férias";
+    else if (cel.tipo === "horarios" && cel.turnos.length) t = cel.turnos.filter(Boolean).join(" ");
+    if (t && cel.motivo === "troca") t = "↔ " + t;
+    return t;
+  }
+  // Os turnos que a equipe usa, tirados dos próprios padrões: vira botão de
+  // um toque (antes eram 4 relógios pra preencher em cada dia).
+  function turnosProntosPlantao_() {
+    var cont = {};
+    plantaoPadroes.forEach(function (p) {
+      ["semanaA", "semanaB"].forEach(function (sem) {
+        var dias = p[sem] || {};
+        Object.keys(dias).forEach(function (d) {
+          var c = dias[d];
+          if (!c || c.tipo !== "horarios" || !c.turnos || !c.turnos[0]) return;
+          var k = c.turnos.slice(0, 4).map(function (x) { return x || ""; }).join("|");
+          cont[k] = (cont[k] || 0) + 1;
+        });
+      });
+    });
+    var lista = Object.keys(cont).sort(function (a, b) { return cont[b] - cont[a]; }).map(function (k) { return k.split("|"); });
+    if (!lista.length) {
+      lista = [["18:00", "22:00", "23:00", "06:00"], ["18:00", "23:00", "00:00", "06:00"], ["06:00", "11:00", "12:00", "18:00"], ["06:00", "12:00", "13:00", "18:00"]];
+    }
+    return lista;
+  }
+  function rotuloTurno_(t) {
+    var a = t[0] && t[1] ? t[0] + "–" + t[1] : "";
+    var b = t[2] && t[3] ? t[2] + "–" + t[3] : "";
+    return a + (b ? " · " + b : "");
+  }
+  function descricaoTurnos_(turnos) {
+    var t = (turnos || []).filter(Boolean);
+    return t.length ? rotuloTurno_(turnos) : "";
+  }
+
+  // só o padrão semanal (sem troca, férias ou exceção): o que "normalmente" teria no dia
+  function celulaSoPadraoPlantao_(pessoa, dataStr) {
+    var padrao = getPadraoPessoa_(pessoa);
+    if (!padrao) return { tipo: "", turnos: [] };
+    var partes = dataStr.split("-");
+    var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
+    var semana = (padrao.alterna && semanaAouB_(dataStr) === 1) ? padrao.semanaB : padrao.semanaA;
+    var c = semana[DIAS_SEMANA_PLANTAO[dt.getUTCDay()]];
+    return c ? { tipo: c.tipo, turnos: c.turnos || [] } : { tipo: "", turnos: [] };
+  }
+  function turnoDaCelula_(cel) {
+    if (cel.tipo !== "horarios" || !cel.turnos || !cel.turnos[0]) return null;
+    return cel.turnos[0] >= "17:00" ? "noite" : (cel.turnos[0] < "12:00" ? "dia" : null);
+  }
+  // Cobertura: quantos estão de plantão no dia e na noite, comparado com o
+  // que o padrão normal teria. Se faltar gente, a coluna fica vermelha.
+  function coberturaPlantao_(pessoas, dataStr) {
+    var real = { noite: 0, dia: 0 }, normal = { noite: 0, dia: 0 };
+    pessoas.forEach(function (p) {
+      var t = turnoDaCelula_(getCelulaPlantao_(p, dataStr));
+      if (t) real[t]++;
+    });
+    PLANTONISTAS_FIXOS.forEach(function (p) {
+      var t = turnoDaCelula_(celulaSoPadraoPlantao_(p, dataStr));
+      if (t) normal[t]++;
+    });
+    return { real: real, normal: normal, falta: (normal.noite > real.noite) || (normal.dia > real.dia) };
+  }
+
+  // todo mundo que aparece na escala (fixos, substitutos e quem já teve registro)
+  function pessoasPlantao_() {
+    var lista = PLANTONISTAS_FIXOS.slice();
+    function add(n) { if (n && lista.indexOf(n) === -1) lista.push(n); }
+    plantaoRegistros.forEach(function (r) { add(r.pessoa); });
+    plantaoSubstituicoes.forEach(function (x) { add(x.substituto); });
+    return lista;
+  }
+  function opcoesPessoasHtml_(selecionada, comNinguem) {
+    return (comNinguem ? '<option value="">Ninguém (fica descoberto)</option>' : "") +
+      pessoasPlantao_().map(function (p) {
+        return '<option value="' + escapeHtml(p) + '"' + (p === selecionada ? " selected" : "") + ">" + escapeHtml(p) + "</option>";
+      }).join("");
+  }
+  function diasEntre_(ini, fim) {
+    var out = [], d = ini, guarda = 0;
+    while (d <= fim && guarda < 400) { out.push(d); d = addDiasStr_(d, 1); guarda++; }
+    return out;
+  }
+
+  // ---------- TROCA DE PLANTÃO ----------
+  // "Fulano trabalha no lugar de Beltrano no dia X" (e, se tiver, "Beltrano
+  // devolve no dia Y"). Antes eram 4 telas, célula por célula.
+  function abrirTrocaPlantao_() {
+    document.getElementById("troca-dia").value = todayStr();
+    document.getElementById("troca-sai").innerHTML = opcoesPessoasHtml_(PLANTONISTAS_FIXOS[0]);
+    document.getElementById("troca-entra").innerHTML = opcoesPessoasHtml_(PLANTONISTAS_FIXOS[1]);
+    document.getElementById("troca-devolve").checked = false;
+    document.getElementById("troca-dia2").value = "";
+    document.getElementById("troca-dia2-wrap").style.display = "none";
+    atualizarPreviaTroca_();
+    renderListaTrocas_();
+    document.getElementById("modal-plantao-troca-overlay").classList.add("active");
+  }
+  function fecharTrocaPlantao_() { document.getElementById("modal-plantao-troca-overlay").classList.remove("active"); }
+  function planoTroca_() {
+    var dia = document.getElementById("troca-dia").value;
+    var sai = document.getElementById("troca-sai").value;
+    var entra = document.getElementById("troca-entra").value;
+    var devolve = document.getElementById("troca-devolve").checked;
+    var dia2 = devolve ? document.getElementById("troca-dia2").value : "";
+    var p = { dia: dia, sai: sai, entra: entra, dia2: dia2, erro: "", passos: [] };
+    if (!dia) { p.erro = "Escolha o dia."; return p; }
+    if (!sai || !entra || sai === entra) { p.erro = "Escolha duas pessoas diferentes."; return p; }
+    var cSai = getCelulaPlantao_(sai, dia), cEntra = getCelulaPlantao_(entra, dia);
+    if (cSai.tipo !== "horarios" || !cSai.turnos.filter(Boolean).length) { p.erro = sai + " não está trabalhando em " + fmtDate(dia) + "."; return p; }
+    if (cEntra.tipo === "ferias") { p.erro = entra + " está de " + (cEntra.motivoAusencia || "férias").toLowerCase() + " em " + fmtDate(dia) + "."; return p; }
+    if (cEntra.tipo === "horarios" && cEntra.turnos.filter(Boolean).length) { p.erro = entra + " já trabalha em " + fmtDate(dia) + " - escolha quem está de folga nesse dia."; return p; }
+    p.passos.push({ pessoa: sai, data: dia, tipo: "folga", turnos: [], com: entra });
+    p.passos.push({ pessoa: entra, data: dia, tipo: "horarios", turnos: cSai.turnos.slice(0, 4), com: sai });
+    p.texto = "Em <b>" + fmtDate(dia) + "</b>, <b>" + escapeHtml(entra) + "</b> trabalha " + escapeHtml(descricaoTurnos_(cSai.turnos)) + " no lugar de <b>" + escapeHtml(sai) + "</b>.";
+    if (devolve) {
+      if (!dia2) { p.erro = "Escolha o dia da devolução."; return p; }
+      if (dia2 === dia) { p.erro = "A devolução tem que ser em outro dia."; return p; }
+      var c2Entra = getCelulaPlantao_(entra, dia2), c2Sai = getCelulaPlantao_(sai, dia2);
+      if (c2Entra.tipo !== "horarios" || !c2Entra.turnos.filter(Boolean).length) { p.erro = entra + " não trabalha em " + fmtDate(dia2) + " - não tem o que devolver nesse dia."; return p; }
+      if (c2Sai.tipo === "ferias") { p.erro = sai + " está de férias em " + fmtDate(dia2) + "."; return p; }
+      if (c2Sai.tipo === "horarios" && c2Sai.turnos.filter(Boolean).length) { p.erro = sai + " já trabalha em " + fmtDate(dia2) + "."; return p; }
+      p.passos.push({ pessoa: entra, data: dia2, tipo: "folga", turnos: [], com: sai });
+      p.passos.push({ pessoa: sai, data: dia2, tipo: "horarios", turnos: c2Entra.turnos.slice(0, 4), com: entra });
+      p.texto += "<br>Em <b>" + fmtDate(dia2) + "</b>, <b>" + escapeHtml(sai) + "</b> devolve: trabalha " + escapeHtml(descricaoTurnos_(c2Entra.turnos)) + " no lugar de <b>" + escapeHtml(entra) + "</b>.";
+    }
+    return p;
+  }
+  function atualizarPreviaTroca_() {
+    document.getElementById("troca-dia2-wrap").style.display = document.getElementById("troca-devolve").checked ? "block" : "none";
+    var p = planoTroca_();
+    var el = document.getElementById("troca-previa");
+    el.style.display = "block";
+    el.style.background = p.erro ? "#FBEDE8" : "#EEF5EA";
+    el.style.color = p.erro ? "#8A2E2E" : "#2F4F20";
+    el.innerHTML = p.erro ? escapeHtml(p.erro) : p.texto;
+    document.getElementById("btn-confirmar-troca").disabled = !!p.erro;
+  }
+  function confirmarTrocaPlantao_() {
+    var p = planoTroca_();
+    if (p.erro) { showToast(p.erro); return; }
+    var grupo = uid();
+    p.passos.forEach(function (x) {
+      var existente = getRegistroPontual_(x.pessoa, x.data);
+      salvarRegistroPlantao_(existente ? existente.id : uid(), {
+        pessoa: x.pessoa, data: x.data, tipo: x.tipo, turnos: x.turnos, destaque: true,
+        motivo: "troca", com: x.com, grupoTroca: grupo
+      }, !existente);
+    });
+    showToast("Troca registrada.");
+    fecharTrocaPlantao_();
+    renderPlantao();
+  }
+  function renderListaTrocas_() {
+    var grupos = {};
+    plantaoRegistros.forEach(function (r) {
+      if (r.motivo !== "troca" || !r.grupoTroca) return;
+      (grupos[r.grupoTroca] = grupos[r.grupoTroca] || []).push(r);
+    });
+    var hojeS = addDiasStr_(todayStr(), -14);
+    var ids = Object.keys(grupos).filter(function (g) { return grupos[g].some(function (r) { return r.data >= hojeS; }); })
+      .sort(function (a, b) { return grupos[a][0].data < grupos[b][0].data ? -1 : 1; });
+    var el = document.getElementById("troca-lista");
+    if (!ids.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div style="font-weight:700;font-size:12px;margin:14px 0 6px;">Trocas registradas:</div>' + ids.map(function (g) {
+      var trab = grupos[g].filter(function (r) { return r.tipo === "horarios"; }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+      var txt = trab.map(function (r) { return fmtDate(r.data).slice(0, 5) + ": " + escapeHtml(r.pessoa) + " no lugar de " + escapeHtml(r.com); }).join("<br>");
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:#FBF4E4;border-radius:4px;padding:7px 9px;margin-bottom:5px;font-size:12px;">' +
+        "<span>" + txt + "</span>" + '<button class="del-btn" data-desfazer-troca="' + g + '">Desfazer</button></div>';
+    }).join("");
+    el.querySelectorAll("[data-desfazer-troca]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var g = b.getAttribute("data-desfazer-troca");
+        plantaoRegistros.filter(function (r) { return r.grupoTroca === g; }).forEach(function (r) { apagarRegistroPlantao_(r.id); });
+        showToast("Troca desfeita - voltou ao padrão.");
+        setTimeout(function () { renderListaTrocas_(); atualizarPreviaTroca_(); }, 300);
+      });
+    });
+  }
+
+  // ---------- FÉRIAS / AFASTAMENTO POR PERÍODO ----------
+  // Um formulário só: quem sai, de quando até quando e quem cobre. Quem sai
+  // aparece de férias (antes continuava aparecendo como trabalhando) e quem
+  // cobre trabalha nos dias de trabalho dele.
+  var ausenciaMotivo_ = "Férias";
+  function abrirAusenciaPlantao_() {
+    document.getElementById("aus-pessoa").innerHTML = opcoesPessoasHtml_(PLANTONISTAS_FIXOS[0]);
+    document.getElementById("aus-cobre").innerHTML = opcoesPessoasHtml_("", true);
+    document.getElementById("aus-ini").value = todayStr();
+    document.getElementById("aus-fim").value = "";
+    ausenciaMotivo_ = "Férias";
+    marcarMotivoAusencia_();
+    atualizarPreviaAusencia_();
+    renderListaAusencias_();
+    document.getElementById("modal-plantao-ausencia-overlay").classList.add("active");
+  }
+  function fecharAusenciaPlantao_() { document.getElementById("modal-plantao-ausencia-overlay").classList.remove("active"); }
+  function marcarMotivoAusencia_() {
+    document.querySelectorAll("[data-aus-motivo]").forEach(function (b) {
+      var ativo = b.getAttribute("data-aus-motivo") === ausenciaMotivo_;
+      b.style.background = ativo ? "#4C7C59" : ""; b.style.color = ativo ? "#fff" : "";
+    });
+  }
+  function planoAusencia_() {
+    var pessoa = document.getElementById("aus-pessoa").value;
+    var cobre = document.getElementById("aus-cobre").value;
+    var ini = document.getElementById("aus-ini").value;
+    var fim = document.getElementById("aus-fim").value;
+    var p = { pessoa: pessoa, cobre: cobre, ini: ini, fim: fim, motivo: ausenciaMotivo_, erro: "", conflitos: [] };
+    if (!pessoa) { p.erro = "Escolha quem vai sair."; return p; }
+    if (!ini) { p.erro = "Escolha a data de início."; return p; }
+    if (fim && fim < ini) { p.erro = "A data de volta está antes da saída."; return p; }
+    if (cobre && cobre === pessoa) { p.erro = "A pessoa não pode cobrir ela mesma."; return p; }
+    var ate = fim || addDiasStr_(ini, 27);   // sem data de volta: confere as próximas 4 semanas
+    var dias = diasEntre_(ini, ate);
+    var diasTrabalho = dias.filter(function (d) { return getCelulaPlantao_(pessoa, d, { ignorarAusencia: true }).tipo === "horarios"; });
+    if (cobre) {
+      p.conflitos = diasTrabalho.filter(function (d) {
+        var c = getCelulaPlantao_(cobre, d);
+        return c.tipo === "horarios" && c.origem !== "substituicao";
+      });
+    }
+    var qtd = fim ? dias.length : null;
+    p.texto = "<b>" + escapeHtml(pessoa) + "</b> fica de <b>" + escapeHtml(ausenciaMotivo_.toLowerCase()) + "</b> de " + fmtDate(ini) +
+      (fim ? " a " + fmtDate(fim) + " (" + qtd + " dia" + (qtd > 1 ? "s" : "") + ")" : " em diante (sem data de volta)") + ".";
+    p.texto += cobre
+      ? "<br><b>" + escapeHtml(cobre) + "</b> trabalha nos " + diasTrabalho.length + " dia(s) de trabalho dele nesse período" + (fim ? "" : " (contando 4 semanas)") + "."
+      : "<br>⚠ Ninguém cobre: esses dias vão aparecer como <b>descobertos</b> na escala.";
+    if (p.conflitos.length) {
+      p.texto += "<br>⚠ " + escapeHtml(cobre) + " já trabalha em " + p.conflitos.map(function (d) { return fmtDate(d).slice(0, 5); }).join(", ") +
+        " - nesses dias ele fica só com o turno de " + escapeHtml(pessoa) + ".";
+    }
+    return p;
+  }
+  function atualizarPreviaAusencia_() {
+    var p = planoAusencia_();
+    var el = document.getElementById("aus-previa");
+    el.style.display = "block";
+    el.style.background = p.erro ? "#FBEDE8" : (p.conflitos.length || !p.cobre ? "#FBF4E4" : "#EEF5EA");
+    el.style.color = p.erro ? "#8A2E2E" : "#3A3226";
+    el.innerHTML = p.erro ? escapeHtml(p.erro) : p.texto;
+    document.getElementById("btn-confirmar-ausencia").disabled = !!p.erro;
+  }
+  function confirmarAusenciaPlantao_() {
+    var p = planoAusencia_();
+    if (p.erro) { showToast(p.erro); return; }
+    if (p.conflitos.length && !window.confirm(p.cobre + " já trabalha em " + p.conflitos.length + " desses dias. Nesses dias ele fica só com o turno de " + p.pessoa + ". Confirmar assim mesmo?")) return;
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    db.collection("escala_plantao_substituicoes").doc(uid()).set({
+      substituto: p.cobre || "", segueDe: p.pessoa, inicio: p.ini, fim: p.fim || null,
+      ausente: true, motivoAusencia: p.motivo, excluido: false
+    }).catch(function (err) { console.error("[firebase] erro ao salvar ausência:", err); avisarErroFirestore_(err); });
+    showToast(p.pessoa + ": " + p.motivo.toLowerCase() + " registrada" + (p.cobre ? ", " + p.cobre + " cobre." : "."));
+    fecharAusenciaPlantao_();
+    renderPlantao();
+  }
+  function renderListaAusencias_() {
+    var el = document.getElementById("aus-lista");
+    var lista = plantaoSubstituicoes.slice().sort(function (a, b) { return a.inicio < b.inicio ? -1 : 1; });
+    if (!lista.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div style="font-weight:700;font-size:12px;margin:14px 0 6px;">Férias, afastamentos e coberturas:</div>' + lista.map(function (x) {
+      var periodo = fmtDate(x.inicio) + (x.fim ? " a " + fmtDate(x.fim) : " em diante");
+      var linha = x.ausente
+        ? "<b>" + escapeHtml(x.segueDe) + "</b>: " + escapeHtml((x.motivoAusencia || "Férias").toLowerCase()) + (x.substituto ? " · cobre <b>" + escapeHtml(x.substituto) + "</b>" : " · <span style=\"color:#B4442E;\">ninguém cobre</span>")
+        : "<b>" + escapeHtml(x.substituto) + "</b> cobre <b>" + escapeHtml(x.segueDe) + "</b>";
+      var extra = !x.ausente
+        ? '<button class="del-btn" data-marcar-ausente="' + x.id + '" style="font-size:11px;">Marcar ' + escapeHtml(x.segueDe) + ' como fora</button>'
+        : "";
+      return '<div style="background:#FBF4E4;border-radius:4px;padding:7px 9px;margin-bottom:5px;font-size:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>' + linha +
+        '<br><span style="color:#8A8072;">' + periodo + '</span></span><button class="del-btn" data-remover-aus="' + x.id + '">🗑</button></div>' +
+        (extra ? '<div style="margin-top:5px;">' + extra + "</div>" : "") + "</div>";
+    }).join("");
+    el.querySelectorAll("[data-remover-aus]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        apagarSubstituicaoPlantao_(b.getAttribute("data-remover-aus"));
+        showToast("Removido.");
+        setTimeout(function () { renderListaAusencias_(); atualizarPreviaAusencia_(); }, 300);
+      });
+    });
+    el.querySelectorAll("[data-marcar-ausente]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var id = b.getAttribute("data-marcar-ausente");
+        if (!db) return;
+        // substituição antiga: quem saiu continuava aparecendo como trabalhando
+        db.collection("escala_plantao_substituicoes").doc(id).update({ ausente: true, motivoAusencia: "Férias" })
+          .catch(function (err) { avisarErroFirestore_(err); });
+        showToast("Marcado como fora nesse período.");
+        setTimeout(function () { renderListaAusencias_(); }, 300);
+      });
+    });
+  }
+  // ================= FIM ESCALA v119 =================
 
   function loadOperador() {
     try {
@@ -5237,11 +5603,8 @@
         var corFundo = (i % 2 === 0) ? "#FFFDF8" : "#F3EEE0";
         ctx.fillStyle = corFundo; ctx.fillRect(x, y, LARG_DIA, ALT_LINHA);
         ctx.strokeStyle = "#DCD3BC"; ctx.strokeRect(x, y, LARG_DIA, ALT_LINHA);
-        var texto = "—";
-        if (cel.tipo === "folga") texto = "FOLGA";
-        else if (cel.tipo === "ferias") texto = "Férias";
-        else if (cel.tipo === "horarios" && cel.turnos.length) texto = cel.turnos.filter(Boolean).join(" ");
-        ctx.fillStyle = cel.destaque ? "#B4442E" : "#241F1A";
+        var texto = textoCelulaPlantao_(cel) || "—";
+        ctx.fillStyle = (cel.destaque || cel.origem === "ausencia" || cel.origem === "substituicao") ? "#B4442E" : "#241F1A";
         ctx.font = "bold 10.5px Arial"; ctx.textAlign = "center";
         ctx.fillText(texto, x + LARG_DIA / 2, y + ALT_LINHA / 2 + 4);
       });
@@ -5299,9 +5662,29 @@
         pessoasSubstitutas.push(r.pessoa);
       }
     });
+    // quem cobre alguém nesse bloco também aparece, mesmo sem registro pontual
+    plantaoSubstituicoes.forEach(function (x) {
+      if (!x.substituto || PLANTONISTAS_FIXOS.indexOf(x.substituto) > -1 || pessoasSubstitutas.indexOf(x.substituto) > -1) return;
+      if (x.inicio <= dias[13] && (!x.fim || x.fim >= dias[0])) pessoasSubstitutas.push(x.substituto);
+    });
     var pessoas = PLANTONISTAS_FIXOS.concat(pessoasSubstitutas.sort());
+    var cobertura = dias.map(function (d) { return coberturaPlantao_(pessoas, d); });
 
-    var html = '<div class="modal-sub" style="margin-bottom:10px;">Padrão fixo se repete sozinho toda semana - toca numa célula pra mudar só aquele dia (férias, folga extra, substituto).</div>';
+    var html = '<div class="modal-sub" style="margin-bottom:10px;">Padrão fixo se repete sozinho toda semana. Pra troca ou férias use os botões abaixo; pra mudar um dia só, toque na célula.</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
+      '<button class="photo-btn" id="btn-plantao-troca" style="background:#2F7DB0;margin:0;">↔ Troca de plantão</button>' +
+      '<button class="photo-btn" id="btn-plantao-ausencia" style="background:#4C7C59;margin:0;">🏖️ Férias ou afastamento</button>' +
+    '</div>';
+    var diasDescobertos = dias.filter(function (d, i) { return cobertura[i].falta; });
+    if (diasDescobertos.length) {
+      html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#8A2E2E;">' +
+        '<b>⚠ Falta gente na escala:</b> ' + diasDescobertos.map(function (d) {
+          var c = cobertura[dias.indexOf(d)], partes = [];
+          if (c.normal.noite > c.real.noite) partes.push("noite " + c.real.noite + " de " + c.normal.noite);
+          if (c.normal.dia > c.real.dia) partes.push("dia " + c.real.dia + " de " + c.normal.dia);
+          return fmtDate(d).slice(0, 5) + " (" + partes.join(", ") + ")";
+        }).join(" · ") + '</div>';
+    }
 
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
       '<button class="del-btn" id="btn-plantao-anterior" style="padding:6px 14px;">← 2 semanas</button>' +
@@ -5319,8 +5702,9 @@
       var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
       var corFundo = (i % 2 === 0) ? "#F3EEE0" : "#E5DFC9";
       var separador = (i === 7) ? "border-left:3px solid #4C6B2F;" : "";
+      if (cobertura[i].falta) corFundo = "#F2C9BF";
       html += '<th style="background:' + corFundo + ';padding:5px 6px;text-align:center;min-width:78px;' + separador + '">' +
-        escapeHtml(fmtDate(d)) + '<br>' + escapeHtml(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()]) + '</th>';
+        escapeHtml(fmtDate(d)) + '<br>' + escapeHtml(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()]) + (cobertura[i].falta ? '<br><span style="color:#8A2E2E;">⚠ falta</span>' : '') + '</th>';
     });
     html += '</tr>';
 
@@ -5334,10 +5718,8 @@
         var corFundo = (i % 2 === 0) ? "#FFFDF8" : "#F3EEE0";
         var separador = (i === 7) ? "border-left:3px solid #4C6B2F;" : "";
         var corTexto = cel.destaque ? "#B4442E" : "#2A2620";
-        var texto = "";
-        if (cel.tipo === "folga") texto = "FOLGA";
-        else if (cel.tipo === "ferias") texto = "Férias";
-        else if (cel.tipo === "horarios" && cel.turnos.length) texto = cel.turnos.filter(Boolean).join(" ");
+        var texto = textoCelulaPlantao_(cel);
+        if (cel.origem === "ausencia" || cel.motivo === "troca" || cel.origem === "substituicao") corTexto = "#B4442E";
         html += '<td data-plantao-cel="' + escapeHtml(pessoa) + '|' + d + '" style="background:' + corFundo + ';padding:6px 5px;text-align:center;font-weight:700;color:' + corTexto + ';border-top:1px solid #DCD3BC;cursor:pointer;' + separador + '">' + escapeHtml(texto || "—") + '</td>';
       });
       html += '</tr>';
@@ -5359,6 +5741,8 @@
       renderPlantao();
     });
     document.getElementById("btn-plantao-compartilhar").addEventListener("click", compartilharPlantaoImagem_);
+    document.getElementById("btn-plantao-troca").addEventListener("click", abrirTrocaPlantao_);
+    document.getElementById("btn-plantao-ausencia").addEventListener("click", abrirAusenciaPlantao_);
     document.getElementById("btn-plantao-add-substituto").addEventListener("click", abrirAddSubstituto_);
     document.getElementById("btn-plantao-substituicao").addEventListener("click", abrirModalSubstituicao_);
     document.getElementById("btn-plantao-config").addEventListener("click", abrirConfigPadraoPlantao_);
@@ -5385,6 +5769,22 @@
     document.getElementById("plantao-destaque").checked = cel.destaque || false;
     document.getElementById("plantao-celula-horarios").style.display = (cel.tipo === "horarios") ? "block" : "none";
     marcarTipoPlantaoBotoes_();
+    var boxTp = document.getElementById("plantao-turnos-prontos");
+    boxTp.innerHTML = turnosProntosPlantao_().map(function (t, i) {
+      return '<button class="del-btn" data-turno-pronto="' + i + '" style="padding:7px 9px;font-size:11.5px;border:1px solid #D2C7AB;border-radius:14px;">' + escapeHtml(rotuloTurno_(t)) + '</button>';
+    }).join("");
+    var prontos = turnosProntosPlantao_();
+    boxTp.querySelectorAll("[data-turno-pronto]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var t = prontos[+b.getAttribute("data-turno-pronto")];
+        document.getElementById("plantao-t1-ini").value = t[0] || "";
+        document.getElementById("plantao-t1-fim").value = t[1] || "";
+        document.getElementById("plantao-t2-ini").value = t[2] || "";
+        document.getElementById("plantao-t2-fim").value = t[3] || "";
+        boxTp.querySelectorAll("[data-turno-pronto]").forEach(function (x) { x.style.background = ""; x.style.color = ""; });
+        b.style.background = "#4C7C59"; b.style.color = "#fff";
+      });
+    });
     document.getElementById("modal-plantao-celula-overlay").classList.add("active");
   }
   function marcarTipoPlantaoBotoes_() {
@@ -10028,6 +10428,19 @@
       if (e.target.id === "modal-plantao-substituicao-overlay") fecharModalSubstituicao_();
     });
     document.getElementById("btn-confirmar-plantao-substituicao").addEventListener("click", confirmarSubstituicaoPlantao_);
+    document.getElementById("btn-close-plantao-troca").addEventListener("click", fecharTrocaPlantao_);
+    ["troca-dia", "troca-sai", "troca-entra", "troca-devolve", "troca-dia2"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change", atualizarPreviaTroca_);
+    });
+    document.getElementById("btn-confirmar-troca").addEventListener("click", confirmarTrocaPlantao_);
+    document.getElementById("btn-close-plantao-ausencia").addEventListener("click", fecharAusenciaPlantao_);
+    ["aus-pessoa", "aus-ini", "aus-fim", "aus-cobre"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change", atualizarPreviaAusencia_);
+    });
+    document.querySelectorAll("[data-aus-motivo]").forEach(function (b) {
+      b.addEventListener("click", function () { ausenciaMotivo_ = b.getAttribute("data-aus-motivo"); marcarMotivoAusencia_(); atualizarPreviaAusencia_(); });
+    });
+    document.getElementById("btn-confirmar-ausencia").addEventListener("click", confirmarAusenciaPlantao_);
     document.getElementById("btn-close-plantao-config").addEventListener("click", fecharModalPlantaoConfig_);
     document.getElementById("modal-plantao-config-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-plantao-config-overlay") fecharModalPlantaoConfig_();
