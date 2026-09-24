@@ -128,6 +128,18 @@
   .kpi-tile { flex:1; background:#FFFDF8; border:1.5px solid #DCD3BC; border-radius:4px; padding:12px 8px; text-align:center; }
   .kpi-num { font-family:'Oswald', sans-serif; font-size:24px; font-weight:700; color:#2F7DB0; }
   .kpi-label { font-size:10.5px; color:#6B6153; margin-top:4px; line-height:1.25; }
+  .rel-rolagem { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .rel-kpi .kpi-tile { min-width:0; padding:12px 4px; }
+  .rel-kpi .kpi-num { font-size:22px; white-space:nowrap; }
+  @media (max-width: 380px) {
+    .rel-kpi .kpi-num { font-size:19px; }
+    .rel-tab td, .rel-tab th { padding-left:3px !important; padding-right:3px !important; }
+  }
+  @media (max-width: 350px) {
+    .rel-kpi .kpi-num { font-size:16px; }
+    .rel-tab { font-size:11px !important; }
+    .rel-dsem { display:none; }
+  }
   .panel-title { font-family:'Oswald', sans-serif; font-size:14px; font-weight:600; margin:0 0 12px; text-transform:uppercase; letter-spacing:.03em; }
   .bar-row { margin-bottom:10px; }
   .bar-label-row { display:flex; justify-content:space-between; margin-bottom:4px; }
@@ -1161,7 +1173,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v123';
+  var APP_CACHE_NAME = 'registro-irrigacao-v124';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -7934,173 +7946,242 @@
       return;
     }
 
+    // As datas antigas ficavam como dd/mm/aaaa - o campo de data do celular não
+    // mostra esse formato (ficava em branco) e o nome do arquivo saía com barras.
+    if (relDataInicio && relDataInicio.indexOf("/") !== -1) relDataInicio = isoUTC_(parseISODate(relDataInicio));
+    if (relDataFim && relDataFim.indexOf("/") !== -1) relDataFim = isoUTC_(parseISODate(relDataFim));
     if (!relDataInicio && !relDataFim) {
-      // padrão: últimos 30 dias
-      var hoje = todayUTC();
-      relDataFim = fmtDateUTC(hoje);
-      relDataInicio = fmtDateUTC(addDaysUTC(hoje, -30));
+      var p30 = periodoRelatorio_("30");   // padrão: últimos 30 dias, contando hoje
+      relDataInicio = p30.ini; relDataFim = p30.fim;
+    }
+    if (relDataInicio && relDataFim && relDataInicio > relDataFim) {
+      var trocaData = relDataInicio; relDataInicio = relDataFim; relDataFim = trocaData;
     }
 
     var dados = dadosRelatorio_();
+    var temDados = dados.dias.length > 0;
+    var CHIP = "border-radius:14px;padding:6px 12px;font-size:12.5px;cursor:pointer;";
     var html =
       '<div class="card">' +
-        '<h3 class="panel-title">📄 Gerar Relatório</h3>' +
-        '<div class="modal-sub">Escolha o período. O relatório sai em PDF com gráficos, pronto para arquivar ou apresentar.</div>' +
+        '<h3 class="panel-title">📊 Relatório de Bombeamento</h3>' +
         '<div style="display:flex;gap:8px;">' +
-          '<div class="field" style="flex:1;"><span class="field-label">De</span><input type="date" id="rel-ini" value="' + relDataInicio + '"></div>' +
-          '<div class="field" style="flex:1;"><span class="field-label">Até</span><input type="date" id="rel-fim" value="' + relDataFim + '"></div>' +
+          '<div class="field" style="flex:1;min-width:0;"><span class="field-label">De</span><input type="date" id="rel-ini" value="' + escapeHtml(relDataInicio) + '"></div>' +
+          '<div class="field" style="flex:1;min-width:0;"><span class="field-label">Até</span><input type="date" id="rel-fim" value="' + escapeHtml(relDataFim) + '"></div>' +
         '</div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">' +
-          '<button class="del-btn" data-rel-atalho="7" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">7 dias</button>' +
-          '<button class="del-btn" data-rel-atalho="30" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">30 dias</button>' +
-          '<button class="del-btn" data-rel-atalho="90" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">90 dias</button>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:' + (temDados ? '14px' : '0') + ';">';
+    [["7", "7 dias"], ["30", "30 dias"], ["mes", "Este mês"], ["mesPassado", "Mês passado"], ["90", "90 dias"]].forEach(function (a) {
+      var p = periodoRelatorio_(a[0]);
+      var ativo = p.ini === relDataInicio && p.fim === relDataFim;
+      html += '<button type="button" data-rel-atalho="' + a[0] + '" style="' + CHIP +
+        (ativo ? 'border:1px solid #4C6B2F;background:#4C6B2F;color:#fff;font-weight:700;' : 'border:1px solid #D2C7AB;background:#FBF8F1;color:#4A4136;') +
+        '">' + a[1] + '</button>';
+    });
+    html += '</div>';
+    if (temDados) {
+      html += '<div style="display:flex;gap:8px;">' +
+          '<button class="save-btn" id="btn-compartilhar-rel" style="flex:1;width:auto;margin-top:0;background:#25A244;">📤 WhatsApp</button>' +
+          '<button class="save-btn" id="btn-gerar-rel-pdf" style="flex:1;width:auto;margin-top:0;background:#2F7DB0;">📄 PDF</button>' +
         '</div>' +
-        '<button class="del-btn" id="btn-diagnostico-bombeamento" style="border:1px solid #D2C7AB;border-radius:14px;padding:5px 12px;font-size:12px;background:#FBF8F1;">🔍 Achar leitura errada</button>' +
-      '</div>' +
-      '<button class="photo-btn" id="btn-corrigir-bomb-2109" style="background:#8A5A44;margin:0 0 12px;">🛠️ Aplicar correções do bombeamento (backup de 21/09)</button>';
+        '<div class="modal-sub" style="margin:6px 0 0;">WhatsApp: o resumo em imagens nítidas, que abrem direto na conversa. PDF: o relatório completo, pra arquivar.</div>';
+    }
+    html += '</div>';
 
-    // ================= RELATÓRIO NA TELA =================
-    if (!dados.dias.length) {
+    var TD = "padding:7px 5px;";
+    var TDL = TD + "border-bottom:1px solid #EFE7D3;";
+    var TH = "padding:6px 5px;font-weight:700;";
+    var LIM_LISTA = 8;   // linhas visíveis em cada lista antes do "ver todas"
+    function linhaLista(grupo, i, conteudo) {
+      return '<tr' + (i >= LIM_LISTA ? ' data-rel-mais="' + grupo + '" style="display:none;"' : '') + '>' + conteudo + '</tr>';
+    }
+    function botaoMais(grupo, n, texto) {
+      if (n <= LIM_LISTA) return '';
+      return '<button type="button" data-rel-mais-btn="' + grupo + '" style="width:100%;border:1px dashed #C9BC9C;background:#FBF8F1;color:#4A4136;border-radius:4px;padding:8px;font-size:12.5px;cursor:pointer;margin:2px 0 8px;">' + texto + '</button>';
+    }
+    function diaCurto(iso) {
+      return escapeHtml(fmtDate(iso).slice(0, 5)) + ' <span class="rel-dsem" style="color:#8A8072;">' + diaSemanaRel_(iso) + '</span>';
+    }
+
+    if (!temDados) {
       html += '<div class="card"><div class="empty-state" style="padding:18px;">Nenhum bombeamento registrado nesse período.</div></div>';
     } else {
       var paradas = paradasDetectadas_();
-      var vazMedia = dados.horasTotais > 0 ? dados.totalGeral / dados.horasTotais : 0;
-      var pctNom = vazaoNominalBomba ? (vazMedia / (vazaoNominalBomba * 4) * 100) : 0;
+      var incons = inconsistenciasDetectadas_();
+      var porB = resumoPorBomba_(dados, paradas);
 
+      // ---- resumo: números grandes + tabela por bomba ----
       html += '<div class="card">' +
         '<h3 class="panel-title">Resumo do período</h3>' +
-        '<div class="kpi-row">' +
-          '<div class="kpi-tile"><div class="kpi-num">' + Math.round(dados.totalGeral).toLocaleString("pt-BR") + '</div><div class="kpi-label">m³ bombeados</div></div>' +
-          '<div class="kpi-tile"><div class="kpi-num">' + dados.horasTotais.toFixed(1).replace(".", ",") + '</div><div class="kpi-label">horas de bomba</div></div>' +
-          '<div class="kpi-tile"><div class="kpi-num">' + dados.dias.length + '</div><div class="kpi-label">dias com registro</div></div>' +
-        '</div>';
+        '<div class="kpi-row rel-kpi">' +
+          '<div class="kpi-tile"><div class="kpi-num">' + numRel_(dados.totalGeral) + '</div><div class="kpi-label">m³ bombeados</div></div>' +
+          '<div class="kpi-tile"><div class="kpi-num">' + numRel_(dados.totalGeral / dados.dias.length) + '</div><div class="kpi-label">m³ por dia<br>(média de ' + pluralRel_(dados.dias.length, "dia", "dias") + ')</div></div>' +
+          '<div class="kpi-tile"><div class="kpi-num">' + horasRel_(dados.horasTotais) + '</div><div class="kpi-label">horas de bomba<br>(as 4 somadas)</div></div>' +
+        '</div>' +
+        '<div class="rel-rolagem"><table class="rel-tab" style="border-collapse:collapse;width:100%;font-size:12.5px;">' +
+          '<tr style="background:#4C6B2F;color:#fff;"><th style="' + TH + 'text-align:left;">Bomba</th><th style="' + TH + 'text-align:right;">m³</th><th style="' + TH + 'text-align:right;">Horas</th><th style="' + TH + 'text-align:right;">m³/h</th><th style="' + TH + 'text-align:right;">Do normal</th></tr>';
+      porB.forEach(function (p, i) {
+        var extras = [];
+        if (p.paradas) extras.push(pluralRel_(p.paradas, "parada", "paradas") + " (~" + formatHoras_(p.horasParadas * 60) + ")");
+        if (p.naoLigou) extras.push(p.naoLigou + "× não ligou");
+        html += '<tr style="background:' + (i % 2 ? '#F7F3E8' : '#FFFDF8') + ';">' +
+          '<td style="' + TD + '"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + CORES_BOMBA_REL[i] + ';margin-right:5px;"></span><b>B' + p.bomba + '</b>' +
+            (extras.length ? '<div style="font-size:10.5px;color:#8A2E2E;margin-top:2px;line-height:1.3;">' + extras.join(' · ') + '</div>' : '') + '</td>' +
+          '<td style="' + TD + 'text-align:right;">' + numRel_(p.m3) + '</td>' +
+          '<td style="' + TD + 'text-align:right;">' + (p.horas > 0 ? horasRel_(p.horas) : '–') + '</td>' +
+          '<td style="' + TD + 'text-align:right;">' + (p.vazao !== null ? numRel_(p.vazao) : '–') + '</td>' +
+          '<td style="' + TD + 'text-align:right;font-weight:700;color:' + (p.pct !== null ? corPctRel_(Math.round(p.pct)) : '#6B6153') + ';">' + (p.pct !== null ? Math.round(p.pct) + '%' : '–') + '</td>' +
+        '</tr>';
+      });
+      html += '</table></div>' +
+        '<div class="modal-sub" style="margin:8px 0 0;">"Do normal" compara a vazão da bomba no período com a vazão normal dela (' +
+          porB.map(function (p) { return 'B' + p.bomba + ' ' + numRel_(p.normal); }).join(' · ') + ' m³/h). ' +
+          '<b style="color:#2F6B1F;">95% ou mais</b> ok · <b style="color:#B8862B;">85 a 95%</b> atenção · <b style="color:#B4442E;">abaixo de 85%</b> problema.</div>' +
+      '</div>';
+
+      // ---- gráficos (do tamanho da tela, sem rolar pro lado) ----
+      var cardGraf = function (id, titulo, sub) {
+        return '<div class="card"><h3 class="panel-title">' + titulo + '</h3>' +
+          (sub ? '<div class="modal-sub" style="margin:-4px 0 8px;">' + sub + '</div>' : '') +
+          '<div style="width:100%;"><canvas id="' + id + '" style="display:block;max-width:100%;"></canvas></div></div>';
+      };
+      html += cardGraf("rel-c1", "Volume bombeado por dia", "Cada cor é uma bomba; a altura da barra é o total do dia. A linha tracejada é a média do período.");
+      html += cardGraf("rel-c3", "Vazão em relação ao normal", "Cada bomba comparada com a vazão normal dela (100%). Abaixo da linha de 85% é sinal de parada ou problema.");
+      var eletrTela = dadosEletricos_();
+      if (eletrTela.length > 1) {
+        var obsEl = [];
+        if (eletrTela.trocadas) obsEl.push(pluralRel_(eletrTela.trocadas, "leitura veio", "leituras vieram") + " com corrente e tensão trocadas (o gráfico já destrocou — vale orientar a equipe)");
+        if (eletrTela.descartadas) obsEl.push(pluralRel_(eletrTela.descartadas, "leitura impossível foi ignorada", "leituras impossíveis foram ignoradas") + " (erro de digitação)");
+        html += cardGraf("rel-c4", "Corrente nas rondas", "Mediana das leituras de cada dia (bombas com soft starter).");
+        html += cardGraf("rel-c5", "Tensão nas rondas", "Mediana das leituras de cada dia." +
+          (obsEl.length ? '<br><span style="color:#7A5A18;">⚠ ' + obsEl.join("; ") + '.</span>' : ''));
+      }
+
+      // ---- problemas ----
+      html += '<div class="card"><h3 class="panel-title">Problemas no período</h3>';
+      if (!paradas.length && !dados.naoLigou.length && !incons.length) {
+        html += '<div style="background:#EAF3E2;border-left:4px solid #2F6B1F;border-radius:4px;padding:9px 12px;font-size:12.5px;color:#2F6B1F;">✅ Nenhuma parada, nenhuma vez que a bomba deixou de ligar e nenhuma leitura estranha.</div>';
+      }
       if (paradas.length) {
-        var totalParado = paradas.reduce(function (a, p) { return a + p.paradaMin; }, 0);
-        // volume que faltou: horas paradas x vazão NORMAL de cada bomba (antes usava 325 m³/h pra todas)
-        var m3Faltou = paradas.reduce(function (a, p) { return a + (p.paradaMin / 60) * (p.referencia || vazaoNominalBomba); }, 0);
-        html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:9px 12px;margin-top:4px;">' +
-          '<div style="font-size:11px;font-weight:700;color:#8A2E2E;">🚨 ' + paradas.length + ' parada(s) que passaram despercebidas</div>' +
-          '<div style="font-size:12px;color:#8A2E2E;margin-top:2px;">Somando <b>' + formatHoras_(totalParado) + '</b> de bomba desligada sem registro — cerca de <b>' +
-          Math.round(m3Faltou).toLocaleString("pt-BR") + ' m³</b> que deixaram de ser bombeados.</div>' +
-        '</div>';
+        var minParado = paradas.reduce(function (a, p) { return a + Math.max(0, p.paradaMin); }, 0);
+        // volume que faltou: horas paradas x vazão NORMAL de cada bomba
+        var m3Faltou = paradas.reduce(function (a, p) { return a + Math.max(0, p.paradaMin) / 60 * (p.referencia || vazaoNominalBomba); }, 0);
+        var parOrd = paradas.slice().sort(function (a, b) {
+          if (a.data !== b.data) return a.data < b.data ? 1 : -1;       // mais recente primeiro
+          return (parseInt(a.bomba, 10) || 0) - (parseInt(b.bomba, 10) || 0);
+        });
+        html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:9px 12px;margin-bottom:8px;">' +
+            '<div style="font-size:12.5px;font-weight:700;color:#8A2E2E;">🚨 ' + pluralRel_(paradas.length, "parada que passou despercebida", "paradas que passaram despercebidas") + '</div>' +
+            '<div style="font-size:12px;color:#8A2E2E;margin-top:2px;">~' + formatHoras_(minParado) + ' de bomba parada sem registro — cerca de <b>' + numRel_(m3Faltou) + ' m³</b> a menos.</div>' +
+          '</div>' +
+          '<div class="modal-sub" style="margin-bottom:6px;">A rodada rendeu menos de 85% do normal da bomba. Pelo volume dá pra estimar quanto tempo ela ficou parada e mais ou menos a hora que parou.</div>' +
+          '<div class="rel-rolagem"><table class="rel-tab" style="border-collapse:collapse;width:100%;font-size:12px;margin-bottom:6px;">' +
+          '<tr style="background:#EFE7D3;color:#4A4136;"><th style="' + TH + 'text-align:left;">Dia</th><th style="' + TH + 'text-align:left;">Bomba</th><th style="' + TH + 'text-align:right;">Rendeu</th><th style="' + TH + 'text-align:right;">Parada ~</th><th style="' + TH + 'text-align:right;">Parou ~às</th></tr>';
+        parOrd.forEach(function (p, i) {
+          html += linhaLista("paradas", i,
+            '<td style="' + TDL + 'white-space:nowrap;">' + diaCurto(p.data) + '</td>' +
+            '<td style="' + TDL + '">B' + escapeHtml(p.bomba) + '</td>' +
+            '<td style="' + TDL + 'text-align:right;font-weight:700;color:' + (p.forte ? '#B4442E' : '#B8862B') + ';">' + Math.floor(p.pct) + '%</td>' +
+            '<td style="' + TDL + 'text-align:right;">' + formatHoras_(p.paradaMin) + '</td>' +
+            '<td style="' + TDL + 'text-align:right;">' + escapeHtml(p.fimEstimado) + '</td>');
+        });
+        html += '</table></div>' + botaoMais("paradas", parOrd.length, "Ver todas as " + parOrd.length + " paradas");
+      }
+      if (dados.naoLigou.length) {
+        var nlOrd = dados.naoLigou.slice().reverse();   // mais recente primeiro
+        html += '<div style="font-size:13px;font-weight:700;color:#4A4136;margin:12px 0 4px;">⛔ ' + pluralRel_(nlOrd.length, "vez", "vezes") + ' a bomba não ligou</div>' +
+          '<div class="modal-sub" style="margin-bottom:6px;">Rodadas de 0 m³ ou marcadas como "não ligou". Não contam nas horas nem na vazão.</div>' +
+          '<div class="rel-rolagem"><table class="rel-tab" style="border-collapse:collapse;width:100%;font-size:12px;margin-bottom:6px;">' +
+          '<tr style="background:#EFE7D3;color:#4A4136;"><th style="' + TH + 'text-align:left;">Dia</th><th style="' + TH + 'text-align:left;">Bomba</th><th style="' + TH + 'text-align:left;">Motivo</th></tr>';
+        nlOrd.forEach(function (x, i) {
+          html += linhaLista("naoLigou", i,
+            '<td style="' + TDL + 'white-space:nowrap;">' + diaCurto(x.data) + '</td>' +
+            '<td style="' + TDL + '">B' + escapeHtml(x.bomba) + '</td>' +
+            '<td style="' + TDL + '">' + (x.motivo ? escapeHtml(x.motivo) : '<span style="color:#8A8072;">—</span>') + '</td>');
+        });
+        html += '</table></div>' + botaoMais("naoLigou", nlOrd.length, "Ver todas as " + nlOrd.length);
+      }
+      if (incons.length) {
+        html += '<div style="font-size:13px;font-weight:700;color:#7A5A18;margin:12px 0 4px;">⚠ ' + pluralRel_(incons.length, "leitura que não fecha", "leituras que não fecham") + '</div>' +
+          '<div class="modal-sub" style="margin-bottom:6px;">Volume alto demais pro horário anotado (ou leitura final menor que a inicial). Quase sempre é leitura ou horário digitado errado — vale conferir e corrigir em Bombeamento. Volume alto continua somado nos totais; leitura negativa fica de fora.</div>' +
+          '<div class="rel-rolagem"><table class="rel-tab" style="border-collapse:collapse;width:100%;font-size:12px;margin-bottom:6px;">' +
+          '<tr style="background:#EFE7D3;color:#4A4136;"><th style="' + TH + 'text-align:left;">Dia</th><th style="' + TH + 'text-align:left;">Bomba</th><th style="' + TH + 'text-align:right;">m³</th><th style="' + TH + 'text-align:center;">Horário</th><th style="' + TH + 'text-align:right;">Vazão</th></tr>';
+        incons.forEach(function (p, i) {
+          html += linhaLista("incons", i,
+            '<td style="' + TDL + 'white-space:nowrap;">' + diaCurto(p.data) + '</td>' +
+            '<td style="' + TDL + '">B' + escapeHtml(p.bomba) + '</td>' +
+            '<td style="' + TDL + 'text-align:right;">' + numRel_(p.consumo) + '</td>' +
+            '<td style="' + TDL + 'text-align:center;white-space:nowrap;">' + escapeHtml(p.inicio || "?") + '–' + escapeHtml(p.fim || "?") + '</td>' +
+            '<td style="' + TDL + 'text-align:right;font-weight:700;color:' + (p.negativo ? '#B4442E' : '#7A5A18') + ';">' +
+              (p.negativo ? 'final &lt; inicial' : (p.pctReferencia > 999 ? '&gt;999%' : Math.round(p.pctReferencia) + '%')) + '</td>');
+        });
+        html += '</table></div>' + botaoMais("incons", incons.length, "Ver todas as " + incons.length);
       }
       html += '</div>';
 
-      // --- gráficos na tela ---
-      html += '<div class="card"><h3 class="panel-title">Volume por bomba, dia a dia</h3>' +
-        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c1" style="display:block;"></canvas></div></div>';
-      html += '<div class="card"><h3 class="panel-title">Total bombeado por dia</h3>' +
-        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c2" style="display:block;"></canvas></div></div>';
-      html += '<div class="card"><h3 class="panel-title">Vazão real x esperada</h3>' +
-        '<div class="modal-sub" style="margin-bottom:6px;">A linha vermelha tracejada é o que cada bomba deveria entregar (' + vazaoNominalBomba + ' m³/h).</div>' +
-        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c3" style="display:block;"></canvas></div></div>';
-
-      var eletrTela = dadosEletricos_();
-      if (eletrTela.length > 1) {
-        html += '<div class="card"><h3 class="panel-title">Corrente nas rondas</h3>' +
-          '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c4" style="display:block;"></canvas></div></div>';
-        html += '<div class="card"><h3 class="panel-title">Tensão nas rondas</h3>' +
-          '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><canvas id="rel-c5" style="display:block;"></canvas></div></div>';
-      }
-
-      // --- paradas detectadas ---
-      if (paradas.length) {
-        html += '<div class="card"><h3 class="panel-title">🚨 Paradas detectadas pelo volume</h3>' +
-          '<div class="modal-sub" style="margin-bottom:8px;">Rodadas que renderam menos de 85% da vazão normal da bomba. Pelo volume medido dá pra estimar quanto tempo ela rodou de fato — e quando provavelmente parou.</div>';
-        paradas.forEach(function (p) {
-          html += '<div style="background:' + (p.forte ? '#FBEDE8' : '#FBF4E4') + ';border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
-            '<b>' + (p.forte ? '🚨 ' : '⚠ ') + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b> · rendeu ' + Math.round(p.pct) + '% do normal' +
-            '<br>Ligou ' + escapeHtml(p.inicio) + ', registrado até ' + escapeHtml(p.fim) +
-            '<br>Rodou de fato uns <b>' + formatHoras_(p.efetivoMin) + '</b> — provavelmente parou por volta de <b>' + p.fimEstimado + '</b>' +
-            '<br><span style="color:#8A2E2E;font-weight:700;">~' + formatHoras_(p.paradaMin) + ' sem bombear</span>' +
-          '</div>';
-        });
-        html += '</div>';
-      }
-
-      // --- vezes que a bomba não ligou ---
-      if (dados.naoLigou && dados.naoLigou.length) {
-        html += '<div class="card"><h3 class="panel-title">⛔ Vezes que a bomba não ligou</h3>' +
-          '<div class="modal-sub" style="margin-bottom:8px;">Rodadas de 0 m³ ou marcadas como "não ligou". Não entram nas horas de bomba nem na vazão.</div>';
-        dados.naoLigou.forEach(function (x) {
-          html += '<div style="background:#F4F0E6;border-radius:4px;padding:7px 10px;margin-bottom:5px;font-size:12px;color:#4A4136;">' +
-            '<b>' + escapeHtml(fmtDate(x.data)) + ' · Bomba ' + escapeHtml(x.bomba) + '</b>' +
-            (x.motivo ? ' — ' + escapeHtml(x.motivo) : '') +
-          '</div>';
-        });
-        html += '</div>';
-      }
-
-      // --- inconsistências ---
-      var incons = inconsistenciasDetectadas_();
-      if (incons.length) {
-        html += '<div class="card"><h3 class="panel-title">⚠ Leituras que não fecham</h3>' +
-          '<div class="modal-sub" style="margin-bottom:8px;">Nestas rodadas o volume é alto demais para o tempo registrado — a bomba teria que ter rodado além do horário anotado. Normalmente é leitura ou horário digitado errado. <b>Os valores continuam somados nos totais</b>, então vale conferir antes de usar o número.</div>';
-        incons.forEach(function (p) {
-          html += '<div style="background:#FBF4E4;border-radius:4px;padding:8px 10px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
-            '<b>' + escapeHtml(fmtDate(p.data)) + ' · Bomba ' + p.bomba + '</b>' +
-            '<br>' + Math.round(p.consumo).toLocaleString("pt-BR") + ' m³ em ' + escapeHtml(p.inicio) + '–' + escapeHtml(p.fim) +
-            '<br>Daria <b>' + Math.round(p.vazaoReal) + ' m³/h</b> (' + Math.round(Math.min(p.pctReferencia, 999)) + '% do normal desta bomba)' +
-            '<br><span style="color:#7A5A18;font-weight:700;">Precisaria de mais ' + formatHoras_(p.excedenteMin) + ' de bomba para esse volume.</span>' +
-          '</div>';
-        });
-        html += '</div>';
-      }
-
-      // --- tabela dia a dia ---
-      html += '<div class="card"><h3 class="panel-title">Detalhe por dia</h3>' +
-        '<div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;min-width:460px;font-size:12px;">' +
-        '<tr style="background:#4C6B2F;color:#fff;"><th style="padding:6px;">Data</th><th style="padding:6px;">B1</th><th style="padding:6px;">B2</th><th style="padding:6px;">B3</th><th style="padding:6px;">B4</th><th style="padding:6px;">Total</th></tr>';
-      dados.dias.forEach(function (dia, i) {
-        html += '<tr style="background:' + (i % 2 ? "#F7F3E8" : "#FFFDF8") + ';">' +
-          '<td style="padding:6px;text-align:center;">' + fmtDate(dia) + '</td>';
+      // ---- detalhe por dia (mais recente primeiro, cabe na tela) ----
+      html += '<div class="card"><h3 class="panel-title">Detalhe por dia (m³)</h3>' +
+        '<div class="rel-rolagem"><table class="rel-tab" style="border-collapse:collapse;width:100%;font-size:12px;">' +
+        '<tr style="background:#4C6B2F;color:#fff;"><th style="' + TH + 'text-align:left;">Dia</th><th style="' + TH + 'text-align:right;">B1</th><th style="' + TH + 'text-align:right;">B2</th><th style="' + TH + 'text-align:right;">B3</th><th style="' + TH + 'text-align:right;">B4</th><th style="' + TH + 'text-align:right;">Total</th></tr>';
+      dados.dias.slice().reverse().forEach(function (dia, i) {
+        html += '<tr style="background:' + (i % 2 ? '#F7F3E8' : '#FFFDF8') + ';"><td style="' + TD + 'white-space:nowrap;">' + diaCurto(dia) + '</td>';
         [1, 2, 3, 4].forEach(function (n) {
-          html += '<td style="padding:6px;text-align:center;">' + Math.round(dados.porDia[dia][n] || 0).toLocaleString("pt-BR") + '</td>';
+          var v = dados.porDia[dia][n] || 0;
+          var nl = dados.naoLigouPorDia[dia] && dados.naoLigouPorDia[dia][n];
+          html += '<td style="' + TD + 'text-align:right;">' + (v ? numRel_(v) : '') +
+            (nl ? (v ? ' ' : '') + '<span title="não ligou">⛔</span>' : (v ? '' : '<span style="color:#B8AE98;">–</span>')) + '</td>';
         });
-        html += '<td style="padding:6px;text-align:center;font-weight:700;">' + Math.round(dados.porDia[dia].total).toLocaleString("pt-BR") + '</td></tr>';
+        html += '<td style="' + TD + 'text-align:right;font-weight:700;">' + numRel_(dados.porDia[dia].total) + '</td></tr>';
       });
-      html += '<tr style="background:#EFE7D3;font-weight:700;"><td style="padding:6px;text-align:center;">TOTAL</td>';
+      html += '<tr style="background:#EFE7D3;font-weight:700;"><td style="' + TD + '">TOTAL</td>';
       [1, 2, 3, 4].forEach(function (n) {
-        html += '<td style="padding:6px;text-align:center;">' + Math.round(dados.porBomba[n] || 0).toLocaleString("pt-BR") + '</td>';
+        html += '<td style="' + TD + 'text-align:right;">' + numRel_(dados.porBomba[n] || 0) + '</td>';
       });
-      html += '<td style="padding:6px;text-align:center;">' + Math.round(dados.totalGeral).toLocaleString("pt-BR") + '</td></tr>';
-      html += '</table></div></div>';
+      html += '<td style="' + TD + 'text-align:right;">' + numRel_(dados.totalGeral) + '</td></tr>' +
+        '</table></div>' +
+        '<div class="modal-sub" style="margin:8px 0 0;">A rodada da noite conta no dia em que a bomba foi ligada. ⛔ = a bomba não ligou.</div></div>';
     }
 
-    html += '<div class="card" style="border-left:4px solid #4C6B2F;">' +
-      '<h3 class="panel-title">💾 Backup Completo em Excel</h3>' +
-      '<div class="modal-sub">Baixa um arquivo com uma aba pra cada parte do app (Ocorrências, Bombeamento, Rondas, Manutenção, Gerador, Notas, Pressão, Escala) - tudo que está guardado no Firebase, pra você ter uma cópia fora do celular. Só você acessa isso (a mesma senha de administrador de sempre).</div>' +
+    // ---- ferramentas (sempre no fim) ----
+    var temCorrecoes = false;
+    try { temCorrecoes = planejarCorrecoesBomb_().plano.length > 0; } catch (e) {}
+    html += '<div class="card">' +
+      '<h3 class="panel-title">🛠 Ferramentas</h3>' +
+      '<button type="button" id="btn-diagnostico-bombeamento" style="' + CHIP + 'border:1px solid #D2C7AB;background:#FBF8F1;color:#4A4136;">🔍 Achar leitura errada</button>' +
+      (temCorrecoes ? '<button class="photo-btn" id="btn-corrigir-bomb-2109" style="background:#8A5A44;margin-top:10px;">🛠️ Aplicar correções do bombeamento (backup de 21/09)</button>' : '') +
+      '<div style="border-top:1px solid #E4DCC8;margin:14px 0 12px;"></div>' +
+      '<div style="font-size:13px;font-weight:700;color:#241F1A;margin-bottom:4px;">💾 Backup completo em Excel</div>' +
+      '<div class="modal-sub" style="margin-bottom:8px;">Baixa um arquivo com uma aba pra cada parte do app (Ocorrências, Bombeamento, Rondas, Manutenção, Gerador, Notas, Pressão, Escala) - tudo que está guardado no Firebase, pra você ter uma cópia fora do celular.</div>' +
       '<button class="save-btn" id="btn-exportar-tudo-excel" style="background:#4C6B2F;margin-top:0;">📥 Baixar Backup em Excel</button>' +
       '<div id="exportar-tudo-result" style="font-size:11.5px;color:#6B6153;margin-top:6px;"></div>' +
-    '</div>';
-
-    html += '<div class="card">' +
-      '<button class="save-btn" id="btn-gerar-rel-pdf" style="background:#2F7DB0;margin-top:0;">📄 Gerar PDF do período</button>' +
-      '<button class="photo-btn" id="btn-compartilhar-rel" style="background:#25A244;margin-top:8px;">📤 Compartilhar no WhatsApp</button>' +
-      '<button class="photo-btn" id="btn-bloquear-rel" style="background:#8A8072;margin-top:8px;">🔒 Bloquear novamente</button>' +
+      '<button class="photo-btn" id="btn-bloquear-rel" style="background:#8A8072;margin-top:14px;">🔒 Bloquear novamente</button>' +
     '</div>';
 
     el.innerHTML = html;
-    document.getElementById("btn-exportar-tudo-excel").addEventListener("click", exportarTudoExcel_);
-    document.getElementById("rel-ini").addEventListener("change", function (e) { relDataInicio = e.target.value; renderRelatorios(); });
-    document.getElementById("rel-fim").addEventListener("change", function (e) { relDataFim = e.target.value; renderRelatorios(); });
+    var porId = function (id) { return document.getElementById(id); };
+    porId("rel-ini").addEventListener("change", function (e) { relDataInicio = e.target.value; renderRelatorios(); });
+    porId("rel-fim").addEventListener("change", function (e) { relDataFim = e.target.value; renderRelatorios(); });
     el.querySelectorAll("[data-rel-atalho]").forEach(function (b) {
       b.addEventListener("click", function () {
-        var d = parseInt(b.getAttribute("data-rel-atalho"), 10);
-        var hoje = todayUTC();
-        relDataFim = fmtDateUTC(hoje);
-        relDataInicio = fmtDateUTC(addDaysUTC(hoje, -d));
+        var p = periodoRelatorio_(b.getAttribute("data-rel-atalho"));
+        relDataInicio = p.ini; relDataFim = p.fim;
         renderRelatorios();
       });
     });
-    document.getElementById("btn-diagnostico-bombeamento").addEventListener("click", abrirDiagnosticoBombeamento_);
-    document.getElementById("btn-corrigir-bomb-2109").addEventListener("click", aplicarCorrecoesBomb2109_);
-    desenharGraficosNaTela_(dados);
-    document.getElementById("btn-gerar-rel-pdf").addEventListener("click", gerarRelatorioBombeamentoPDF);
-    document.getElementById("btn-compartilhar-rel").addEventListener("click", compartilharRelatorioImagem);
-    document.getElementById("btn-bloquear-rel").addEventListener("click", function () {
+    el.querySelectorAll("[data-rel-mais-btn]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var g = btn.getAttribute("data-rel-mais-btn");
+        el.querySelectorAll('[data-rel-mais="' + g + '"]').forEach(function (tr) { tr.style.display = ""; });
+        btn.style.display = "none";
+      });
+    });
+    if (porId("btn-compartilhar-rel")) porId("btn-compartilhar-rel").addEventListener("click", compartilharRelatorioImagem);
+    if (porId("btn-gerar-rel-pdf")) porId("btn-gerar-rel-pdf").addEventListener("click", gerarRelatorioBombeamentoPDF);
+    porId("btn-diagnostico-bombeamento").addEventListener("click", abrirDiagnosticoBombeamento_);
+    if (porId("btn-corrigir-bomb-2109")) porId("btn-corrigir-bomb-2109").addEventListener("click", aplicarCorrecoesBomb2109_);
+    porId("btn-exportar-tudo-excel").addEventListener("click", exportarTudoExcel_);
+    porId("btn-bloquear-rel").addEventListener("click", function () {
       relatorioLiberado = false; renderRelatorios();
     });
+    desenharGraficosNaTela_(dados);
   }
 
   function liberarRelatorios() {
@@ -8135,131 +8216,328 @@
     });
   }
 
+  // ---- Relatório de bombeamento: ajudantes ----
+  var CORES_BOMBA_REL = ["#2F7DB0", "#4C6B2F", "#C1501F", "#8A5A44"];
+  var DIAS_SEMANA_REL = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+  // Date (UTC) -> "aaaa-mm-dd", o formato que o campo de data entende
+  function isoUTC_(d) {
+    if (!d || isNaN(d.getTime())) return "";
+    return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0") + "-" + String(d.getUTCDate()).padStart(2, "0");
+  }
+  // Atalhos de período. "7", "30", "90" = últimos N dias contando hoje;
+  // "mes" = do dia 1º até hoje; "mesPassado" = o mês anterior inteiro.
+  function periodoRelatorio_(tipo) {
+    var hoje = todayUTC();
+    var a = hoje.getUTCFullYear(), m = hoje.getUTCMonth();
+    if (tipo === "mes") return { ini: isoUTC_(new Date(Date.UTC(a, m, 1))), fim: isoUTC_(hoje) };
+    if (tipo === "mesPassado") return { ini: isoUTC_(new Date(Date.UTC(a, m - 1, 1))), fim: isoUTC_(new Date(Date.UTC(a, m, 0))) };
+    var n = parseInt(tipo, 10) || 30;
+    return { ini: isoUTC_(addDaysUTC(hoje, -(n - 1))), fim: isoUTC_(hoje) };
+  }
+  function diaSemanaRel_(iso) {
+    var d = parseISODate(iso);
+    return d ? DIAS_SEMANA_REL[d.getUTCDay()] : "";
+  }
+  function numRel_(n) { return Math.round(n || 0).toLocaleString("pt-BR"); }
+  // horas com 1 casa; arredonda pelos minutos (que são exatos) pra não
+  // depender da ordem da soma (362,95 h tem que virar 363,0 sempre)
+  function horasRel_(h) {
+    return (Math.round(Math.round((h || 0) * 60) / 6) / 10).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+  function pluralRel_(n, um, varios) { return n + " " + (n === 1 ? um : varios); }
+  function corPctRel_(p) { return p >= 95 ? "#2F6B1F" : (p >= 85 ? "#B8862B" : "#B4442E"); }
+  // "24/08/2026 a 22/09/2026 (30 dias)"
+  function periodoTxtRel_() {
+    var di = parseISODate(relDataInicio), df = parseISODate(relDataFim);
+    if (di && df) return fmtDate(isoUTC_(di)) + " a " + fmtDate(isoUTC_(df)) + " (" + pluralRel_(diffDaysUTC(df, di) + 1, "dia", "dias") + ")";
+    if (di) return "Desde " + fmtDate(isoUTC_(di));
+    if (df) return "Até " + fmtDate(isoUTC_(df));
+    return "Todo o histórico";
+  }
+  function nomeArqRel_(ext, sufixo) {
+    return "relatorio-bombeamento-" + (relDataInicio || "inicio") + "_a_" + (relDataFim || "hoje") +
+      (sufixo ? "-" + sufixo : "") + "." + ext;
+  }
+
   // Junta os registros de bombeamento do período, somando as rodadas de cada
-  // bomba por dia (uma bomba pode ligar mais de uma vez no mesmo dia).
+  // bomba por dia (uma bomba pode ligar mais de uma vez no mesmo dia). A
+  // rodada da noite conta no dia em que a bomba foi ligada.
   function dadosRelatorio_() {
     var ini = relDataInicio ? parseISODate(relDataInicio) : null;
     var fim = relDataFim ? parseISODate(relDataFim) : null;
     var porDia = {}, porBomba = {}, horasTotais = 0, totalGeral = 0;
-    var horasPorDiaBomba = {};
+    var horasPorDiaBomba = {};     // horas de bomba (só rodadas com início E fim)
+    var m3HorasPorDiaBomba = {};   // volume dessas mesmas rodadas (pra conta da vazão)
+    var naoLigouPorDia = {};
     var naoLigou = [];
+    function garanteDia(dia) { if (!porDia[dia]) porDia[dia] = { 1: 0, 2: 0, 3: 0, 4: 0, total: 0 }; }
     bombRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
       var d = parseISODate(r.data);
       if (!d) return;
       if (ini && d < ini) return;
       if (fim && d > fim) return;
+      var dia = isoUTC_(d);   // mesma chave mesmo quando a data veio como dd/mm/aaaa
+      var b = parseInt(r.bomba, 10) || 0;
       if (ehNaoLigou_(r)) {
-        naoLigou.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, motivo: r.motivoNaoLigou || r.observacao || "" });
+        naoLigou.push({ data: dia, bomba: r.bomba, inicio: r.horarioInicio, motivo: r.motivoNaoLigou || r.observacao || "" });
+        if (!naoLigouPorDia[dia]) naoLigouPorDia[dia] = {};
+        naoLigouPorDia[dia][b] = true;
+        garanteDia(dia);
         return; // não soma hora de bomba (antes somava a noite inteira com 0 m³)
       }
       var c = consumoRodada_(r);
-      if (c === null) return;
-      var b = parseInt(r.bomba, 10) || 0;
-      if (!porDia[r.data]) porDia[r.data] = { 1: 0, 2: 0, 3: 0, 4: 0, total: 0 };
-      porDia[r.data][b] = (porDia[r.data][b] || 0) + c;
-      porDia[r.data].total += c;
+      if (c === null || c < 0) return; // leitura final menor que a inicial é erro: aparece em "leituras que não fecham"
+      garanteDia(dia);
+      porDia[dia][b] = (porDia[dia][b] || 0) + c;
+      porDia[dia].total += c;
       porBomba[b] = (porBomba[b] || 0) + c;
       totalGeral += c;
-      var hi = minutosDeHora_(r.horarioInicio), hf = minutosDeHora_(r.horarioFim);
-      var dur = hf - hi; if (dur < 0) dur += 1440;
+      // sem horário de início E de fim não dá pra saber quanto tempo rodou
+      if (!r.horarioInicio || !r.horarioFim) return;
+      var dur = minutosDeHora_(r.horarioFim) - minutosDeHora_(r.horarioInicio);
+      if (dur < 0) dur += 1440;
+      if (!(dur > 0)) return;
       horasTotais += dur / 60;
-      if (!horasPorDiaBomba[r.data]) horasPorDiaBomba[r.data] = {};
-      horasPorDiaBomba[r.data][b] = (horasPorDiaBomba[r.data][b] || 0) + dur / 60;
+      if (!horasPorDiaBomba[dia]) { horasPorDiaBomba[dia] = {}; m3HorasPorDiaBomba[dia] = {}; }
+      horasPorDiaBomba[dia][b] = (horasPorDiaBomba[dia][b] || 0) + dur / 60;
+      m3HorasPorDiaBomba[dia][b] = (m3HorasPorDiaBomba[dia][b] || 0) + c;
     });
     var dias = Object.keys(porDia).sort();
-    naoLigou.sort(function (a, b) { return String(a.data) < String(b.data) ? -1 : 1; });
+    naoLigou.sort(function (a, b) {
+      if (a.data !== b.data) return a.data < b.data ? -1 : 1;
+      return (parseInt(a.bomba, 10) || 0) - (parseInt(b.bomba, 10) || 0);
+    });
     return { porDia: porDia, porBomba: porBomba, dias: dias, totalGeral: totalGeral,
-             horasTotais: horasTotais, horasPorDiaBomba: horasPorDiaBomba, naoLigou: naoLigou };
+             horasTotais: horasTotais, horasPorDiaBomba: horasPorDiaBomba,
+             m3HorasPorDiaBomba: m3HorasPorDiaBomba, naoLigou: naoLigou, naoLigouPorDia: naoLigouPorDia };
+  }
+
+  // Números de cada bomba no período. A vazão usa só as rodadas com horário
+  // de início e fim (sem horário não dá pra saber quantas horas rodou).
+  function resumoPorBomba_(d, paradas) {
+    paradas = paradas || paradasDetectadas_();
+    return [1, 2, 3, 4].map(function (b) {
+      var horas = 0, m3h = 0;
+      d.dias.forEach(function (dia) {
+        horas += (d.horasPorDiaBomba[dia] && d.horasPorDiaBomba[dia][b]) || 0;
+        m3h += (d.m3HorasPorDiaBomba[dia] && d.m3HorasPorDiaBomba[dia][b]) || 0;
+      });
+      var vazao = horas > 0 ? m3h / horas : null;
+      var normal = vazaoReferenciaBomba_(b) || vazaoNominalBomba;
+      var pb = paradas.filter(function (p) { return (parseInt(p.bomba, 10) || 0) === b; });
+      return {
+        bomba: b, m3: d.porBomba[b] || 0, horas: horas, vazao: vazao, normal: normal,
+        pct: (vazao !== null && normal) ? vazao / normal * 100 : null,
+        naoLigou: d.naoLigou.filter(function (x) { return (parseInt(x.bomba, 10) || 0) === b; }).length,
+        paradas: pb.length,
+        horasParadas: pb.reduce(function (a, p) { return a + Math.max(0, p.paradaMin); }, 0) / 60
+      };
+    });
   }
 
 
-  // ---- Gráfico de linha desenhado no canvas (usado no relatório) ----
-  function desenharGraficoLinha_(ctx, x, y, w, h, series, labels, titulo, unidade) {
+  // ---- Gráficos desenhados no canvas (usados no relatório) ----
+  // series: [{ nome, cor, valores: [...], tracejada, semLegenda }]
+  // Arredonda o topo do eixo pra números redondos (0 · 4.000 · 8.000...).
+  function escalaBonitaRel_(maxV) {
+    if (!(maxV > 0)) return { max: 1, passo: 0.25 };
+    var bruto = maxV / 4;
+    var mag = Math.pow(10, Math.floor(Math.log(bruto) / Math.LN10));
+    var opcoes = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+    for (var i = 0; i < opcoes.length; i++) {
+      if (opcoes[i] * mag >= bruto * 0.999999) return { max: opcoes[i] * mag * 4, passo: opcoes[i] * mag };
+    }
+    return { max: 40 * mag, passo: 10 * mag };
+  }
+  // Moldura comum: fundo, título, grade com números redondos, rótulos do
+  // eixo X sem encavalar e legenda (que quebra em 2 linhas se não couber).
+  function quadroGraficoRel_(ctx, x, y, w, h, series, labels, titulo, unidade, maxDados, barras) {
     var CINZA = "#6B6153", BORDA = "#DCD3BC";
     ctx.fillStyle = "#FBF8F1"; ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = BORDA; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-    ctx.fillStyle = "#241F1A"; ctx.font = "bold 15px Arial"; ctx.textAlign = "left";
-    ctx.fillText(titulo, x + 12, y + 24);
-
-    var padL = 68, padR = 18, padT = 40, padB = 46;
+    if (titulo) {
+      ctx.fillStyle = "#241F1A"; ctx.font = "bold 15px Arial"; ctx.textAlign = "left";
+      ctx.fillText(titulo, x + 12, y + 24);
+    }
+    // legenda: primeiro vê quantas linhas ela precisa
+    var leg = series.filter(function (s2) { return !s2.semLegenda; });
+    ctx.font = "10.5px Arial";
+    var larg = leg.map(function (s2) { return 19 + ctx.measureText(s2.nome).width; });
+    var padL = 68, padR = 18;
+    var iniLeg = x + padL, gap = 27, linhasLeg = [];
+    var somaLeg = larg.reduce(function (a, b) { return a + b; }, 0) + gap * Math.max(0, leg.length - 1);
+    if (leg.length && iniLeg + somaLeg <= x + w - 8) {
+      linhasLeg = [leg.map(function (s2, i) { return i; })];
+    } else if (leg.length) {
+      iniLeg = x + 10; gap = 12;
+      var atual = [], usado = 0;
+      leg.forEach(function (s2, i) {
+        var add = (atual.length ? gap : 0) + larg[i];
+        if (atual.length && iniLeg + usado + add > x + w - 8) { linhasLeg.push(atual); atual = []; usado = 0; add = larg[i]; }
+        atual.push(i); usado += add;
+      });
+      if (atual.length) linhasLeg.push(atual);
+    }
+    var padT = titulo ? 40 : 16, padB = 30 + Math.max(1, linhasLeg.length) * 16;
     var gx = x + padL, gy = y + padT, gw = w - padL - padR, gh = h - padT - padB;
+    var esc = escalaBonitaRel_(maxDados * 1.08), maxV = esc.max;
 
-    var maxV = 0;
-    series.forEach(function (s2) { s2.valores.forEach(function (v) { if (v !== null && v > maxV) maxV = v; }); });
-    if (maxV <= 0) maxV = 1;
-    maxV = maxV * 1.15;
-
-    ctx.strokeStyle = BORDA; ctx.font = "10px Arial";
+    ctx.strokeStyle = BORDA; ctx.lineWidth = 1; ctx.font = "10px Arial";
     for (var i = 0; i <= 4; i++) {
       var yy = gy + gh - (gh * i / 4);
       ctx.beginPath(); ctx.moveTo(gx, yy); ctx.lineTo(gx + gw, yy); ctx.stroke();
       ctx.fillStyle = CINZA; ctx.textAlign = "right";
-      ctx.fillText(Math.round(maxV * i / 4).toLocaleString("pt-BR"), gx - 6, yy + 3.5);
+      ctx.fillText((Math.round(esc.passo * i * 10) / 10).toLocaleString("pt-BR"), gx - 6, yy + 3.5);
     }
-    ctx.textAlign = "center"; ctx.fillStyle = CINZA;
-    var passo = Math.max(1, Math.ceil(labels.length / 7));
-    labels.forEach(function (lb, i) {
-      if (i % passo !== 0 && i !== labels.length - 1) return;
-      var xx = labels.length === 1 ? gx + gw / 2 : gx + (gw * i / (labels.length - 1));
+    var n = labels.length;
+    var xDe = barras
+      ? function (i2) { return gx + gw * (i2 + 0.5) / Math.max(1, n); }
+      : function (i2) { return n === 1 ? gx + gw / 2 : gx + (gw * i2 / (n - 1)); };
+    // rótulos do eixo X: no máximo uns 7, sem encavalar e sem sair do quadro
+    ctx.fillStyle = CINZA; ctx.textAlign = "center";
+    var larRot = 0;
+    labels.forEach(function (lb) { larRot = Math.max(larRot, ctx.measureText(lb).width); });
+    var passo = Math.max(1, Math.ceil(n / 7));
+    while (passo < n && n > 1 && xDe(passo) - xDe(0) < larRot + 8) passo++;
+    labels.forEach(function (lb, i2) {
+      var ult = i2 === n - 1;
+      if (i2 % passo !== 0 && !ult) return;
+      if (!ult && n > 1 && xDe(n - 1) - xDe(i2) < larRot + 8) return;
+      var xx = Math.max(x + larRot / 2 + 3, Math.min(x + w - larRot / 2 - 3, xDe(i2)));
       ctx.fillText(lb, xx, gy + gh + 16);
     });
-    series.forEach(function (s2) {
-      ctx.strokeStyle = s2.cor; ctx.lineWidth = s2.tracejada ? 2.2 : 2.6;
-      if (s2.tracejada) ctx.setLineDash([7, 5]); else ctx.setLineDash([]);
-      ctx.beginPath();
-      var iniciou = false;
-      s2.valores.forEach(function (v, i) {
-        if (v === null || v === undefined) { iniciou = false; return; }  // buraco na linha
-        var xx = labels.length === 1 ? gx + gw / 2 : gx + (gw * i / (labels.length - 1));
-        var yy = gy + gh - (gh * v / maxV);
-        if (!iniciou) { ctx.moveTo(xx, yy); iniciou = true; } else ctx.lineTo(xx, yy);
-      });
-      ctx.stroke(); ctx.setLineDash([]);
-      if (!s2.tracejada) {
-        ctx.fillStyle = s2.cor;
-        s2.valores.forEach(function (v, i) {
-          if (v === null || v === undefined) return;
-          var xx = labels.length === 1 ? gx + gw / 2 : gx + (gw * i / (labels.length - 1));
-          var yy = gy + gh - (gh * v / maxV);
-          ctx.beginPath(); ctx.arc(xx, yy, 3.6, 0, Math.PI * 2); ctx.fill();
-        });
-      }
-    });
-    var lx = gx, ly = y + h - 12;
+    // legenda
     ctx.font = "10.5px Arial"; ctx.textAlign = "left";
-    series.forEach(function (s2) {
-      ctx.fillStyle = s2.cor;
-      if (s2.tracejada) { ctx.fillRect(lx, ly - 7, 5, 3.5); ctx.fillRect(lx + 8, ly - 7, 5, 3.5); }
-      else ctx.fillRect(lx, ly - 7, 14, 3.5);
-      ctx.fillStyle = CINZA; ctx.fillText(s2.nome, lx + 19, ly - 3);
-      lx += ctx.measureText(s2.nome).width + 46;
+    linhasLeg.forEach(function (idxs, k) {
+      var lx = iniLeg, ly = y + h - 12 - (linhasLeg.length - 1 - k) * 16;
+      idxs.forEach(function (i2) {
+        var s2 = leg[i2];
+        ctx.fillStyle = s2.cor;
+        if (s2.tracejada) { ctx.fillRect(lx, ly - 7, 5, 3.5); ctx.fillRect(lx + 8, ly - 7, 5, 3.5); }
+        else if (barras) ctx.fillRect(lx + 2, ly - 10, 10, 10);
+        else ctx.fillRect(lx, ly - 7, 14, 3.5);
+        ctx.fillStyle = CINZA; ctx.fillText(s2.nome, lx + 19, ly - 3);
+        lx += larg[i2] + gap;
+      });
     });
     if (unidade) {
       ctx.save(); ctx.translate(x + 15, gy + gh / 2); ctx.rotate(-Math.PI / 2);
       ctx.fillStyle = CINZA; ctx.font = "10px Arial"; ctx.textAlign = "center";
       ctx.fillText(unidade, 0, 0); ctx.restore();
     }
+    return { gx: gx, gy: gy, gw: gw, gh: gh, maxV: maxV, xDe: xDe, n: n,
+             Y: function (v) { return gy + gh - (gh * v / maxV); } };
+  }
+  // linha tracejada de referência (ex.: média, 100%, 85%) de ponta a ponta
+  function linhaRefRel_(ctx, q, s2) {
+    var v = null;
+    for (var k = 0; k < s2.valores.length; k++) { if (s2.valores[k] !== null && s2.valores[k] !== undefined) { v = s2.valores[k]; break; } }
+    if (v === null) return;
+    ctx.strokeStyle = s2.cor; ctx.lineWidth = 2.2; ctx.setLineDash([7, 5]);
+    ctx.beginPath(); ctx.moveTo(q.gx, q.Y(v)); ctx.lineTo(q.gx + q.gw, q.Y(v)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  function desenharGraficoLinha_(ctx, x, y, w, h, series, labels, titulo, unidade) {
+    var maxDados = 0;
+    series.forEach(function (s2) { s2.valores.forEach(function (v) { if (v !== null && v !== undefined && v > maxDados) maxDados = v; }); });
+    var q = quadroGraficoRel_(ctx, x, y, w, h, series, labels, titulo, unidade, maxDados, false);
+    ctx.save();
+    ctx.lineJoin = "round"; ctx.lineCap = "round";   // sem "espinhos" nas viradas bruscas
+    series.forEach(function (s2) {
+      if (s2.tracejada) { linhaRefRel_(ctx, q, s2); return; }
+      ctx.strokeStyle = s2.cor; ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      var iniciou = false;
+      s2.valores.forEach(function (v, i2) {
+        if (v === null || v === undefined) { iniciou = false; return; }  // buraco na linha
+        if (!iniciou) { ctx.moveTo(q.xDe(i2), q.Y(v)); iniciou = true; } else ctx.lineTo(q.xDe(i2), q.Y(v));
+      });
+      ctx.stroke();
+      ctx.fillStyle = s2.cor;
+      s2.valores.forEach(function (v, i2) {
+        if (v === null || v === undefined) return;
+        ctx.beginPath(); ctx.arc(q.xDe(i2), q.Y(v), 3.4, 0, Math.PI * 2); ctx.fill();
+      });
+    });
+    ctx.restore();
+  }
+  // Barras empilhadas: cada cor é uma série (bomba) e a altura total é a soma do dia.
+  function desenharGraficoBarras_(ctx, x, y, w, h, series, labels, titulo, unidade) {
+    var pilha = series.filter(function (s2) { return !s2.tracejada; });
+    var maxDados = 0;
+    labels.forEach(function (lb, i) {
+      var t = pilha.reduce(function (a, s2) { return a + Math.max(0, s2.valores[i] || 0); }, 0);
+      if (t > maxDados) maxDados = t;
+    });
+    series.forEach(function (s2) { if (s2.tracejada) s2.valores.forEach(function (v) { if (v > maxDados) maxDados = v; }); });
+    var q = quadroGraficoRel_(ctx, x, y, w, h, series, labels, titulo, unidade, maxDados, true);
+    var slot = q.gw / Math.max(1, q.n), bw = Math.max(1, Math.min(slot * 0.74, 46));
+    for (var i = 0; i < q.n; i++) {
+      var acc = 0, xc = q.xDe(i);
+      pilha.forEach(function (s2) {
+        var v = Math.max(0, s2.valores[i] || 0);
+        if (!v) return;
+        var y0 = q.Y(acc), y1 = q.Y(acc + v);
+        ctx.fillStyle = s2.cor; ctx.fillRect(xc - bw / 2, y1, bw, y0 - y1);
+        if (bw >= 4) { ctx.fillStyle = "rgba(255,253,248,0.75)"; ctx.fillRect(xc - bw / 2, y1, bw, Math.min(1, y0 - y1)); }
+        acc += v;
+      });
+    }
+    series.forEach(function (s2) { if (s2.tracejada) linhaRefRel_(ctx, q, s2); });
   }
 
-  // Corrente e tensão das rondas no período (só bombas soft starter têm)
+  // Corrente e tensão das rondas no período (só bombas soft starter têm).
+  // Limpa os erros de digitação mais comuns antes de desenhar: corrente e
+  // tensão trocadas (nessas bombas a corrente nunca é maior que a tensão) e
+  // valores absurdos (mais de 3x ou menos de 1/3 do normal da bomba).
   function dadosEletricos_() {
     var ini = relDataInicio ? parseISODate(relDataInicio) : null;
     var fim = relDataFim ? parseISODate(relDataFim) : null;
-    var pontos = [];
+    var num = function (v) { return parseFloat(String(v === undefined || v === null ? "" : v).replace(",", ".")); };
+    var brutos = [], trocadas = 0, descartadas = 0;
     rondaRecords.filter(function (r) { return !r._pendingDelete; }).forEach(function (r) {
       var d = parseISODate(r.data);
       if (!d) return;
       if (ini && d < ini) return;
       if (fim && d > fim) return;
-      var c = parseFloat(r.corrente), t = parseFloat(r.tensao);
+      var c = num(r.corrente), t = num(r.tensao);
+      if (!(c > 0)) c = NaN;
+      if (!(t > 0)) t = NaN;
       if (!isFinite(c) && !isFinite(t)) return;
-      pontos.push({ data: r.data, hora: r.horarioReal || r.horarioPrevisto || "", bomba: parseInt(r.bomba, 10) || 0,
+      if (isFinite(c) && isFinite(t) && c > t) { var x = c; c = t; t = x; trocadas++; }
+      brutos.push({ data: isoUTC_(d), hora: r.horarioReal || r.horarioPrevisto || "", bomba: parseInt(r.bomba, 10) || 0,
                     corrente: isFinite(c) ? c : null, tensao: isFinite(t) ? t : null });
+    });
+    // "normal" de cada bomba = mediana das leituras; fora de 1/3 a 3x disso é erro
+    var mediana = function (vs) {
+      if (!vs.length) return null;
+      vs = vs.slice().sort(function (a, b) { return a - b; });
+      var m = Math.floor(vs.length / 2);
+      return vs.length % 2 ? vs[m] : (vs[m - 1] + vs[m]) / 2;
+    };
+    var normal = {};
+    brutos.forEach(function (p) {
+      ["corrente", "tensao"].forEach(function (campo) {
+        var k = p.bomba + campo;
+        if (normal[k] === undefined) {
+          normal[k] = mediana(brutos.filter(function (q) { return q.bomba === p.bomba && q[campo] !== null; }).map(function (q) { return q[campo]; }));
+        }
+      });
+    });
+    var pontos = [];
+    brutos.forEach(function (p) {
+      ["corrente", "tensao"].forEach(function (campo) {
+        var ref = normal[p.bomba + campo];
+        if (p[campo] !== null && ref && (p[campo] > ref * 3 || p[campo] < ref / 3)) { p[campo] = null; descartadas++; }
+      });
+      if (p.corrente !== null || p.tensao !== null) pontos.push(p);
     });
     pontos.sort(function (a, b) {
       if (a.data !== b.data) return a.data < b.data ? -1 : 1;
       return minutosDeHora_(a.hora) - minutosDeHora_(b.hora);
     });
+    pontos.trocadas = trocadas;
+    pontos.descartadas = descartadas;
     return pontos;
   }
 
@@ -8426,6 +8704,7 @@
     comLimite_(lote.commit(), 20000).then(function () {
       travaTela_(false);
       alert("✅ Pronto: " + qtd + " alteração(ões) aplicada(s) no bombeamento.");
+      try { if (relatorioLiberado && document.getElementById("tab-relatorios").classList.contains("active")) renderRelatorios(); } catch (e) {}
     }).catch(function (err) {
       travaTela_(false);
       if (err && err.code === "pendentes") alert("As correções já estão gravadas no celular e estão subindo pro Firebase (internet lenta). Deixe o app aberto uns minutos.");
@@ -8444,8 +8723,9 @@
       if (ini && d < ini) return;
       if (fim && d > fim) return;
       var a = analiseRodada_(r);
-      if (!a || (a.alerta !== "parou" && a.alerta !== "parou-forte")) return;
-      out.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
+      // consumo negativo não é parada - é leitura errada (vai pras "leituras que não fecham")
+      if (!a || a.consumo < 0 || (a.alerta !== "parou" && a.alerta !== "parou-forte")) return;
+      out.push({ data: isoUTC_(d), bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
                  efetivoMin: a.efetivoMin, paradaMin: a.paradaMin, fimEstimado: a.fimEstimado,
                  pct: a.pctReferencia, referencia: a.referencia, forte: a.alerta === "parou-forte" });
     });
@@ -8456,6 +8736,7 @@
   // O oposto da parada: volume alto demais para o tempo registrado. Não é
   // bomba parando - é leitura ou horário digitado errado. Precisa aparecer
   // no relatório, senão o número entra na conta sem ninguém questionar.
+  // Leitura final menor que a inicial (consumo negativo) também entra aqui.
   function inconsistenciasDetectadas_() {
     var ini = relDataInicio ? parseISODate(relDataInicio) : null;
     var fim = relDataFim ? parseISODate(relDataFim) : null;
@@ -8465,225 +8746,620 @@
       if (!d) return;
       if (ini && d < ini) return;
       if (fim && d > fim) return;
+      if (ehNaoLigou_(r)) return;
+      var c = consumoRodada_(r);
+      if (c !== null && c < 0) {
+        out.push({ data: isoUTC_(d), bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
+                   consumo: c, vazaoReal: 0, pctNominal: 0, pctReferencia: 0, excedenteMin: 0, negativo: true });
+        return;
+      }
       var a = analiseRodada_(r);
       if (!a || a.alerta !== "alto") return;
-      out.push({ data: r.data, bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
+      out.push({ data: isoUTC_(d), bomba: r.bomba, inicio: r.horarioInicio, fim: r.horarioFim,
                  consumo: a.consumo, vazaoReal: a.vazaoReal, pctNominal: a.pctNominal, pctReferencia: a.pctReferencia,
                  excedenteMin: -a.paradaMin });
     });
-    out.sort(function (a, b) { return b.pctNominal - a.pctNominal; });
+    out.sort(function (a, b) {
+      if (!!a.negativo !== !!b.negativo) return a.negativo ? -1 : 1;
+      return b.pctNominal - a.pctNominal;
+    });
     return out;
   }
 
-  // Desenha os mesmos gráficos do PDF direto na tela. Largura fixa maior que
-  // a do celular de propósito: o card rola na horizontal, o que deixa os
-  // rótulos legíveis em vez de espremidos.
+  // ---- Séries dos gráficos (as mesmas na tela, nas imagens e no PDF) ----
+  // Volume por dia em barras empilhadas: cada cor é uma bomba e a altura da
+  // barra é o total do dia. A linha tracejada é a média do período.
+  function serieVolumeEmpilhada_(d, nomeLongo) {
+    var media = d.dias.length ? d.totalGeral / d.dias.length : 0;
+    var s = [1, 2, 3, 4].map(function (n, i) {
+      return { nome: (nomeLongo ? "Bomba " : "B") + n, cor: CORES_BOMBA_REL[i],
+               valores: d.dias.map(function (dia) { return d.porDia[dia][n] || 0; }) };
+    });
+    s.push({ nome: "média " + numRel_(media) + (nomeLongo ? " m³/dia" : ""), cor: "#241F1A", tracejada: true,
+             valores: d.dias.map(function () { return media; }) });
+    return s;
+  }
+  // Vazão do dia de cada bomba em % da vazão normal DELA (100% = normal).
+  // Assim as 4 bombas ficam comparáveis, mesmo tendo vazões diferentes.
+  function seriesPctNormal_(d, nomeLongo) {
+    var s = [1, 2, 3, 4].map(function (n, i) {
+      var normal = vazaoReferenciaBomba_(n) || vazaoNominalBomba;
+      return { nome: (nomeLongo ? "Bomba " : "B") + n, cor: CORES_BOMBA_REL[i],
+               valores: d.dias.map(function (dia) {
+                 var h = d.horasPorDiaBomba[dia] && d.horasPorDiaBomba[dia][n];
+                 if (!h || !normal) return null;
+                 var m3 = (d.m3HorasPorDiaBomba[dia] && d.m3HorasPorDiaBomba[dia][n]) || 0;
+                 // acima de 150% é leitura/horário errado - corta pra não achatar o gráfico
+                 return Math.min(150, Math.round(m3 / h / normal * 100));
+               }) };
+    });
+    s.push({ nome: "normal", cor: "#2F6B1F", tracejada: true, valores: d.dias.map(function () { return 100; }) });
+    s.push({ nome: "85%", cor: "#B4442E", tracejada: true, valores: d.dias.map(function () { return 85; }) });
+    return s;
+  }
+  // Corrente/tensão: a mediana das leituras de cada dia, por bomba. Assim a
+  // linha fica contínua e uma leitura errada não vira um pico no gráfico.
+  function seriesEletricas_(el, campo, nomeLongo) {
+    var dias = [], bombas = [];
+    el.forEach(function (p) {
+      if (dias.indexOf(p.data) === -1) dias.push(p.data);
+      if (bombas.indexOf(p.bomba) === -1) bombas.push(p.bomba);
+    });
+    dias.sort();
+    bombas.sort(function (a, b) { return a - b; });
+    var series = bombas.map(function (b) {
+      return { nome: (nomeLongo ? "Bomba " : "B") + b, cor: CORES_BOMBA_REL[((b - 1) % 4 + 4) % 4],
+        valores: dias.map(function (dia) {
+          var vs = el.filter(function (p) { return p.data === dia && p.bomba === b && p[campo] !== null; })
+                     .map(function (p) { return p[campo]; }).sort(function (x1, x2) { return x1 - x2; });
+          if (!vs.length) return null;
+          var m = Math.floor(vs.length / 2);
+          return Math.round((vs.length % 2 ? vs[m] : (vs[m - 1] + vs[m]) / 2) * 10) / 10;
+        }) };
+    }).filter(function (s2) { return s2.valores.some(function (v) { return v !== null; }); });
+    return { series: series, labels: dias.map(function (dia) { return fmtDate(dia).slice(0, 5); }) };
+  }
+
+  // Desenha os gráficos na tela do tamanho exato do card (antes era uma
+  // largura fixa maior que o celular e o gráfico tinha que ser rolado pro lado).
   function desenharGraficosNaTela_(d) {
     if (!d || !d.dias.length) return;
-    var LARG = 680, ALT = 250;
-    function pinta(id, series, labels, titulo, unidade) {
+    var ALT = 240;
+    function pinta(id, series, labels, unidade, barras) {
       var cv = document.getElementById(id);
       if (!cv) return;
-      var dpr = window.devicePixelRatio || 1;
-      cv.width = LARG * dpr; cv.height = ALT * dpr;
-      cv.style.width = LARG + "px"; cv.style.height = ALT + "px";
+      var larg = Math.floor((cv.parentNode && cv.parentNode.clientWidth) || 0) - 2;
+      if (larg < 260) larg = Math.max(260, Math.min(window.innerWidth || 360, 760) - 64);
+      var dpr = Math.min(window.devicePixelRatio || 1, 3);
+      cv.width = Math.round(larg * dpr); cv.height = Math.round(ALT * dpr);
+      cv.style.width = larg + "px"; cv.style.height = "auto";
       var ctx = cv.getContext("2d");
-      ctx.scale(dpr, dpr);
-      desenharGraficoLinha_(ctx, 0, 0, LARG, ALT, series, labels, titulo, unidade);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      (barras ? desenharGraficoBarras_ : desenharGraficoLinha_)(ctx, 0, 0, larg, ALT, series, labels, "", unidade);
     }
     var labels = d.dias.map(function (dia) { return fmtDate(dia).slice(0, 5); });
-    var cores = ["#2F7DB0", "#4C6B2F", "#C1501F", "#8A5A44"];
-
-    pinta("rel-c1", [1, 2, 3, 4].map(function (n, i) {
-      return { nome: "Bomba " + n, cor: cores[i], valores: d.dias.map(function (dia) { return d.porDia[dia][n] || 0; }) };
-    }), labels, "", "m³");
-
-    pinta("rel-c2", [{ nome: "Total", cor: "#B4442E", valores: d.dias.map(function (dia) { return d.porDia[dia].total; }) }],
-          labels, "", "m³");
-
-    var sVaz = [1, 2, 3, 4].map(function (n, i) {
-      return { nome: "B" + n, cor: cores[i], valores: d.dias.map(function (dia) {
-        var h = d.horasPorDiaBomba[dia] && d.horasPorDiaBomba[dia][n];
-        return (h && h > 0) ? Math.round((d.porDia[dia][n] || 0) / h) : null;
-      }) };
-    });
-    sVaz.push({ nome: "Esperado", cor: "#B4442E", tracejada: true,
-                valores: d.dias.map(function () { return vazaoNominalBomba; }) });
-    pinta("rel-c3", sVaz, labels, "", "m³/h");
-
+    pinta("rel-c1", serieVolumeEmpilhada_(d), labels, "m³", true);
+    pinta("rel-c3", seriesPctNormal_(d), labels, "% do normal");
     var el = dadosEletricos_();
     if (el.length > 1) {
-      var labE = el.map(function (p) { return fmtDate(p.data).slice(0, 5) + " " + p.hora; });
-      var bombasE = [];
-      el.forEach(function (p) { if (bombasE.indexOf(p.bomba) === -1) bombasE.push(p.bomba); });
-      bombasE.sort();
-      pinta("rel-c4", bombasE.map(function (b) {
-        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
-                 valores: el.map(function (p) { return p.bomba === b && p.corrente !== null ? p.corrente : null; }) };
-      }), labE, "", "Ampère");
-      pinta("rel-c5", bombasE.map(function (b) {
-        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
-                 valores: el.map(function (p) { return p.bomba === b && p.tensao !== null ? p.tensao : null; }) };
-      }), labE, "", "Volts");
+      var sc = seriesEletricas_(el, "corrente"), st = seriesEletricas_(el, "tensao");
+      pinta("rel-c4", sc.series, sc.labels, "Ampère");
+      pinta("rel-c5", st.series, st.labels, "Volts");
     }
   }
 
-  function construirCanvasRelatorio_() {
+  // ================= IMAGENS (WhatsApp) E PDF DO RELATÓRIO =================
+  // Cada imagem tem 1200 px de largura e no máximo 1600 de altura: o WhatsApp
+  // não reduz imagens desse tamanho, então o texto chega nítido. Antes era uma
+  // imagem só, comprida demais - o WhatsApp encolhia e ficava ilegível.
+  var REL_W = 1200, REL_M = 40, REL_A4 = 1697;   // 1200 x 1697 = proporção da folha A4
+  function novoCanvasRel_(h) {
+    var cv = document.createElement("canvas");
+    cv.width = REL_W; cv.height = Math.round(h);
+    var ctx = cv.getContext("2d");
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, cv.width, cv.height);
+    return { cv: cv, ctx: ctx };
+  }
+  function fonteRel_(ctx, px, negrito) { ctx.font = (negrito ? "bold " : "") + px + "px Arial"; }
+  function textoRel_(ctx, txt, x, y, px, cor, negrito, alinha) {
+    fonteRel_(ctx, px, negrito); ctx.fillStyle = cor || "#241F1A"; ctx.textAlign = alinha || "left";
+    ctx.fillText(String(txt), x, y);
+  }
+  // escreve numa linha só, diminuindo a letra se não couber
+  function textoCabeRel_(ctx, txt, x, y, maxW, px, cor, negrito) {
+    txt = String(txt);
+    fonteRel_(ctx, px, negrito);
+    while (px > 16 && ctx.measureText(txt).width > maxW) { px--; fonteRel_(ctx, px, negrito); }
+    ctx.fillStyle = cor || "#241F1A"; ctx.textAlign = "left";
+    ctx.fillText(truncate_(ctx, txt, maxW), x, y);
+  }
+  // quebra o texto em linhas; devolve a posição (y) da última linha escrita
+  function paragrafoRel_(ctx, txt, x, y, maxW, px, cor, alt) {
+    fonteRel_(ctx, px); ctx.fillStyle = cor || "#6B6153"; ctx.textAlign = "left";
+    var linha = "";
+    String(txt).split(" ").forEach(function (p) {
+      var teste = linha ? linha + " " + p : p;
+      if (linha && ctx.measureText(teste).width > maxW) {
+        ctx.fillText(linha, x, y); y += alt; linha = p;
+      } else linha = teste;
+    });
+    if (linha) ctx.fillText(linha, x, y);
+    return y;
+  }
+  function cabecalhoRel_(ctx, titulo, sub) {
+    ctx.fillStyle = "#3F5F26"; ctx.fillRect(0, 0, REL_W, 124);
+    textoCabeRel_(ctx, titulo, REL_M, 58, REL_W - 2 * REL_M, 42, "#FFFFFF", true);
+    textoCabeRel_(ctx, sub, REL_M, 100, REL_W - 2 * REL_M, 27, "#D6E4C4", false);
+    return 124;
+  }
+  function rodapeRel_(ctx, y) {
+    var ag = new Date();
+    textoRel_(ctx, "Gerado em " + fmtDate(todayStr()) + " às " + String(ag.getHours()).padStart(2, "0") + ":" +
+      String(ag.getMinutes()).padStart(2, "0") + "  ·  Registro de Ocorrências · Irrigação", REL_M, y, 20, "#8A8072");
+  }
+  // devolve uma cópia só com a parte usada do canvas (altura h)
+  function cortaRel_(cv, h) {
+    h = Math.max(1, Math.min(cv.height, Math.ceil(h)));
+    if (h === cv.height) return cv;
+    var out = document.createElement("canvas");
+    out.width = cv.width; out.height = h;
+    out.getContext("2d").drawImage(cv, 0, 0);
+    return out;
+  }
+  // Tabela no canvas. cols: [{ t, w, al }] ; linhas: [células] ou { cel: [...], total: true }
+  // célula = texto ou { t, cor, negrito, px }. Devolve o y logo abaixo da tabela.
+  function tabelaRel_(ctx, x, y, cols, linhas, o) {
+    o = o || {};
+    var F = o.fonte || 26, H = o.altLinha || 46;
+    var larg = cols.reduce(function (a, c) { return a + c.w; }, 0);
+    function celulas(yy, cels, estilo) {
+      var cx = x;
+      cols.forEach(function (c, i) {
+        var cel = cels[i];
+        var obj = (cel !== null && typeof cel === "object") ? cel : { t: cel === undefined || cel === null ? "" : String(cel) };
+        var px = obj.px || F;
+        fonteRel_(ctx, px, estilo.negrito || obj.negrito);
+        ctx.fillStyle = obj.cor || estilo.cor || "#241F1A";
+        var al = c.al || "left";
+        ctx.textAlign = al;
+        var tx = al === "right" ? cx + c.w - 14 : (al === "center" ? cx + c.w / 2 : cx + 14);
+        ctx.fillText(truncate_(ctx, obj.t, c.w - 24), tx, yy + H / 2 + px * 0.36);
+        cx += c.w;
+      });
+    }
+    ctx.fillStyle = o.corCab || "#4C6B2F"; ctx.fillRect(x, y, larg, H);
+    celulas(y, cols.map(function (c) { return c.t; }), { negrito: true, cor: "#FFFFFF" });
+    y += H;
+    linhas.forEach(function (ln, i) {
+      var cels = Array.isArray(ln) ? ln : ln.cel;
+      var total = !Array.isArray(ln) && ln.total;
+      ctx.fillStyle = total ? "#EFE7D3" : (i % 2 ? "#F6F2E7" : "#FFFFFF");
+      ctx.fillRect(x, y, larg, H);
+      celulas(y, cels, { negrito: total });
+      y += H;
+    });
+    ctx.fillStyle = "#DCD3BC"; ctx.fillRect(x, y - 1, larg, 2);
+    return y + 1;
+  }
+
+  // Tudo o que as imagens e o PDF precisam, calculado uma vez só.
+  function montarRelatorio_() {
     var d = dadosRelatorio_();
     if (!d.dias.length) return null;
+    var paradas = paradasDetectadas_();
+    return { d: d, paradas: paradas, incons: inconsistenciasDetectadas_(),
+             porB: resumoPorBomba_(d, paradas), periodo: periodoTxtRel_() };
+  }
 
-    var eletr = dadosEletricos_();
-    var temEletr = eletr.length > 1;
-    var W = 1000, alturaGraf = 300;
-    var nGraf = 3 + (temEletr ? 2 : 0);
-    var H = 112 + alturaGraf * nGraf + (nGraf - 1) * 16 + 44 + (d.dias.length + 2) * 26 + 70;
-    var canvas = document.createElement("canvas");
-    var SC = 2;
-    canvas.width = W * SC; canvas.height = H * SC;
-    var ctx = canvas.getContext("2d");
-    ctx.scale(SC, SC);
-    ctx.fillStyle = "#F3EEE0"; ctx.fillRect(0, 0, W, H);
+  // Imagem 1: o resumo (números, cada bomba e os problemas em 3 linhas)
+  function imagemResumoRel_(R) {
+    var d = R.d, M = REL_M, TW = REL_W - 2 * REL_M;
+    var t = novoCanvasRel_(1600), ctx = t.ctx;
+    var y = cabecalhoRel_(ctx, "Relatório de Bombeamento", R.periodo) + 34;
 
-    ctx.fillStyle = "#4C6B2F"; ctx.fillRect(0, 0, W, 92);
-    ctx.fillStyle = "#F3EEE0"; ctx.font = "bold 21px Arial"; ctx.textAlign = "left";
-    ctx.fillText("RELATÓRIO DE BOMBEAMENTO", 22, 38);
-    ctx.font = "13px Arial"; ctx.fillStyle = "#D6E4C4";
-    ctx.fillText("Período: " + fmtDate(relDataInicio) + " a " + fmtDate(relDataFim) +
-                 "  ·  " + d.dias.length + " dia(s) com registro", 22, 62);
-    ctx.fillText("Total: " + Math.round(d.totalGeral).toLocaleString("pt-BR") + " m³  ·  " +
-                 d.horasTotais.toFixed(1).replace(".", ",") + " h de bomba", 22, 81);
-
-    var labels = d.dias.map(function (dia) { return fmtDate(dia).slice(0, 5); });
-    var cores = ["#2F7DB0", "#4C6B2F", "#C1501F", "#8A5A44"];
-
-    var series = [1, 2, 3, 4].map(function (n, i) {
-      return { nome: "Bomba " + n, cor: cores[i],
-               valores: d.dias.map(function (dia) { return d.porDia[dia][n] || 0; }) };
+    var kpis = [
+      [numRel_(d.totalGeral), "m³ bombeados", "no período"],
+      [numRel_(d.totalGeral / d.dias.length), "m³ por dia", "(média de " + pluralRel_(d.dias.length, "dia", "dias") + ")"],
+      [horasRel_(d.horasTotais), "horas de bomba", "(as 4 somadas)"]
+    ];
+    var gapK = 24, kw = (TW - 2 * gapK) / 3, kh = 176;
+    kpis.forEach(function (k, i) {
+      var kx = M + i * (kw + gapK);
+      ctx.fillStyle = "#F4EFE2"; ctx.fillRect(kx, y, kw, kh);
+      ctx.strokeStyle = "#DCD3BC"; ctx.lineWidth = 2; ctx.strokeRect(kx + 1, y + 1, kw - 2, kh - 2);
+      textoRel_(ctx, k[0], kx + kw / 2, y + 78, 60, "#2F7DB0", true, "center");
+      textoRel_(ctx, k[1], kx + kw / 2, y + 122, 26, "#4A4136", false, "center");
+      textoRel_(ctx, k[2], kx + kw / 2, y + 154, 23, "#8A8072", false, "center");
     });
-    desenharGraficoLinha_(ctx, 20, 108, W - 40, alturaGraf, series, labels,
-                          "Volume bombeado por bomba, dia a dia", "m³");
+    y += kh + 56;
 
-    var serieTotal = [{ nome: "Total das 4 bombas", cor: "#B4442E",
-                        valores: d.dias.map(function (dia) { return d.porDia[dia].total; }) }];
-    desenharGraficoLinha_(ctx, 20, 108 + alturaGraf + 16, W - 40, alturaGraf, serieTotal, labels,
-                          "Total bombeado por dia", "m³");
-
-    // ---- vazão real x esperada ----
-    var serieVaz = [1, 2, 3, 4].map(function (n, i) {
-      return { nome: "Bomba " + n, cor: cores[i],
-               valores: d.dias.map(function (dia) {
-                 var h = d.horasPorDiaBomba[dia] && d.horasPorDiaBomba[dia][n];
-                 var v = d.porDia[dia][n] || 0;
-                 return (h && h > 0) ? Math.round(v / h) : 0;
-               }) };
+    // ---- tabela por bomba ----
+    textoRel_(ctx, "Por bomba", M, y, 32, "#241F1A", true);
+    y += 18;
+    var xM3 = M + 470, xH = M + 640, xV = M + 800, xP = M + 920, xBar = M + 935, wBar = TW - 935 - 18;
+    ctx.fillStyle = "#4C6B2F"; ctx.fillRect(M, y, TW, 56);
+    fonteRel_(ctx, 25, true); ctx.fillStyle = "#FFFFFF";
+    ctx.textAlign = "left"; ctx.fillText("Bomba", M + 18, y + 37);
+    ctx.textAlign = "right"; ctx.fillText("m³", xM3, y + 37); ctx.fillText("horas", xH, y + 37); ctx.fillText("m³/h", xV, y + 37);
+    ctx.textAlign = "center"; ctx.fillText("do normal", (xV + 20 + M + TW) / 2, y + 37);
+    y += 56;
+    R.porB.forEach(function (p, i) {
+      var extras = [];
+      if (p.paradas) extras.push(pluralRel_(p.paradas, "parada", "paradas") + " (~" + formatHoras_(p.horasParadas * 60) + " sem bombear)");
+      if (p.naoLigou) extras.push(p.naoLigou + "× não ligou");
+      var rh = extras.length ? 104 : 70;
+      ctx.fillStyle = i % 2 ? "#F6F2E7" : "#FFFFFF"; ctx.fillRect(M, y, TW, rh);
+      ctx.fillStyle = CORES_BOMBA_REL[i]; ctx.beginPath(); ctx.arc(M + 30, y + 34, 11, 0, Math.PI * 2); ctx.fill();
+      textoRel_(ctx, "Bomba " + p.bomba, M + 52, y + 45, 30, "#241F1A", true);
+      textoRel_(ctx, numRel_(p.m3), xM3, y + 45, 30, "#241F1A", false, "right");
+      textoRel_(ctx, p.horas > 0 ? horasRel_(p.horas) : "–", xH, y + 45, 30, "#241F1A", false, "right");
+      textoRel_(ctx, p.vazao !== null ? numRel_(p.vazao) : "–", xV, y + 45, 30, "#241F1A", false, "right");
+      if (p.pct !== null) {
+        var cor = corPctRel_(Math.round(p.pct));
+        textoRel_(ctx, Math.round(p.pct) + "%", xP, y + 45, 30, cor, true, "right");
+        var by = y + 24, bh = 20;
+        ctx.fillStyle = "#E7E0CD"; ctx.fillRect(xBar, by, wBar, bh);
+        ctx.fillStyle = cor; ctx.fillRect(xBar, by, wBar * Math.max(0, Math.min(p.pct, 120)) / 120, bh);
+        ctx.fillStyle = "#241F1A"; ctx.fillRect(xBar + wBar * 100 / 120 - 1.5, by - 6, 3, bh + 12);   // marca dos 100%
+      } else {
+        textoRel_(ctx, "–", xP, y + 45, 30, "#8A8072", false, "right");
+      }
+      if (extras.length) textoCabeRel_(ctx, extras.join("   ·   "), M + 52, y + 86, TW - 70, 24, "#8A2E2E", false);
+      y += rh;
     });
-    serieVaz.push({ nome: "Esperado (" + vazaoNominalBomba + " m³/h)", cor: "#B4442E", tracejada: true,
-                    valores: d.dias.map(function () { return vazaoNominalBomba; }) });
-    desenharGraficoLinha_(ctx, 20, 108 + alturaGraf * 2 + 32, W - 40, alturaGraf, serieVaz, labels,
-                          "Vazão de cada bomba x o que era esperado", "m³/h");
+    ctx.fillStyle = "#DCD3BC"; ctx.fillRect(M, y, TW, 2);
+    y += 40;
+    y = paragrafoRel_(ctx, "\"do normal\" = vazão da bomba no período comparada com a vazão normal dela (" +
+      R.porB.map(function (p) { return "B" + p.bomba + " " + numRel_(p.normal); }).join(" · ") + " m³/h).", M, y, TW, 23, "#6B6153", 31);
+    y += 40;
+    var lx = M;
+    [["#2F6B1F", "95% ou mais: ok"], ["#B8862B", "85 a 95%: atenção"], ["#B4442E", "abaixo de 85%: problema"]].forEach(function (c) {
+      ctx.fillStyle = c[0]; ctx.fillRect(lx, y - 18, 20, 20);
+      textoRel_(ctx, c[1], lx + 28, y, 23, "#4A4136");
+      lx += 28 + ctx.measureText(c[1]).width + 44;
+    });
+    y += 62;
 
-    var yBase = 108 + alturaGraf * 3 + 48;
-    if (temEletr) {
-      var labE = eletr.map(function (p) { return fmtDate(p.data).slice(0, 5) + " " + p.hora; });
-      var bombasE = [];
-      eletr.forEach(function (p) { if (bombasE.indexOf(p.bomba) === -1) bombasE.push(p.bomba); });
-      bombasE.sort();
-      var sC = bombasE.map(function (b, i) {
-        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
-                 valores: eletr.map(function (p) { return p.bomba === b && p.corrente !== null ? p.corrente : null; }) };
-      });
-      desenharGraficoLinha_(ctx, 20, yBase, W - 40, alturaGraf, sC, labE,
-                            "Corrente das bombas (soft starter) ao longo das rondas", "Ampère");
-      var sT = bombasE.map(function (b) {
-        return { nome: "Bomba " + b, cor: cores[(b - 1) % cores.length],
-                 valores: eletr.map(function (p) { return p.bomba === b && p.tensao !== null ? p.tensao : null; }) };
-      });
-      desenharGraficoLinha_(ctx, 20, yBase + alturaGraf + 16, W - 40, alturaGraf, sT, labE,
-                            "Tensão das bombas (soft starter) ao longo das rondas", "Volts");
-      yBase += alturaGraf * 2 + 32;
+    // ---- problemas em 3 linhas ----
+    textoRel_(ctx, "Problemas no período", M, y, 32, "#241F1A", true);
+    y += 20;
+    var minP = R.paradas.reduce(function (a, p) { return a + Math.max(0, p.paradaMin); }, 0);
+    var m3F = R.paradas.reduce(function (a, p) { return a + Math.max(0, p.paradaMin) / 60 * (p.referencia || vazaoNominalBomba); }, 0);
+    var OK = { cor: "#2F6B1F", fundo: "#EAF3E2", txt: "#2F6B1F" };
+    var itens = [
+      R.paradas.length ? { cor: "#B4442E", fundo: "#FBEDE8", txt: "#5A2418",
+        t: pluralRel_(R.paradas.length, "parada despercebida", "paradas despercebidas") + " · ~" + formatHoras_(minP) + " sem bombear (~" + numRel_(m3F) + " m³ a menos)" }
+        : Object.assign({ t: "Nenhuma parada despercebida" }, OK),
+      d.naoLigou.length ? { cor: "#B4442E", fundo: "#FBEDE8", txt: "#5A2418", t: pluralRel_(d.naoLigou.length, "vez", "vezes") + " a bomba não ligou" }
+        : Object.assign({ t: "Nenhuma vez a bomba deixou de ligar" }, OK),
+      R.incons.length ? { cor: "#B8862B", fundo: "#FBF4E4", txt: "#5A4210", t: pluralRel_(R.incons.length, "leitura que não fecha", "leituras que não fecham") + " (conferir)" }
+        : Object.assign({ t: "Nenhuma leitura estranha" }, OK)
+    ];
+    itens.forEach(function (it) {
+      ctx.fillStyle = it.fundo; ctx.fillRect(M, y, TW, 64);
+      ctx.fillStyle = it.cor; ctx.fillRect(M, y, 8, 64);
+      ctx.beginPath(); ctx.arc(M + 38, y + 32, 10, 0, Math.PI * 2); ctx.fill();
+      textoCabeRel_(ctx, it.t, M + 62, y + 42, TW - 80, 27, it.txt, true);
+      y += 74;
+    });
+    if (R.paradas.length || d.naoLigou.length || R.incons.length) {
+      y += 16; textoRel_(ctx, "Os detalhes vêm logo a seguir.", M, y, 23, "#6B6153");
     }
+    y += 48;
+    rodapeRel_(ctx, y);
+    return cortaRel_(t.cv, y + 24);
+  }
 
-    var ty = yBase + 12;
-    ctx.fillStyle = "#4C6B2F"; ctx.fillRect(20, ty, W - 40, 26);
-    ctx.fillStyle = "#fff"; ctx.font = "bold 11.5px Arial"; ctx.textAlign = "center";
-    var colsX = [95, 265, 405, 545, 685, 855];
-    ["Data", "Bomba 1", "Bomba 2", "Bomba 3", "Bomba 4", "Total do dia"].forEach(function (t, i) {
-      ctx.fillText(t, colsX[i], ty + 17);
+  // Listas de problemas (usadas na imagem 2 e, completas, no PDF)
+  function secoesProblemasRel_(R) {
+    var s = [];
+    var dia = function (iso) { return fmtDate(iso).slice(0, 5) + " " + diaSemanaRel_(iso); };
+    if (R.paradas.length) {
+      s.push({ titulo: "Paradas despercebidas (as maiores primeiro)", cor: "#B4442E", max: 12,
+        explic: "Rodadas que renderam menos de 85% do normal. Pelo volume dá pra estimar quando a bomba parou.",
+        cols: [{ t: "Dia", w: 230 }, { t: "Bomba", w: 140 }, { t: "Rendeu", w: 190, al: "right" }, { t: "Parada ~", w: 260, al: "right" }, { t: "Parou ~às", w: 300, al: "right" }],
+        linhas: R.paradas.slice().sort(function (a, b) { return b.paradaMin - a.paradaMin; }).map(function (p) {
+          return [dia(p.data), "B" + p.bomba, { t: Math.floor(p.pct) + "%", cor: p.forte ? "#B4442E" : "#B8862B", negrito: true },
+                  formatHoras_(p.paradaMin), p.fimEstimado];
+        }) });
+    }
+    if (R.d.naoLigou.length) {
+      s.push({ titulo: "A bomba não ligou", cor: "#8A2E2E", max: 8,
+        explic: "Rodadas de 0 m³ ou marcadas como \"não ligou\". Não contam nas horas nem na vazão.",
+        cols: [{ t: "Dia", w: 230 }, { t: "Bomba", w: 140 }, { t: "Motivo", w: 750 }],
+        linhas: R.d.naoLigou.slice().reverse().map(function (x) { return [dia(x.data), "B" + x.bomba, x.motivo || "—"]; }) });
+    }
+    if (R.incons.length) {
+      s.push({ titulo: "Leituras que não fecham", cor: "#7A5A18", max: 6,
+        explic: "Volume alto demais pro horário anotado (ou leitura final menor que a inicial). Conferir e corrigir.",
+        cols: [{ t: "Dia", w: 230 }, { t: "Bomba", w: 140 }, { t: "m³", w: 220, al: "right" }, { t: "Horário", w: 260, al: "center" }, { t: "Vazão", w: 270, al: "right" }],
+        linhas: R.incons.map(function (p) {
+          return [dia(p.data), "B" + p.bomba, numRel_(p.consumo), (p.inicio || "?") + "–" + (p.fim || "?"),
+                  p.negativo ? { t: "final < inicial", cor: "#B4442E", negrito: true }
+                             : { t: (p.pctReferencia > 999 ? "mais de 999%" : Math.round(p.pctReferencia) + "% do normal"), cor: "#7A5A18", negrito: true }];
+        }) });
+    }
+    return s;
+  }
+
+  // Imagem 2: os problemas. Se a lista for grande, mostra as mais
+  // importantes e avisa que a lista completa está no PDF.
+  function imagemProblemasRel_(R) {
+    var secoes = secoesProblemasRel_(R);
+    if (!secoes.length) return null;
+    var M = REL_M, TW = REL_W - 2 * REL_M, ROW = 50, MAXH = 1600;
+    var alloc = secoes.map(function (s) { return Math.min(s.linhas.length, s.max); });
+    var altura = function () {
+      var h = 140 + 62;
+      secoes.forEach(function (s, i) { h += 160 + alloc[i] * ROW + (alloc[i] < s.linhas.length ? 44 : 0); });
+      return h;
+    };
+    while (altura() > MAXH) {
+      var k = -1;
+      alloc.forEach(function (n, i) { if (n > 3 && (k === -1 || n > alloc[k])) k = i; });
+      if (k === -1) break;
+      alloc[k]--;
+    }
+    var t = novoCanvasRel_(MAXH), ctx = t.ctx;
+    var y = cabecalhoRel_(ctx, "Problemas no bombeamento", R.periodo) + 16;
+    var truncou = false;
+    secoes.forEach(function (s, i) {
+      y += 44; textoCabeRel_(ctx, s.titulo, M, y, TW, 31, s.cor, true);
+      y += 34; textoCabeRel_(ctx, s.explic, M, y, TW, 22, "#6B6153", false);
+      y += 18;
+      y = tabelaRel_(ctx, M, y, s.cols, s.linhas.slice(0, alloc[i]), { fonte: 26, altLinha: ROW });
+      var resto = s.linhas.length - alloc[i];
+      if (resto > 0) {
+        truncou = true;
+        y += 34; textoRel_(ctx, "+ " + pluralRel_(resto, "outra", "outras") + " — a lista completa está no PDF e no app", M, y, 23, "#6B6153");
+        y += 10;
+      }
+      y += 14;
     });
-    ty += 26;
-    d.dias.forEach(function (dia, idx) {
-      ctx.fillStyle = idx % 2 === 0 ? "#FFFDF8" : "#EFEAD9";
-      ctx.fillRect(20, ty, W - 40, 26);
-      ctx.fillStyle = "#241F1A";
-      var linha = [fmtDate(dia),
-        Math.round(d.porDia[dia][1] || 0).toLocaleString("pt-BR"),
-        Math.round(d.porDia[dia][2] || 0).toLocaleString("pt-BR"),
-        Math.round(d.porDia[dia][3] || 0).toLocaleString("pt-BR"),
-        Math.round(d.porDia[dia][4] || 0).toLocaleString("pt-BR"),
-        Math.round(d.porDia[dia].total).toLocaleString("pt-BR")];
-      linha.forEach(function (t, i) {
-        ctx.font = (i === 5) ? "bold 11px Arial" : "11px Arial";
-        ctx.fillText(t, colsX[i], ty + 17);
+    y += 40;
+    rodapeRel_(ctx, y);
+    return { cv: cortaRel_(t.cv, y + 22), truncou: truncou };
+  }
+
+  // Imagem 3: dois gráficos grandes (letra legível no celular)
+  function imagemGraficosRel_(R) {
+    var d = R.d, SC = 2.5, M = 16;
+    var t = novoCanvasRel_(1600), ctx = t.ctx;
+    var y = cabecalhoRel_(ctx, "Gráficos do bombeamento", R.periodo) + 22;
+    var lw = (REL_W - 2 * M) / SC, lh = 262;
+    var labels = d.dias.map(function (dia) { return fmtDate(dia).slice(0, 5); });
+    function graf(series, titulo, unidade, barras) {
+      ctx.save(); ctx.translate(M, y); ctx.scale(SC, SC);
+      (barras ? desenharGraficoBarras_ : desenharGraficoLinha_)(ctx, 0, 0, lw, lh, series, labels, titulo, unidade);
+      ctx.restore();
+      y += lh * SC + 22;
+    }
+    graf(serieVolumeEmpilhada_(d, true), "Volume bombeado por dia (cada cor é uma bomba)", "m³", true);
+    graf(seriesPctNormal_(d, true), "Vazão de cada bomba em relação ao normal dela", "% do normal");
+    y += 18;
+    rodapeRel_(ctx, y);
+    return cortaRel_(t.cv, y + 22);
+  }
+
+  function imagensRelatorio_(R) {
+    var imgs = [{ cv: imagemResumoRel_(R), sufixo: "1-resumo" }];
+    var prob = imagemProblemasRel_(R);
+    if (prob) imgs.push({ cv: prob.cv, sufixo: "2-problemas", truncou: prob.truncou, problemas: true });
+    imgs.push({ cv: imagemGraficosRel_(R), sufixo: (imgs.length + 1) + "-graficos" });
+    return imgs;
+  }
+
+  // Página do PDF com corrente e tensão (só quando tem leitura no período)
+  function paginaEletricaRel_(R) {
+    var eletr = dadosEletricos_();
+    if (eletr.length < 2) return null;
+    var SC = 2, M = 16;
+    var t = novoCanvasRel_(REL_A4), ctx = t.ctx;
+    var y = cabecalhoRel_(ctx, "Corrente e tensão (soft starter)", R.periodo) + 22;
+    var lw = (REL_W - 2 * M) / SC, lh = 320;
+    function graf(g, titulo, unidade) {
+      ctx.save(); ctx.translate(M, y); ctx.scale(SC, SC);
+      desenharGraficoLinha_(ctx, 0, 0, lw, lh, g.series, g.labels, titulo, unidade);
+      ctx.restore();
+      y += lh * SC + 22;
+    }
+    graf(seriesEletricas_(eletr, "corrente", true), "Corrente (mediana do dia nas rondas)", "Ampère");
+    graf(seriesEletricas_(eletr, "tensao", true), "Tensão (mediana do dia nas rondas)", "Volts");
+    var obs = [];
+    if (eletr.trocadas) obs.push(pluralRel_(eletr.trocadas, "leitura veio", "leituras vieram") + " com corrente e tensão trocadas (o gráfico já destrocou)");
+    if (eletr.descartadas) obs.push(pluralRel_(eletr.descartadas, "leitura impossível foi ignorada", "leituras impossíveis foram ignoradas") + " (erro de digitação)");
+    if (obs.length) { y += 12; y = paragrafoRel_(ctx, "Atenção: " + obs.join("; ") + ".", REL_M, y, REL_W - 2 * REL_M, 23, "#7A5A18", 31) + 10; }
+    y += 30;
+    rodapeRel_(ctx, y);
+    return cortaRel_(t.cv, y + 22);
+  }
+
+  // Tabela dia a dia (PDF): do dia mais antigo pro mais novo
+  function secaoDiasRel_(R) {
+    var d = R.d;
+    var linhas = d.dias.map(function (dia) {
+      var cel = [fmtDate(dia).slice(0, 5) + " " + diaSemanaRel_(dia)];
+      [1, 2, 3, 4].forEach(function (n) {
+        var v = d.porDia[dia][n] || 0, nl = d.naoLigouPorDia[dia] && d.naoLigouPorDia[dia][n];
+        if (v) cel.push(numRel_(v));
+        else if (nl) cel.push({ t: "não ligou", cor: "#B4442E", px: 21 });
+        else cel.push({ t: "–", cor: "#B8AE98" });
       });
-      ty += 26;
+      cel.push({ t: numRel_(d.porDia[dia].total), negrito: true });
+      return cel;
     });
-    ctx.fillStyle = "#EFE7D3"; ctx.fillRect(20, ty, W - 40, 28);
-    ctx.fillStyle = "#241F1A"; ctx.font = "bold 11.5px Arial";
-    ctx.fillText("TOTAL", colsX[0], ty + 18);
-    [1, 2, 3, 4].forEach(function (n, i) {
-      ctx.fillText(Math.round(d.porBomba[n] || 0).toLocaleString("pt-BR"), colsX[i + 1], ty + 18);
+    linhas.push({ total: true, cel: ["TOTAL"].concat([1, 2, 3, 4].map(function (n) { return numRel_(d.porBomba[n] || 0); }), [numRel_(d.totalGeral)]) });
+    return {
+      titulo: "Volume de cada bomba por dia (m³)", cor: "#241F1A",
+      explic: "A rodada da noite conta no dia em que a bomba foi ligada.",
+      cols: [{ t: "Dia", w: 240 }, { t: "Bomba 1", w: 170, al: "right" }, { t: "Bomba 2", w: 170, al: "right" },
+             { t: "Bomba 3", w: 170, al: "right" }, { t: "Bomba 4", w: 170, al: "right" }, { t: "Total", w: 200, al: "right" }],
+      linhas: linhas
+    };
+  }
+
+  // Páginas A4 com tabelas, quebrando de página quando precisa.
+  function paginasTabelaRel_(titulo, periodo, secoes) {
+    var M = REL_M, TW = REL_W - 2 * REL_M, ROW = 44, LIM = REL_A4 - 70;
+    var pags = [], ctx = null, y = 0;
+    function novaPag() {
+      var t = novoCanvasRel_(REL_A4); ctx = t.ctx; pags.push(t.cv);
+      y = cabecalhoRel_(ctx, titulo, periodo) + 10;
+    }
+    function tituloSecao(s, continua) {
+      y += 42; textoCabeRel_(ctx, s.titulo + (continua ? " (continuação)" : ""), M, y, TW, 29, s.cor || "#241F1A", true);
+      if (s.explic && !continua) { y += 32; y = paragrafoRel_(ctx, s.explic, M, y, TW, 21, "#6B6153", 28); }
+      y += 18;
+    }
+    novaPag();
+    secoes.forEach(function (s) {
+      if (y + 120 + ROW * 3 > LIM) novaPag();
+      tituloSecao(s, false);
+      var i = 0;
+      while (i < s.linhas.length) {
+        var cabem = Math.floor((LIM - y - ROW) / ROW);
+        if (cabem < 1) { novaPag(); tituloSecao(s, true); continue; }
+        var parte = s.linhas.slice(i, i + cabem);
+        y = tabelaRel_(ctx, M, y, s.cols, parte, { fonte: 24, altLinha: ROW });
+        i += parte.length;
+        if (i < s.linhas.length) { novaPag(); tituloSecao(s, true); }
+      }
+      y += 20;
     });
-    ctx.fillText(Math.round(d.totalGeral).toLocaleString("pt-BR"), colsX[5], ty + 18);
-    ty += 44;
+    pags.forEach(function (cv, k) {
+      var c2 = cv.getContext("2d");
+      rodapeRel_(c2, REL_A4 - 30);
+      if (pags.length > 1) textoRel_(c2, (k + 1) + "/" + pags.length, REL_W - M, REL_A4 - 30, 20, "#8A8072", false, "right");
+    });
+    return pags;
+  }
 
-    ctx.textAlign = "left"; ctx.fillStyle = "#6B6153"; ctx.font = "10px Arial";
-    ctx.fillText("Gerado em " + fmtDate(todayStr()) +
-      " · Consumo = (leitura final − leitura inicial) × 10, somando todas as rodadas de cada bomba no dia.", 22, ty);
+  // Junta várias imagens num PDF de folhas A4 (uma imagem por folha, na
+  // largura da folha, encostada em cima). Feito à mão - sem biblioteca.
+  function canvasesParaPdfA4_(canvases, quality, cb) {
+    var jpgs = [];
+    var i = 0;
+    function proximo() {
+      if (i >= canvases.length) { monta(); return; }
+      var cv = canvases[i];
+      cv.toBlob(function (b) {
+        if (!b) { cb(null); return; }
+        b.arrayBuffer().then(function (buf) {
+          jpgs.push({ bytes: new Uint8Array(buf), w: cv.width, h: cv.height });
+          i++; proximo();
+        }).catch(function () { cb(null); });
+      }, "image/jpeg", quality || 0.9);
+    }
+    function monta() {
+      var PW = 595.28, PH = 841.89;
+      var enc = new TextEncoder(), chunks = [], offset = 0, xref = [];
+      function txt(s) { var b = enc.encode(s); chunks.push(b); offset += b.length; }
+      function bin(b) { chunks.push(b); offset += b.length; }
+      var n = jpgs.length, kids = [];
+      for (var k = 0; k < n; k++) kids.push((3 + k * 3) + " 0 R");
+      txt("%PDF-1.4\n");
+      xref[1] = offset; txt("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+      xref[2] = offset; txt("2 0 obj\n<< /Type /Pages /Kids [" + kids.join(" ") + "] /Count " + n + " >>\nendobj\n");
+      jpgs.forEach(function (im, k2) {
+        var pg = 3 + k2 * 3, ct = pg + 1, io = pg + 2;
+        var dw = PW, dh = im.h * PW / im.w;
+        if (dh > PH) { dh = PH; dw = im.w * PH / im.h; }
+        var dx = (PW - dw) / 2, dy = PH - dh;
+        xref[pg] = offset;
+        txt(pg + " 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + PW + " " + PH + "] /Resources << /XObject << /Im" + k2 + " " + io + " 0 R >> >> /Contents " + ct + " 0 R >>\nendobj\n");
+        var conteudo = "q " + dw.toFixed(2) + " 0 0 " + dh.toFixed(2) + " " + dx.toFixed(2) + " " + dy.toFixed(2) + " cm /Im" + k2 + " Do Q";
+        xref[ct] = offset;
+        txt(ct + " 0 obj\n<< /Length " + conteudo.length + " >>\nstream\n" + conteudo + "\nendstream\nendobj\n");
+        xref[io] = offset;
+        txt(io + " 0 obj\n<< /Type /XObject /Subtype /Image /Width " + im.w + " /Height " + im.h +
+          " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " + im.bytes.length + " >>\nstream\n");
+        bin(im.bytes);
+        txt("\nendstream\nendobj\n");
+      });
+      var total = 3 + n * 3;
+      var inicioXref = offset;
+      var tab = "xref\n0 " + total + "\n0000000000 65535 f \n";
+      for (var q = 1; q < total; q++) tab += String(xref[q]).padStart(10, "0") + " 00000 n \n";
+      txt(tab);
+      txt("trailer\n<< /Size " + total + " /Root 1 0 R >>\nstartxref\n" + inicioXref + "\n%%EOF");
+      cb(new Blob(chunks, { type: "application/pdf" }));
+    }
+    proximo();
+  }
 
-    return canvas;
+  // Compartilha (WhatsApp etc.) ou, se o celular não deixar, baixa os arquivos.
+  function compartilharArquivosRel_(files, titulo, texto, msgBaixou) {
+    function baixar() {
+      files.forEach(function (f, i) {
+        setTimeout(function () {
+          var url = URL.createObjectURL(f);
+          var a = document.createElement("a");
+          a.href = url; a.download = f.name;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        }, i * 600);
+      });
+      showToast(msgBaixou);
+    }
+    var pode = false;
+    try { pode = !!(navigator.share && navigator.canShare && navigator.canShare({ files: files })); } catch (e) { pode = false; }
+    if (!pode) { baixar(); return; }
+    navigator.share({ files: files, title: titulo, text: texto }).catch(function (err) {
+      // cancelou = não faz nada; o celular não deixou abrir (ex.: demorou pra montar) = baixa
+      if (err && err.name === "NotAllowedError") baixar();
+    });
   }
 
   function gerarRelatorioBombeamentoPDF() {
-    var canvas = construirCanvasRelatorio_();
-    if (!canvas) { showToast("Nenhum registro de bombeamento nesse período."); return; }
+    var R = montarRelatorio_();
+    if (!R) { showToast("Nenhum registro de bombeamento nesse período."); return; }
     showToast("Gerando PDF...");
-    canvasToSimplePdfBlob_(canvas, 0.92, function (blob) {
-      if (!blob) { showToast("Não consegui gerar o PDF."); return; }
-      var nome = "relatorio-bombeamento-" + relDataInicio + "_a_" + relDataFim + ".pdf";
-      var file = new File([blob], nome, { type: "application/pdf" });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: "Relatório de Bombeamento" }).catch(function () {});
-      } else {
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement("a");
-        a.href = url; a.download = nome;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        showToast("PDF baixado.");
+    var pags;
+    try {
+      var imgs = imagensRelatorio_(R);
+      pags = [imgs[0].cv];
+      var prob = imgs.filter(function (im) { return im.problemas; })[0];
+      if (prob) {
+        // se a imagem cortou alguma lista, o PDF leva as listas completas
+        if (prob.truncou) pags = pags.concat(paginasTabelaRel_("Problemas no bombeamento", R.periodo, secoesProblemasRel_(R)));
+        else pags.push(prob.cv);
       }
+      pags.push(imgs[imgs.length - 1].cv);
+      var pagEl = paginaEletricaRel_(R);
+      if (pagEl) pags.push(pagEl);
+      pags = pags.concat(paginasTabelaRel_("Detalhe por dia", R.periodo, [secaoDiasRel_(R)]));
+    } catch (e) {
+      console.error("[relatorio] PDF:", e);
+      showToast("Não consegui gerar o PDF.");
+      return;
+    }
+    canvasesParaPdfA4_(pags, 0.9, function (blob) {
+      if (!blob) { showToast("Não consegui gerar o PDF."); return; }
+      var file = new File([blob], nomeArqRel_("pdf"), { type: "application/pdf" });
+      compartilharArquivosRel_([file], "Relatório de Bombeamento", "Bombeamento — " + R.periodo, "PDF baixado.");
     });
   }
 
   // O WhatsApp mostra imagem direto na conversa; PDF vira anexo que a pessoa
-  // precisa baixar pra ver. Por isso o compartilhamento usa PNG.
+  // precisa baixar pra ver. Por isso o compartilhamento usa imagens (PNG).
   function compartilharRelatorioImagem() {
-    var canvas = construirCanvasRelatorio_();
-    if (!canvas) { showToast("Nenhum registro de bombeamento nesse período."); return; }
-    showToast("Preparando imagem...");
-    canvas.toBlob(function (blob) {
-      if (!blob) { showToast("Não consegui gerar a imagem."); return; }
-      var nome = "relatorio-bombeamento-" + relDataInicio + "_a_" + relDataFim + ".png";
-      var file = new File([blob], nome, { type: "image/png" });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: "Relatório de Bombeamento",
-          text: "Bombeamento de " + fmtDate(relDataInicio) + " a " + fmtDate(relDataFim) }).catch(function () {});
-      } else {
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement("a");
-        a.href = url; a.download = nome;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        showToast("Imagem baixada — é só mandar pelo WhatsApp.");
-      }
-    }, "image/png");
+    var R = montarRelatorio_();
+    if (!R) { showToast("Nenhum registro de bombeamento nesse período."); return; }
+    showToast("Preparando as imagens...");
+    var imgs;
+    try { imgs = imagensRelatorio_(R); } catch (e) {
+      console.error("[relatorio] imagens:", e);
+      showToast("Não consegui gerar as imagens.");
+      return;
+    }
+    Promise.all(imgs.map(function (im) {
+      return new Promise(function (ok) { im.cv.toBlob(function (b) { ok(b); }, "image/png"); });
+    })).then(function (blobs) {
+      if (blobs.some(function (b) { return !b; })) { showToast("Não consegui gerar as imagens."); return; }
+      var files = blobs.map(function (b, i) { return new File([b], nomeArqRel_("png", imgs[i].sufixo), { type: "image/png" }); });
+      compartilharArquivosRel_(files, "Relatório de Bombeamento", "Bombeamento — " + R.periodo,
+        "Imagens baixadas — é só mandar pelo WhatsApp.");
+    });
   }
 
   function abrirFotoAmpliada_(url, legenda) {
