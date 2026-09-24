@@ -1161,7 +1161,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v122';
+  var APP_CACHE_NAME = 'registro-irrigacao-v123';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -5896,9 +5896,26 @@
     }, "image/png");
   }
 
+  // ---- a grade não pula mais pro começo da semana a cada alteração ----
+  // Antes, qualquer mudança (salvar célula, colar, troca, férias ou alguém
+  // alterando de outro celular) redesenhava a grade inteira e a rolagem pro
+  // lado voltava pra segunda-feira. Agora o app guarda onde você estava e
+  // devolve a grade no mesmo lugar. Só ao trocar de período (← 2 semanas →)
+  // ela recomeça - e, se o dia de hoje estiver no período, abre nele.
+  var plantaoScrollX_ = 0;
+  var plantaoBlocoRenderizado_ = null;
+  function rolarPaginaPor_(dy) {
+    var main = document.querySelector("main");
+    if (main && main.scrollHeight > main.clientHeight + 2) main.scrollTop += dy;
+    else window.scrollBy(0, dy);
+  }
   function renderPlantao() {
     var el = document.getElementById("plantao-content");
     if (!plantaoInicioBloco) plantaoInicioBloco = segundaDaSemana_(todayStr());
+    var mesmoBloco = plantaoBlocoRenderizado_ === plantaoInicioBloco;
+    var scAntes = document.getElementById("plantao-scroll");
+    var visivelAntes = !!(scAntes && scAntes.offsetParent);
+    var topoAntes = (visivelAntes && mesmoBloco) ? scAntes.getBoundingClientRect().top : null;
 
     // monta os 14 dias do bloco
     var dias = [];
@@ -5936,7 +5953,7 @@
       '<button class="del-btn" id="btn-plantao-proxima" style="padding:6px 14px;">2 semanas →</button>' +
     '</div>';
 
-    html += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #DCD3BC;border-radius:6px;">';
+    html += '<div id="plantao-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #DCD3BC;border-radius:6px;">';
     html += '<table style="border-collapse:collapse;font-size:10.5px;min-width:1200px;">';
     // cabeçalho
     html += '<tr>';
@@ -6000,6 +6017,30 @@
     });
     var bParar = document.getElementById("btn-parar-colar-plantao");
     if (bParar) bParar.addEventListener("click", pararDeColarPlantao_);
+
+    // devolve a grade no lugar onde a pessoa estava
+    var scNovo = document.getElementById("plantao-scroll");
+    if (scNovo) {
+      if (!mesmoBloco) {
+        // período novo: começa na segunda, ou já no dia de hoje se ele estiver aqui
+        plantaoScrollX_ = 0;
+        var iHoje = dias.indexOf(todayStr());
+        var ths = scNovo.querySelectorAll("tr:first-child th");
+        if (iHoje > 0 && ths[iHoje + 1] && ths[0] && scNovo.offsetParent) {
+          plantaoScrollX_ = Math.max(0, ths[iHoje + 1].offsetLeft - ths[0].offsetWidth - 6);
+        }
+      }
+      scNovo.scrollLeft = plantaoScrollX_;
+      scNovo.addEventListener("scroll", function () { plantaoScrollX_ = scNovo.scrollLeft; }, { passive: true });
+      // se algum aviso entrou/saiu em cima da grade, compensa pra ela não "pular" na tela
+      if (topoAntes !== null && scNovo.offsetParent) {
+        var delta = scNovo.getBoundingClientRect().top - topoAntes;
+        if (Math.abs(delta) > 1) rolarPaginaPor_(delta);
+      }
+      // só conta como "já mostrado" quando a aba está visível (senão a
+      // rolagem não pode ser aplicada e o dia de hoje não seria posicionado)
+      if (scNovo.offsetParent) plantaoBlocoRenderizado_ = plantaoInicioBloco;
+    }
   }
 
   // ---- Modal: editar uma célula (pessoa + dia específico) ----
