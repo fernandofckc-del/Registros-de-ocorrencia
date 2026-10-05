@@ -202,6 +202,74 @@
   .test-result { font-size:12.5px; margin-top:8px; padding:8px 10px; border-radius:4px; display:none; }
   .test-result.ok { display:block; background:#E4EFE6; color:#2F5C3D; }
   .test-result.fail { display:block; background:#F5E3DC; color:#96351B; }
+
+  /* ================= PC / TELA LARGA (v126) =================
+     No celular NADA muda. Numa tela larga (PC ou notebook, janela com 900px
+     ou mais) o app deixa de ser aquela faixa estreita no meio e passa a
+     ocupar a janela inteira. O conteúdo fica centralizado com no máximo
+     1500px, pra não esticar demais em monitor muito grande. A altura mínima
+     é pra não pegar celular deitado. */
+  #btn-tela-cheia { display:none; }
+  @media (min-width: 900px) and (min-height: 500px) {
+    #app { max-width:none; }
+    .header-inner { max-width:1556px; margin:0 auto; padding:14px 28px; align-items:center; }
+    .plate-label { font-size:10.5px; }
+    .plate-title { font-size:21px; }
+    .gear-btn { font-size:22px; }
+    #btn-tela-cheia {
+      display:inline-flex; align-items:center; gap:7px; margin-right:14px; align-self:center;
+      font-size:12.5px; font-weight:700; color:#F3EEE0; border:1px solid rgba(243,238,224,.45);
+      border-radius:16px; padding:5px 12px; line-height:1;
+    }
+    #btn-tela-cheia:hover { background:rgba(255,255,255,.12); }
+    .sem-tela-cheia #btn-tela-cheia { display:none; }
+    #linha-pills { width:100%; max-width:1556px; margin:0 auto; padding:8px 28px 0 !important; }
+    .sync-pill { font-size:11px; padding:5px 10px; }
+    #sync-detalhes { margin:6px max(28px, calc((100% - 1500px) / 2)) 0 !important; }
+    main { padding:20px 28px 60px; }
+    main > .tab-panel { width:100%; max-width:1500px; margin-left:auto; margin-right:auto; }
+
+    /* tela inicial: botões redondos maiores, 7 por linha, no centro */
+    #tab-hub { max-width:none; margin:-20px -28px -60px; padding-bottom:60px; }
+    .hub-grid { max-width:1040px; margin:0 auto; padding:7vh 20px 30px; gap:28px 18px; }
+    .hub-circle { width:124px; gap:8px; }
+    .hub-emoji { width:88px; height:88px; font-size:38px; transition:transform .15s; }
+    .hub-circle:hover .hub-emoji { transform:translateY(-3px); }
+    .hub-label { font-size:13.5px; }
+    .nav-badge { font-size:11.5px; min-width:21px; height:21px; border-radius:11px; top:-2px; right:-4px; }
+
+    /* janelinhas (modais) no meio da tela, e não grudadas embaixo */
+    .modal-overlay { align-items:center; }
+    .modal-box { max-width:600px; border-radius:12px; position:relative; }
+
+    /* Registrar: formulário em 2 colunas, no centro */
+    #tab-registrar > .card { max-width:980px; margin:0 auto 14px; padding:24px 26px 22px;
+      display:grid; grid-template-columns:1fr 1fr; column-gap:20px; }
+    #tab-registrar > .card > * { grid-column:1 / -1; }
+    #tab-registrar > .card > .field:has(> select),
+    #tab-registrar > .card > .field:has(> #f-data),
+    #tab-registrar > .card > .field:has(> #f-encarregado) { grid-column:auto; }
+
+    /* cartões lado a lado (histórico, bombas, escala, pressão) */
+    .list { display:grid; grid-template-columns:repeat(auto-fill, minmax(400px, 1fr)); align-items:start; }
+    .list.lista-bombas { grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+    .list.lista-bombas > div { margin-bottom:0 !important; }
+    .list > .bomb-total { grid-column:1 / -1; }
+    .escala-dias { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px; align-items:start; }
+    .escala-dias > .card { margin-bottom:0; }
+    .pressao-setores { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:12px; align-items:start; margin-bottom:10px; }
+    .pressao-setores > div { margin-bottom:0 !important; }
+
+    #bombeamento-content > .field:first-child { max-width:320px; }
+    #nova-anotacao-texto { width:100%; border:1px solid #D2C7AB; background:#FBF8F1; border-radius:3px;
+      padding:10px; font-size:14.5px; font-family:inherit; color:#241F1A; resize:vertical; }
+
+    /* plantão: a grade das 2 semanas cabe inteira, sem rolar pro lado */
+    #plantao-scroll > table { width:100%; font-size:12px !important; }
+
+    /* telas de senha: cartão estreito no centro */
+    .card.card-cadeado { max-width:480px; margin-left:auto; margin-right:auto; }
+  }
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
@@ -220,13 +288,14 @@
         <div id="app-versao" style="font-family:'IBM Plex Mono', monospace; font-size:9px; font-weight:700; color:#FFFFFF; background:rgba(0,0,0,.18); display:inline-block; padding:0px 6px; border-radius:7px; margin-top:2px;">—</div>
       </div>
       <div style="display:flex; align-items:flex-start; flex-shrink:0;">
+        <button class="gear-btn" id="btn-tela-cheia" type="button" title="Tela cheia (F11)"></button>
         <button class="gear-btn" id="btn-inicio" title="Início" style="margin-right:6px;">🏠</button>
         <button class="gear-btn" id="btn-settings" title="Configurar sincronização">⚙️</button>
       </div>
     </div>
   </header>
 
-  <div style="display:flex; gap:8px; padding:6px 14px 0;">
+  <div id="linha-pills" style="display:flex; gap:8px; padding:6px 14px 0;">
     <div id="sync-pill" class="sync-pill" style="cursor:pointer; margin:0; flex:1; min-width:0; justify-content:space-between;">
       <span style="display:flex; align-items:center; gap:5px; overflow:hidden; min-width:0;">
         <span class="sync-dot" id="sync-dot" style="background:#8A8072; flex-shrink:0;"></span>
@@ -1166,7 +1235,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v125';
+  var APP_CACHE_NAME = 'registro-irrigacao-v126';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -3455,6 +3524,32 @@
   }
   function saveConfig() {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  }
+
+  // ================= TELA CHEIA NO PC (v126) =================
+  // O botão só aparece em tela larga (PC). O navegador não deixa o app
+  // abrir sozinho em tela cheia - precisa de um clique (ou da tecla F11).
+  var ICONE_TELA_CHEIA_ = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  var ICONE_SAIR_TELA_CHEIA_ = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+  function ligarTelaCheia_() {
+    var b = document.getElementById("btn-tela-cheia");
+    if (!b) return;
+    var raiz = document.documentElement;
+    if (!(document.fullscreenEnabled && raiz.requestFullscreen)) { raiz.classList.add("sem-tela-cheia"); return; }
+    function atualizar() {
+      var cheia = !!document.fullscreenElement;
+      b.innerHTML = (cheia ? ICONE_SAIR_TELA_CHEIA_ : ICONE_TELA_CHEIA_) + '<span>' + (cheia ? 'Sair da tela cheia' : 'Tela cheia') + '</span>';
+      b.title = cheia ? "Sair da tela cheia (Esc)" : "Tela cheia (F11)";
+    }
+    b.addEventListener("click", function () {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(function () {});
+      } else {
+        raiz.requestFullscreen().catch(function () { showToast("Não deu pra abrir em tela cheia - aperte F11."); });
+      }
+    });
+    document.addEventListener("fullscreenchange", atualizar);
+    atualizar();
   }
 
   function showToast(msg) {
@@ -6894,6 +6989,7 @@
     '</div>';
     html += '<button class="save-btn" id="btn-exportar-escala" style="background:#4C7C59;margin-top:0;margin-bottom:14px;">📥 Exportar Excel desta semana</button>';
 
+    html += '<div class="escala-dias">';
     dias.forEach(function (dia) {
       var regs = escalaRegistrosDoDia_(dia.iso);
       html += '<div class="card">' +
@@ -6909,10 +7005,11 @@
         '</div>';
       });
       html += '<div style="display:flex;gap:6px;margin-top:8px;">' +
-        '<input type="text" data-nova-linha-escala="' + dia.iso + '" placeholder="Ex.: Fulano dia trabalhado" style="flex:1;">' +
-        '<button class="photo-btn" data-add-linha-escala="' + dia.iso + '" style="flex-shrink:0;padding:8px 12px;">+</button>' +
+        '<input type="text" data-nova-linha-escala="' + dia.iso + '" placeholder="Ex.: Fulano dia trabalhado" style="flex:1;min-width:0;">' +
+        '<button class="photo-btn" data-add-linha-escala="' + dia.iso + '" style="flex-shrink:0;width:auto;padding:8px 16px;">+</button>' +
       '</div></div>';
     });
+    html += '</div>';
 
     el.innerHTML = html;
     // Restaura o que a pessoa já tinha digitado em cada dia, antes de
@@ -7238,7 +7335,7 @@
     var el = document.getElementById("anotacoes-content");
     if (!anotacoesLiberado) {
       el.innerHTML =
-        '<div class="card" style="margin-top:20px;">' +
+        '<div class="card card-cadeado" style="margin-top:20px;">' +
           '<div style="text-align:center;font-size:34px;margin-bottom:6px;">🔒</div>' +
           '<div class="modal-title" style="text-align:center;">Anotações Pessoais</div>' +
           '<div class="modal-sub" style="text-align:center;">Essas notas são de uso exclusivo seu. Digite a senha de administrador para liberar nesta sessão.</div>' +
@@ -7753,6 +7850,7 @@
     });
     html += '</div>';
 
+    html += '<div class="pressao-setores">';
     porCultura[pressaoCulturaAtiva].forEach(function (item) {
       html += '<div style="background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:10px;">' +
         '<div style="font-family:\'Oswald\',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">' + escapeHtml(item.setor) + '</div>';
@@ -7820,6 +7918,7 @@
       });
       html += '</div>';
     });
+    html += '</div>';
 
     html += '<button class="photo-btn" id="btn-admin-pressao" style="background:#8A5A44;margin-top:8px;">🔒 Configurar Válvulas e Metas (admin)</button>';
 
@@ -8071,7 +8170,7 @@
       });
       html += '</div>';
     }
-    html += '<div class="list">';
+    html += '<div class="list lista-bombas">';
     var totalDia = 0, temConsumoDia = false;
     for (var n = 1; n <= 4; n++) {
       var rodadas = getRodadasBomba(bombData, n);
@@ -8183,7 +8282,7 @@
       html += '</div>';
     }
     if (temConsumoDia) {
-      html += '<div style="background:#EFE7D3;border-radius:4px;padding:9px 12px;margin-bottom:8px;font-size:13px;">' +
+      html += '<div class="bomb-total" style="background:#EFE7D3;border-radius:4px;padding:9px 12px;margin-bottom:8px;font-size:13px;">' +
         'Total bombeado no dia: <b>' + round2Bomb_(totalDia) + ' m³</b></div>';
     }
     html += '</div>';
@@ -8343,7 +8442,7 @@
     var el = document.getElementById("relatorios-content");
     if (!relatorioLiberado) {
       el.innerHTML =
-        '<div class="card" style="margin-top:20px;">' +
+        '<div class="card card-cadeado" style="margin-top:20px;">' +
           '<div style="text-align:center;font-size:34px;margin-bottom:6px;">🔒</div>' +
           '<div class="modal-title" style="text-align:center;">Área do Administrador</div>' +
           '<div class="modal-sub" style="text-align:center;">Os relatórios gerenciais são de uso exclusivo seu. Digite a senha de administrador para liberar nesta sessão.</div>' +
@@ -11412,6 +11511,7 @@
       });
       var btnInicio = document.getElementById("btn-inicio");
       if (btnInicio) btnInicio.addEventListener("click", function () { switchTab("hub"); });
+      try { ligarTelaCheia_(); } catch (eTc) { console.error("[tela cheia]", eTc); }
       aplicarFundoHub_();
       var btnFundo = document.getElementById("btn-trocar-fundo");
       var inputFundo = document.getElementById("input-fundo-hub");
