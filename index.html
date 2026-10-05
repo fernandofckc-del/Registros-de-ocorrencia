@@ -865,7 +865,7 @@
   <div class="modal-box">
     <button class="modal-close" id="btn-close-plantao-pessoas">✕</button>
     <div class="modal-title">👥 Pessoas da escala</div>
-    <div class="modal-sub">Coloque ou tire alguém a partir do dia que você escolher. As semanas antes desse dia continuam como estavam.</div>
+    <div class="modal-sub">Coloque ou tire alguém a partir do dia que você escolher. As semanas antes desse dia continuam como estavam. Pra trocar a cor de alguém, toque na bolinha 🎨 do lado do nome.</div>
     <div id="plantao-pessoas-conteudo"></div>
   </div>
 </div>
@@ -1235,7 +1235,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v126';
+  var APP_CACHE_NAME = 'registro-irrigacao-v127';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2850,31 +2850,60 @@
   // Cor de cada plantonista: cada um acha a própria linha de olho, na grade e
   // na imagem do WhatsApp. Folga continua cinza e férias continua laranja.
   var CORES_PLANTAO = [
-    { forte: "#2F6FB0", clara: "#D6E8FB" }, // azul
-    { forte: "#3E8A3A", clara: "#DAF0D6" }, // verde
-    { forte: "#7446B0", clara: "#E7DCF6" }, // roxo
-    { forte: "#1F8A80", clara: "#D2EFEC" }, // turquesa
-    { forte: "#A8810F", clara: "#FFF0BD" }, // amarelo
-    { forte: "#B04477", clara: "#F9DAE7" }, // rosa
-    { forte: "#4450B0", clara: "#DDE1FA" }, // anil
-    { forte: "#6D8F1E", clara: "#E9F4CB" }, // oliva
-    { forte: "#1E86A8", clara: "#D3EFFA" }  // céu
+    { forte: "#2F6FB0", clara: "#D6E8FB", nome: "Azul" },
+    { forte: "#3E8A3A", clara: "#DAF0D6", nome: "Verde" },
+    { forte: "#7446B0", clara: "#E7DCF6", nome: "Roxo" },
+    { forte: "#1F8A80", clara: "#D2EFEC", nome: "Turquesa" },
+    { forte: "#A8810F", clara: "#FFF0BD", nome: "Amarelo" },
+    { forte: "#B04477", clara: "#F9DAE7", nome: "Rosa" },
+    { forte: "#4450B0", clara: "#DDE1FA", nome: "Anil" },
+    { forte: "#6D8F1E", clara: "#E9F4CB", nome: "Oliva" },
+    { forte: "#1E86A8", clara: "#D3EFFA", nome: "Céu" },
+    // (v127) mais cores pra escolher. Laranja, vermelho e cinza ficam de fora
+    // de propósito: são as cores de férias, de "falta gente" e de folga.
+    { forte: "#7A5230", clara: "#EEDCC8", nome: "Marrom" },
+    { forte: "#8C2D4C", clara: "#F1D3DD", nome: "Vinho" },
+    { forte: "#2E6B4E", clara: "#D2EADD", nome: "Verde-escuro" },
+    { forte: "#A0369A", clara: "#F5D6F2", nome: "Fúcsia" },
+    { forte: "#24406E", clara: "#D4DDEE", nome: "Marinho" }
   ];
+  // as 9 primeiras são as de antes: a cor automática de cada um continua a mesma
+  var CORES_PLANTAO_ANTIGAS = 9;
   var COR_FIXA_PLANTAO = { "Alex": 0, "Yverson": 1, "Ivonaldo": 2, "André": 3, "Josias": 4, "Adilson": 5 };
   function corPlantonista_(nome) {
+    return corEscolhidaPlantao_(nome) || corAutomaticaPlantao_(nome);
+  }
+  // a cor que o app dá sozinho (é a de antes da v127)
+  function corAutomaticaPlantao_(nome) {
     var d = getPadraoQualquer_(nome);
     if (d && typeof d.cor === "number" && CORES_PLANTAO[d.cor]) return CORES_PLANTAO[d.cor];
     if (Object.prototype.hasOwnProperty.call(COR_FIXA_PLANTAO, nome)) return CORES_PLANTAO[COR_FIXA_PLANTAO[nome]];
     var h = 0;
     for (var i = 0; i < String(nome).length; i++) h = (h * 31 + String(nome).charCodeAt(i)) >>> 0;
-    return CORES_PLANTAO[h % CORES_PLANTAO.length];
+    return CORES_PLANTAO[h % CORES_PLANTAO_ANTIGAS];
+  }
+  // a cor que o Fernando escolheu em "Pessoas da escala" (se escolheu)
+  function corEscolhidaPlantao_(nome) {
+    return corDeHexPlantao_(coresEscolhidasPlantao_[nome]);
+  }
+  // "#A0369A" -> cor da paleta; cor livre (do "Outra cor") ganha o fundo
+  // clarinho calculado e a letra do nome branca ou escura, a que ler melhor
+  function corDeHexPlantao_(hex) {
+    hex = String(hex || "").trim().toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(hex)) return null;
+    for (var i = 0; i < CORES_PLANTAO.length; i++) if (CORES_PLANTAO[i].forte.toUpperCase() === hex) return CORES_PLANTAO[i];
+    var rgb = [1, 3, 5].map(function (k) { return parseInt(hex.slice(k, k + 2), 16); });
+    var clara = "#" + rgb.map(function (v) { return ("0" + Math.round(v * 0.2 + 255 * 0.8).toString(16)).slice(-2); }).join("").toUpperCase();
+    var lin = rgb.map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    var lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+    return { forte: hex, clara: clara, texto: lum > 0.21 ? "#241F1A" : "#FFFFFF", nome: "Outra cor", livre: true };
   }
   // quem entra na escala fixa ganha uma cor que ninguém da escala está usando
   function corLivrePlantao_() {
     // conta todo mundo que aparece na escala (fixos, substitutos, quem já teve registro)
-    var usadas = pessoasPlantao_().map(function (n) { return CORES_PLANTAO.indexOf(corPlantonista_(n)); });
-    Object.keys(COR_FIXA_PLANTAO).forEach(function (n) { usadas.push(COR_FIXA_PLANTAO[n]); });
-    for (var i = 0; i < CORES_PLANTAO.length; i++) if (usadas.indexOf(i) === -1) return i;
+    var usadas = pessoasPlantao_().map(function (n) { return corPlantonista_(n).forte.toUpperCase(); });
+    Object.keys(COR_FIXA_PLANTAO).forEach(function (n) { usadas.push(CORES_PLANTAO[COR_FIXA_PLANTAO[n]].forte.toUpperCase()); });
+    for (var i = 0; i < CORES_PLANTAO.length; i++) if (usadas.indexOf(CORES_PLANTAO[i].forte.toUpperCase()) === -1) return i;
     return usadas.length % CORES_PLANTAO.length;
   }
   function pessoasDoBloco_(dias) {
@@ -2913,6 +2942,9 @@
   }
 
   var plantaoPadroes = []; // um por pessoa fixa: {id, pessoa, alterna, semanaA:{segunda:{tipo,turnos},...}, semanaB:{...}}
+  // (v127) cores escolhidas: um documento só, nessa mesma coleção, {cores: {"Alex": "#2F6FB0", ...}}
+  var ID_CORES_PLANTAO = "cores_plantao";
+  var coresEscolhidasPlantao_ = {};
   var plantaoPadroesListenerAtivo = false;
   function iniciarListenerPlantaoPadroes_() {
     if (plantaoPadroesListenerAtivo || !db) return;
@@ -2921,15 +2953,18 @@
       // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
       // (a primeira costuma vir do cache do celular).
       if (!snapshot.metadata.fromCache) listenerVoltou_("Plantão (padrão)");
-      var novos = [];
+      var novos = [], cores = null;
       snapshot.forEach(function (doc) {
         var d = doc.data();
+        if (doc.id === ID_CORES_PLANTAO) { cores = (d && d.cores) || {}; return; }   // não é pessoa: são as cores escolhidas
         novos.push({ id: doc.id, pessoa: d.pessoa, alterna: !!d.alterna, semanaA: d.semanaA || {}, semanaB: d.semanaB || {},
                      ativo: d.ativo !== false, ordem: typeof d.ordem === "number" ? d.ordem : null,
                      cor: typeof d.cor === "number" ? d.cor : null,
                      desde: d.desde || null, ate: d.ate || null });
       });
       plantaoPadroes = novos;
+      coresEscolhidasPlantao_ = {};
+      if (cores) Object.keys(cores).forEach(function (n) { if (cores[n]) coresEscolhidasPlantao_[n] = String(cores[n]); });
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
     }, function (err) { plantaoPadroesListenerAtivo = false; falhaListener_("Plantão (padrão)", "escala_plantao_padrao", err, iniciarListenerPlantaoPadroes_, function () { return plantaoPadroesListenerAtivo; }); });
   }
@@ -2940,6 +2975,18 @@
     if (!p || p.ativo === false) return false;
     if (p.desde && fim < p.desde) return false;
     if (p.ate && ini > p.ate) return false;
+    return true;
+  }
+  // (v127) grava a cor escolhida (hex vazio = volta pra cor automática)
+  function salvarCorPlantao_(nome, hex) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return false; }
+    hex = hex ? String(hex).trim().toUpperCase() : "";
+    var mapa = {};
+    mapa[nome] = hex;
+    if (hex) coresEscolhidasPlantao_[nome] = hex; else delete coresEscolhidasPlantao_[nome];   // já mostra; o banco confirma logo
+    db.collection("escala_plantao_padrao").doc(ID_CORES_PLANTAO).set(
+      { tipo: "cores", ativo: false, cores: mapa, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() },
+      { merge: true }).catch(function (err) { console.error("[plantao] cores:", err); avisarErroFirestore_(err); });
     return true;
   }
   function padroesDaPessoa_(pessoa) {
@@ -5911,7 +5958,7 @@
       ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, y, W, LIN);
       // nome na cor da pessoa (faixa forte, letra branca)
       ctx.fillStyle = corP.forte; ctx.fillRect(0, y, NOME, LIN);
-      ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
+      ctx.fillStyle = corP.texto || "#FFFFFF"; ctx.textAlign = "left";
       fonte(caber(pessoa, 34, true, NOME - 40), true);
       ctx.fillText(pessoa, 24, y + LIN / 2);
       dias.forEach(function (d, i) {
@@ -6110,7 +6157,7 @@
     pessoas.forEach(function (pessoa) {
       var corP = corPlantonista_(pessoa);
       html += '<tr>';
-      html += '<td data-plantao-pessoa="' + escapeHtml(pessoa) + '" style="position:sticky;left:0;background:' + corP.forte + ';padding:6px 8px;font-weight:700;color:#FFFFFF;border-top:1px solid #DCD3BC;z-index:1;cursor:pointer;">' + escapeHtml(pessoa) + '</td>';
+      html += '<td data-plantao-pessoa="' + escapeHtml(pessoa) + '" style="position:sticky;left:0;background:' + corP.forte + ';padding:6px 8px;font-weight:700;color:' + (corP.texto || '#FFFFFF') + ';border-top:1px solid #DCD3BC;z-index:1;cursor:pointer;">' + escapeHtml(pessoa) + '</td>';
       dias.forEach(function (d, i) {
         var cel = getCelulaPlantao_(pessoa, d);
         var corFundo = (i % 2 === 0) ? "#FFFDF8" : "#F3EEE0";
@@ -6464,6 +6511,7 @@
   var plantaoAdminOk_ = false;          // senha conferida - vale enquanto o app estiver aberto
   var pessoasEscalaTirando_ = null;     // quem está com o "tirar" aberto
   var pessoasEscalaFoco_ = null;        // quem foi tocado na grade
+  var pessoasEscalaCor_ = null;         // (v127) de quem a paleta de cores está aberta
   var pessoasTirarForm_ = { data: "", trocar: false, novo: "" };
   var pessoasAddForm_ = { nome: "", modo: "fixo", desde: "", copiar: "" };
 
@@ -6654,6 +6702,7 @@
   function abrirPessoasEscala_(foco) {
     pessoasEscalaFoco_ = typeof foco === "string" ? foco : null;
     pessoasEscalaTirando_ = null;
+    pessoasEscalaCor_ = null;
     pessoasAddForm_ = { nome: "", modo: "fixo", desde: todayStr(), copiar: "" };
     renderPessoasEscala_();
     document.getElementById("modal-plantao-pessoas-overlay").classList.add("active");
@@ -6671,6 +6720,37 @@
     var extras = pessoasDoBloco_(dias).filter(function (n) { return fixos.indexOf(n) === -1; });
     var e = escapeHtml;
     var BTN = "border:1px solid #D2C7AB;border-radius:14px;padding:6px 10px;font-size:12px;background:#FBF8F1;white-space:nowrap;";
+    var todosDaLista = fixos.concat(extras);
+    // (v127) paleta de cores de uma pessoa; as letras mostram quem já usa cada cor
+    function paleta(n) {
+      var atual = corPlantonista_(n), atualF = atual.forte.toUpperCase();
+      var usoPor = {};
+      todosDaLista.forEach(function (o) {
+        if (o === n) return;
+        var f = corPlantonista_(o).forte.toUpperCase();
+        (usoPor[f] = usoPor[f] || []).push(o);
+      });
+      var h = '<div style="margin-top:9px;padding-top:9px;border-top:1px dashed #D2C7AB;">' +
+        '<div style="font-size:12.5px;font-weight:700;margin-bottom:3px;">🎨 Escolha a cor de ' + e(n) + '</div>' +
+        '<div style="font-size:11px;color:#6B6153;margin-bottom:8px;">A letra dentro da bolinha é de quem já usa aquela cor.</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      CORES_PLANTAO.forEach(function (c) {
+        var f = c.forte.toUpperCase(), sel = f === atualF, quem = usoPor[f] || [];
+        h += '<button type="button" data-pes-cor-escolher="' + f + '" title="' + e(c.nome + (quem.length ? " (já é de " + quem.join(", ") + ")" : "")) + '"' +
+          ' style="width:38px;height:38px;border-radius:50%;background:' + f + ';border:' + (sel ? '3px solid #241F1A' : '2px solid #FFFDF8') + ';box-shadow:0 0 0 1px #B8AE9C;color:#FFFFFF;font-size:' + (sel ? '18' : '11') + 'px;font-weight:800;cursor:pointer;padding:0;line-height:1;flex:none;">' +
+          (sel ? '✓' : e(quem.map(function (q) { return q.charAt(0).toUpperCase(); }).join("").slice(0, 2))) + '</button>';
+      });
+      h += '</div>';
+      var iguais = usoPor[atualF] || [];
+      if (iguais.length) h += '<div style="font-size:12px;color:#8A5A18;background:#FBF4E4;border-radius:5px;padding:6px 9px;margin-top:8px;">⚠ ' + e(n) + ' está com a mesma cor de <b>' + e(iguais.join(", ")) + '</b>. Escolha outra pra diferenciar.</div>';
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">' +
+          '<label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#4A4136;cursor:pointer;">🖌️ Outra cor:' +
+            '<input type="color" id="pes-cor-livre" value="' + atualF.toLowerCase() + '" style="width:46px;height:32px;padding:0 2px;border:1px solid #D2C7AB;border-radius:4px;background:#FBF8F1;cursor:pointer;"></label>' +
+          (coresEscolhidasPlantao_[n] ? '<button type="button" class="del-btn" id="btn-pes-cor-auto" style="' + BTN + 'color:#2F7DB0;">↺ Cor automática</button>' : '') +
+          '<button type="button" class="del-btn" id="btn-pes-cor-fechar" style="' + BTN + 'color:#4A4136;margin-left:auto;">Fechar</button>' +
+        '</div></div>';
+      return h;
+    }
     function linha(n, fixo) {
       var cor = corPlantonista_(n);
       var p = fixo ? getPadraoPessoa_(n) : null;
@@ -6682,7 +6762,9 @@
       var aberto = pessoasEscalaTirando_ === n;
       var h = '<div data-pes-linha="' + e(n) + '" style="border:' + (pessoasEscalaFoco_ === n ? '2px solid #2F7DB0' : '1px solid #DCD3BC') + ';border-radius:6px;padding:8px 10px;margin-bottom:6px;background:#FFFDF8;">' +
         '<div style="display:flex;align-items:center;gap:8px;">' +
-          '<span style="width:13px;height:13px;border-radius:50%;background:' + cor.forte + ';flex:none;"></span>' +
+          '<button type="button" data-pes-cor="' + e(n) + '" title="Escolher a cor de ' + e(n) + '" aria-label="Escolher a cor de ' + e(n) + '"' +
+            ' style="position:relative;width:30px;height:30px;border-radius:50%;background:' + cor.forte + ';border:2px solid #FFFDF8;box-shadow:0 0 0 1px #B8AE9C;flex:none;padding:0;cursor:pointer;">' +
+            '<span style="position:absolute;right:-6px;bottom:-6px;font-size:12px;line-height:1;background:#FFFDF8;border-radius:50%;padding:1px;">🎨</span></button>' +
           '<div style="flex:1;min-width:0;"><b style="font-size:14px;">' + e(n) + '</b>' +
             (info.length ? '<div style="font-size:11px;color:#6B6153;line-height:1.3;">' + e(info.join(" · ")) + '</div>' : '') + '</div>' +
           (fixo ? '<button type="button" class="del-btn" data-pes-horarios="' + e(n) + '" style="' + BTN + 'color:#4A4136;">🕐 Horários</button>' : '') +
@@ -6690,6 +6772,7 @@
             ? '<button type="button" class="del-btn" data-pes-desfazer="' + e(n) + '" style="' + BTN + 'color:#2F7DB0;">Desfazer saída</button>'
             : '<button type="button" class="del-btn" data-pes-tirar="' + e(n) + '" style="' + BTN + 'color:#B4442E;">Tirar</button>') +
         '</div>';
+      if (pessoasEscalaCor_ === n) h += paleta(n);
       if (aberto) {
         h += '<div style="margin-top:9px;padding-top:9px;border-top:1px dashed #D2C7AB;">' +
           '<div class="field" style="margin-bottom:8px;"><span class="field-label">Sai da escala a partir de</span>' +
@@ -6745,6 +6828,7 @@
       b.addEventListener("click", function () {
         var n = b.getAttribute("data-pes-tirar");
         pessoasEscalaTirando_ = pessoasEscalaTirando_ === n ? null : n;
+        pessoasEscalaCor_ = null;
         pessoasTirarForm_ = { data: todayStr(), trocar: false, novo: "" };
         guardarNomeAdd_();
         renderPessoasEscala_();
@@ -6800,6 +6884,26 @@
       if (fixo) garantirAdminPlantao_(executa); else executa();
     });
 
+    // ---- cores (v127) ----
+    el.querySelectorAll("[data-pes-cor]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var n = b.getAttribute("data-pes-cor");
+        pessoasEscalaCor_ = pessoasEscalaCor_ === n ? null : n;
+        pessoasEscalaTirando_ = null;
+        guardarNomeAdd_();
+        renderPessoasEscala_();
+      });
+    });
+    el.querySelectorAll("[data-pes-cor-escolher]").forEach(function (b) {
+      b.addEventListener("click", function () { escolherCorPessoa_(pessoasEscalaCor_, b.getAttribute("data-pes-cor-escolher")); });
+    });
+    var inCorLivre = document.getElementById("pes-cor-livre");
+    if (inCorLivre) inCorLivre.addEventListener("change", function () { escolherCorPessoa_(pessoasEscalaCor_, inCorLivre.value); });
+    var bCorAuto = document.getElementById("btn-pes-cor-auto");
+    if (bCorAuto) bCorAuto.addEventListener("click", function () { escolherCorPessoa_(pessoasEscalaCor_, ""); });
+    var bCorFechar = document.getElementById("btn-pes-cor-fechar");
+    if (bCorFechar) bCorFechar.addEventListener("click", function () { pessoasEscalaCor_ = null; guardarNomeAdd_(); renderPessoasEscala_(); });
+
     var inNome = document.getElementById("pes-add-nome");
     inNome.addEventListener("input", function () { pessoasAddForm_.nome = inNome.value; atualizarPreviaAdd_(); });
     el.querySelectorAll("[data-pes-modo]").forEach(function (b) {
@@ -6842,6 +6946,22 @@
         }
       });
     });
+  }
+  // (v127) troca a cor e já mostra na lista e na grade (a paleta fica aberta pra ir testando)
+  function escolherCorPessoa_(n, hex) {
+    if (!n) return;
+    if (!salvarCorPlantao_(n, hex)) return;
+    if (!hex) showToast(n + " voltou pra cor automática.");
+    else {
+      var f = corPlantonista_(n).forte.toUpperCase();
+      var iguais = pessoasDoBloco_(diasBlocoPlantao_()).concat(plantonistasFixos_()).filter(function (o, i, arr) {
+        return o !== n && arr.indexOf(o) === i && corPlantonista_(o).forte.toUpperCase() === f;
+      });
+      showToast("Cor de " + n + " trocada." + (iguais.length ? " Atenção: " + iguais.join(", ") + " também está com essa cor." : ""));
+    }
+    guardarNomeAdd_();
+    renderPessoasEscala_();
+    try { renderPlantao(); } catch (e) {}
   }
   // o nome digitado não se perde quando a tela é redesenhada
   function guardarNomeAdd_() {
