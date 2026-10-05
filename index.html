@@ -1235,7 +1235,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v127';
+  var APP_CACHE_NAME = 'registro-irrigacao-v128';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2837,7 +2837,7 @@
     plantaoPadroes.forEach(function (p) {
       if (p.pessoa && padraoValeEm_(p, ini, fim) && nomes.indexOf(p.pessoa) === -1) nomes.push(p.pessoa);
     });
-    return nomes.sort(function (a, b) { return (pesoPlantonista_(a) - pesoPlantonista_(b)) || (a < b ? -1 : 1); });
+    return ordenarPessoasPlantao_(nomes.sort(function (a, b) { return (pesoPlantonista_(a) - pesoPlantonista_(b)) || (a < b ? -1 : 1); }));
   }
   function pesoPlantonista_(n) {
     var d = getPadraoQualquer_(n);
@@ -2916,7 +2916,7 @@
       if (!x.substituto || fixos.indexOf(x.substituto) > -1 || extras.indexOf(x.substituto) > -1) return;
       if (x.inicio <= dias[dias.length - 1] && (!x.fim || x.fim >= dias[0])) extras.push(x.substituto);
     });
-    return fixos.concat(extras.sort());
+    return ordenarPessoasPlantao_(fixos.concat(extras.sort()));
   }
   // Domingo de referência pra calcular se uma semana qualquer é "A" ou "B"
   // do ciclo que se alterna - a dupla que trabalha domingo numa semana
@@ -2945,6 +2945,8 @@
   // (v127) cores escolhidas: um documento só, nessa mesma coleção, {cores: {"Alex": "#2F6FB0", ...}}
   var ID_CORES_PLANTAO = "cores_plantao";
   var coresEscolhidasPlantao_ = {};
+  // (v128) ordem que o Fernando arrumou (de cima pra baixo), no mesmo documento: {ordemPessoas: ["Alex", ...]}
+  var ordemEscolhidaPlantao_ = [];
   var plantaoPadroesListenerAtivo = false;
   function iniciarListenerPlantaoPadroes_() {
     if (plantaoPadroesListenerAtivo || !db) return;
@@ -2953,10 +2955,14 @@
       // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
       // (a primeira costuma vir do cache do celular).
       if (!snapshot.metadata.fromCache) listenerVoltou_("Plantão (padrão)");
-      var novos = [], cores = null;
+      var novos = [], cores = null, ordemNova = null;
       snapshot.forEach(function (doc) {
         var d = doc.data();
-        if (doc.id === ID_CORES_PLANTAO) { cores = (d && d.cores) || {}; return; }   // não é pessoa: são as cores escolhidas
+        if (doc.id === ID_CORES_PLANTAO) {   // não é pessoa: são as cores e a ordem escolhidas
+          cores = (d && d.cores) || {};
+          ordemNova = (d && Array.isArray(d.ordemPessoas)) ? d.ordemPessoas : [];
+          return;
+        }
         novos.push({ id: doc.id, pessoa: d.pessoa, alterna: !!d.alterna, semanaA: d.semanaA || {}, semanaB: d.semanaB || {},
                      ativo: d.ativo !== false, ordem: typeof d.ordem === "number" ? d.ordem : null,
                      cor: typeof d.cor === "number" ? d.cor : null,
@@ -2965,6 +2971,7 @@
       plantaoPadroes = novos;
       coresEscolhidasPlantao_ = {};
       if (cores) Object.keys(cores).forEach(function (n) { if (cores[n]) coresEscolhidasPlantao_[n] = String(cores[n]); });
+      ordemEscolhidaPlantao_ = (ordemNova || []).filter(function (n, i, arr) { return typeof n === "string" && n && arr.indexOf(n) === i; });
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
     }, function (err) { plantaoPadroesListenerAtivo = false; falhaListener_("Plantão (padrão)", "escala_plantao_padrao", err, iniciarListenerPlantaoPadroes_, function () { return plantaoPadroesListenerAtivo; }); });
   }
@@ -2977,6 +2984,62 @@
     if (p.ate && ini > p.ate) return false;
     return true;
   }
+  // (v128) põe a lista na ordem escolhida; quem não está na ordem fica embaixo, como era antes
+  function ordenarPessoasPlantao_(lista) {
+    if (!ordemEscolhidaPlantao_.length) return lista;
+    return lista.map(function (n, i) {
+      var k = ordemEscolhidaPlantao_.indexOf(n);
+      return { n: n, k: k === -1 ? 100000 + i : k };
+    }).sort(function (a, b) { return a.k - b.k; }).map(function (x) { return x.n; });
+  }
+  // junta a ordem nova de quem aparece nessas 2 semanas com quem não aparece
+  // (quem não aparece agora continua no lugar dele, pra quando voltar)
+  function juntarOrdemPlantao_(visiveis) {
+    var fila = visiveis.slice(), out = [];
+    ordemEscolhidaPlantao_.forEach(function (n) {
+      if (visiveis.indexOf(n) > -1) { if (fila.length) out.push(fila.shift()); }
+      else if (out.indexOf(n) === -1) out.push(n);
+    });
+    fila.forEach(function (n) { if (out.indexOf(n) === -1) out.push(n); });
+    plantonistasFixos_().forEach(function (n) { if (out.indexOf(n) === -1) out.push(n); });
+    return out;
+  }
+  function salvarOrdemPlantao_(lista) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return false; }
+    ordemEscolhidaPlantao_ = lista.slice();   // já mostra; o banco confirma logo
+    db.collection("escala_plantao_padrao").doc(ID_CORES_PLANTAO).set(
+      { tipo: "cores", ativo: false, ordemPessoas: lista.slice(), atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() },
+      { merge: true }).catch(function (err) { console.error("[plantao] ordem:", err); avisarErroFirestore_(err); });
+    return true;
+  }
+  // sobe (-1) ou desce (+1) uma pessoa na grade das 2 semanas que está na tela
+  function moverNaOrdemPlantao_(nome, delta) {
+    var visiveis = pessoasDoBloco_(diasBlocoPlantao_());
+    var i = visiveis.indexOf(nome), j = i + delta;
+    if (i === -1 || j < 0 || j >= visiveis.length) return false;
+    visiveis.splice(i, 1);
+    visiveis.splice(j, 0, nome);
+    return salvarOrdemPlantao_(juntarOrdemPlantao_(visiveis));
+  }
+  // coloca a pessoa no lugar escolhido: "inicio", "fim" ou "depois:Nome"
+  function inserirNaOrdemPlantao_(nome, posicao) {
+    var visiveis = pessoasDoBloco_(diasBlocoPlantao_()).filter(function (n) { return n !== nome; });
+    var lista = juntarOrdemPlantao_(visiveis).filter(function (n) { return n !== nome; });
+    var pos = lista.length;
+    if (posicao === "inicio") pos = 0;
+    else if (posicao && posicao.indexOf("depois:") === 0) {
+      var k = lista.indexOf(posicao.slice(7));
+      if (k > -1) pos = k + 1;
+    }
+    lista.splice(pos, 0, nome);
+    return salvarOrdemPlantao_(lista);
+  }
+  function rotuloPosicaoPlantao_(posicao) {
+    if (posicao === "inicio") return "em cima de todos";
+    if (posicao && posicao.indexOf("depois:") === 0) return "logo abaixo de " + posicao.slice(7);
+    return "embaixo de todos";
+  }
+
   // (v127) grava a cor escolhida (hex vazio = volta pra cor automática)
   function salvarCorPlantao_(nome, hex) {
     if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return false; }
@@ -6513,7 +6576,8 @@
   var pessoasEscalaFoco_ = null;        // quem foi tocado na grade
   var pessoasEscalaCor_ = null;         // (v127) de quem a paleta de cores está aberta
   var pessoasTirarForm_ = { data: "", trocar: false, novo: "" };
-  var pessoasAddForm_ = { nome: "", modo: "fixo", desde: "", copiar: "" };
+  var pessoasAddForm_ = { nome: "", modo: "fixo", desde: "", copiar: "", posicao: "fim" };
+  var pessoasEscalaOrdem_ = false;      // (v128) tela de mudar a ordem aberta
 
   function garantirAdminPlantao_(cb) {
     if (plantaoAdminOk_) { cb(); return; }
@@ -6703,7 +6767,8 @@
     pessoasEscalaFoco_ = typeof foco === "string" ? foco : null;
     pessoasEscalaTirando_ = null;
     pessoasEscalaCor_ = null;
-    pessoasAddForm_ = { nome: "", modo: "fixo", desde: todayStr(), copiar: "" };
+    pessoasEscalaOrdem_ = false;
+    pessoasAddForm_ = { nome: "", modo: "fixo", desde: todayStr(), copiar: "", posicao: "fim" };
     renderPessoasEscala_();
     document.getElementById("modal-plantao-pessoas-overlay").classList.add("active");
   }
@@ -6789,7 +6854,37 @@
       }
       return h + '</div>';
     }
-    var html = '<div style="font-size:11px;font-weight:700;color:#6B6153;letter-spacing:.04em;margin:4px 0 6px;">NA ESCALA TODA SEMANA</div>';
+    // ---- (v128) mudar a ordem: lista na ordem da grade, com ▲ ▼ ----
+    if (pessoasEscalaOrdem_) {
+      var naGrade = pessoasDoBloco_(dias);
+      var SETA = "width:44px;height:38px;border:1px solid #D2C7AB;border-radius:6px;background:#FBF8F1;color:#2F5A8A;font-size:16px;cursor:pointer;flex:none;";
+      var ho = '<div style="font-weight:700;font-size:14px;margin:2px 0 3px;">↕ Ordem das pessoas na escala</div>' +
+        '<div class="modal-sub" style="margin-bottom:10px;">De cima pra baixo, do jeito que aparece na grade e na imagem do WhatsApp (' +
+          fmtDate(dias[0]).slice(0, 5) + ' a ' + fmtDate(dias[13]).slice(0, 5) + '). Use ▲ e ▼ pra subir ou descer. Já salva sozinho.</div>';
+      naGrade.forEach(function (n, i) {
+        var c = corPlantonista_(n);
+        ho += '<div data-ord-linha="' + e(n) + '" style="display:flex;align-items:center;gap:8px;border:1px solid #DCD3BC;border-radius:6px;padding:6px 8px;margin-bottom:6px;background:#FFFDF8;">' +
+          '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:700;color:#8A8072;width:20px;text-align:right;flex:none;">' + (i + 1) + '</span>' +
+          '<span style="width:18px;height:18px;border-radius:50%;background:' + c.forte + ';flex:none;"></span>' +
+          '<b style="flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + e(n) + '</b>' +
+          '<button type="button" data-ord-subir="' + e(n) + '" title="Subir" aria-label="Subir ' + e(n) + '"' + (i === 0 ? ' disabled' : '') + ' style="' + SETA + (i === 0 ? 'opacity:.3;cursor:default;' : '') + '">▲</button>' +
+          '<button type="button" data-ord-descer="' + e(n) + '" title="Descer" aria-label="Descer ' + e(n) + '"' + (i === naGrade.length - 1 ? ' disabled' : '') + ' style="' + SETA + (i === naGrade.length - 1 ? 'opacity:.3;cursor:default;' : '') + '">▼</button>' +
+        '</div>';
+      });
+      if (!naGrade.length) ho += '<div class="modal-sub">Ninguém na escala dessas 2 semanas.</div>';
+      ho += '<button type="button" class="save-btn" id="btn-ord-pronto" style="background:#4C7C59;margin-top:6px;">✔ Pronto</button>';
+      el.innerHTML = ho;
+      el.querySelectorAll("[data-ord-subir]").forEach(function (b) {
+        b.addEventListener("click", function () { if (moverNaOrdemPlantao_(b.getAttribute("data-ord-subir"), -1)) { renderPessoasEscala_(); try { renderPlantao(); } catch (err) {} } });
+      });
+      el.querySelectorAll("[data-ord-descer]").forEach(function (b) {
+        b.addEventListener("click", function () { if (moverNaOrdemPlantao_(b.getAttribute("data-ord-descer"), 1)) { renderPessoasEscala_(); try { renderPlantao(); } catch (err) {} } });
+      });
+      document.getElementById("btn-ord-pronto").addEventListener("click", function () { pessoasEscalaOrdem_ = false; renderPessoasEscala_(); });
+      return;
+    }
+    var html = '<button type="button" id="btn-pes-ordem" style="width:100%;padding:10px;border:1px solid #9FC3E0;border-radius:6px;background:#EEF5FB;color:#1F4E79;font-weight:700;font-size:13px;cursor:pointer;margin:2px 0 12px;">↕ Mudar a ordem das pessoas na escala</button>';
+    html += '<div style="font-size:11px;font-weight:700;color:#6B6153;letter-spacing:.04em;margin:4px 0 6px;">NA ESCALA TODA SEMANA</div>';
     html += fixos.length ? fixos.map(function (n) { return linha(n, true); }).join("") : '<div class="modal-sub">Ninguém ainda.</div>';
     if (extras.length) {
       html += '<div style="font-size:11px;font-weight:700;color:#6B6153;letter-spacing:.04em;margin:12px 0 6px;">SÓ DE ' + fmtDate(dias[0]).slice(0, 5) + ' A ' + fmtDate(dias[13]).slice(0, 5) + ' (COBRINDO OU COM TROCA)</div>';
@@ -6806,6 +6901,15 @@
         '<button type="button" class="del-btn" data-pes-modo="fixo" style="flex:1;padding:9px 6px;font-size:12.5px;border:1px solid #D2C7AB;border-radius:6px;' + (f.modo === "fixo" ? "background:#4C7C59;color:#fff;" : "background:#FBF8F1;color:#4A4136;") + '">📅 Toda semana</button>' +
         '<button type="button" class="del-btn" data-pes-modo="bloco" style="flex:1;padding:9px 6px;font-size:12.5px;border:1px solid #D2C7AB;border-radius:6px;' + (f.modo === "bloco" ? "background:#4C7C59;color:#fff;" : "background:#FBF8F1;color:#4A4136;") + '">🗓 Só ' + fmtDate(dias[0]).slice(0, 5) + ' a ' + fmtDate(dias[13]).slice(0, 5) + '</button>' +
       '</div>';
+    // (v128) o lugar dele na grade: em cima de todos, logo abaixo de alguém, ou embaixo de todos
+    var naGradeAdd = pessoasDoBloco_(dias);
+    var posAtual = f.posicao || "fim";
+    if (posAtual.indexOf("depois:") === 0 && naGradeAdd.indexOf(posAtual.slice(7)) === -1) posAtual = "fim";
+    html += '<div class="field" style="margin-bottom:8px;"><span class="field-label">Onde aparece na escala</span><select id="pes-add-posicao">' +
+      '<option value="inicio"' + (posAtual === "inicio" ? " selected" : "") + '>Em cima de todos</option>' +
+      naGradeAdd.slice(0, -1).map(function (n) { var v = "depois:" + n; return '<option value="' + e(v) + '"' + (posAtual === v ? " selected" : "") + '>Logo abaixo de ' + e(n) + '</option>'; }).join("") +
+      '<option value="fim"' + (posAtual === "fim" || posAtual === "depois:" + naGradeAdd[naGradeAdd.length - 1] ? " selected" : "") + '>Embaixo de todos' + (naGradeAdd.length ? ' (depois de ' + e(naGradeAdd[naGradeAdd.length - 1]) + ')' : '') + '</option>' +
+    '</select></div>';
     if (f.modo === "fixo") {
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
         '<div class="field" style="margin-bottom:8px;min-width:0;"><span class="field-label">A partir de</span><input type="date" id="pes-add-desde" value="' + e(f.desde) + '"></div>' +
@@ -6875,6 +6979,7 @@
         var plano = planoTirarPessoa_(n, pessoasTirarForm_.data, fixo && pessoasTirarForm_.trocar ? pessoasTirarForm_.novo : "");
         if (plano.erro) { showToast(plano.erro); atualizarPreviaTirar_(); return; }
         if (!gravarPlanoPessoas_(plano)) return;
+        if (plano.novo) inserirNaOrdemPlantao_(plano.novo.nome, "depois:" + n);
         showToast(plano.novo ? n + " saiu e " + plano.novo.nome + " entrou no lugar." : n + " saiu da escala.");
         pessoasEscalaTirando_ = null;
         guardarNomeAdd_();
@@ -6913,6 +7018,14 @@
     if (inDesde) inDesde.addEventListener("change", function () { pessoasAddForm_.desde = inDesde.value; atualizarPreviaAdd_(); });
     var inCopiar = document.getElementById("pes-add-copiar");
     if (inCopiar) inCopiar.addEventListener("change", function () { pessoasAddForm_.copiar = inCopiar.value; atualizarPreviaAdd_(); });
+    var inPosicao = document.getElementById("pes-add-posicao");
+    if (inPosicao) inPosicao.addEventListener("change", function () { pessoasAddForm_.posicao = inPosicao.value; atualizarPreviaAdd_(); });
+    var bOrdem = document.getElementById("btn-pes-ordem");
+    if (bOrdem) bOrdem.addEventListener("click", function () {
+      guardarNomeAdd_();
+      pessoasEscalaOrdem_ = true; pessoasEscalaTirando_ = null; pessoasEscalaCor_ = null;
+      renderPessoasEscala_();
+    });
     document.getElementById("btn-pes-add").addEventListener("click", function () {
       guardarNomeAdd_();
       var nome = nomeCanonicoPlantao_(pessoasAddForm_.nome);
@@ -6922,8 +7035,10 @@
         if (pessoasDoBloco_(diasB).indexOf(nome) > -1) { showToast(nome + " já aparece nessas 2 semanas."); atualizarPreviaAdd_(); return; }
         // uma folga no primeiro dia faz ele aparecer nessas 2 semanas; os dias de trabalho a pessoa marca tocando nas células
         if (!gravarPlanoPessoas_({ regsNovos: [{ pessoa: nome, data: diasB[0], tipo: "folga", turnos: [], destaque: true }] })) return;
+        inserirNaOrdemPlantao_(nome, pessoasAddForm_.posicao);
         showToast(nome + " entrou - toque nas células dele pra marcar os dias.");
         pessoasAddForm_.nome = "";
+        pessoasAddForm_.posicao = "fim";
         renderPessoasEscala_();
         try { renderPlantao(); } catch (err) {}
         return;
@@ -6932,8 +7047,10 @@
         var pc = planoColocarPessoa_(nome, pessoasAddForm_.desde, { copiarDe: pessoasAddForm_.copiar || "" });
         if (pc.erro) { showToast(pc.erro); atualizarPreviaAdd_(); return; }
         if (!gravarPlanoPessoas_({ novo: pc })) return;
+        inserirNaOrdemPlantao_(nome, pessoasAddForm_.posicao);
         pessoasAddForm_.nome = "";
         pessoasAddForm_.copiar = "";
+        pessoasAddForm_.posicao = "fim";
         try { renderPlantao(); } catch (err) {}
         if (pc.temHorarios) {
           showToast(nome + " entrou na escala.");
@@ -7002,6 +7119,7 @@
     box.style.display = (previa || erro) ? "block" : "none";
     box.style.background = erro ? "#FBEDE8" : "#EEF5EA";
     box.style.color = erro ? "#8A2E2E" : "#2F4F20";
+    if (previa) previa += " Na grade ele fica <b>" + e(rotuloPosicaoPlantao_(f.posicao)) + "</b>.";
     box.innerHTML = erro ? e(erro) : previa;
     b.disabled = !nome || !!erro;
   }
