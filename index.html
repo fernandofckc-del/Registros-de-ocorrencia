@@ -916,7 +916,7 @@
   <div class="modal-box" style="position:relative;">
     <button class="modal-close" id="btn-close-conferencia-bomb">✕</button>
     <div class="modal-title">🔍 Conferência do bombeamento</div>
-    <div class="modal-sub">Erros de lançamento dos últimos 30 dias, no bombeamento e nas rondas. Toque no botão de cada um pra corrigir. Se o registro estiver certo assim (ex.: hidrômetro trocado), toque em "Está certo" e ele sai da lista.</div>
+    <div class="modal-sub">Erros de lançamento dos últimos 30 dias, no bombeamento e nas rondas. A <b>🪄 Correção automática</b> acerta de uma vez o que dá pra estimar; o que sobrar, toque no botão de cada um. Se o registro estiver certo assim (ex.: hidrômetro trocado), toque em "Está certo" e ele sai da lista.</div>
     <div id="conferencia-bomb-conteudo"></div>
   </div>
 </div>
@@ -1278,7 +1278,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v130';
+  var APP_CACHE_NAME = 'registro-irrigacao-v131';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2445,6 +2445,9 @@
           responsavel: d.responsavel || "", responsavelFim: d.responsavelFim || "",
           hidrometroTravado: d.hidrometroTravado === true,
           conferidoOk: (d.conferidoOk && typeof d.conferidoOk === "object") ? d.conferidoOk : {},
+          // (v131) correção automática: lote (pra desfazer) e o que ela mudou
+          loteAuto: d.loteAuto || "", criadoAuto: d.criadoAuto || "",
+          corrigidoAuto: (d.corrigidoAuto && typeof d.corrigidoAuto === "object") ? d.corrigidoAuto : null,
           _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
           _pendingDelete: false
         });
@@ -2507,6 +2510,9 @@
           corrente: d.corrente || "", tensao: d.tensao || "", horimetro: d.horimetro || "",
           fotoPainel: d.fotoPainel || "", motivoParada: d.motivoParada || "", observacao: d.observacao || "",
           conferidoOk: (d.conferidoOk && typeof d.conferidoOk === "object") ? d.conferidoOk : {},
+          // (v131) correção automática
+          correcao: d.correcao || "", loteAuto: d.loteAuto || "",
+          corrigidoAuto: (d.corrigidoAuto && typeof d.corrigidoAuto === "object") ? d.corrigidoAuto : null,
           _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites,
           _pendingDelete: false
         });
@@ -9006,7 +9012,7 @@
                 : '⏱ ' + escapeHtml(rec.horarioInicio || "—") + ' → ' + escapeHtml(rec.horarioFim || "rodando") +
                   '<br>💧 Consumo: <b>' + consumoTxt + '</b>' +
                   (rec.hidrometroTravado ? '<br><span style="font-size:11.5px;color:#B4442E;font-weight:700;">🔧 Hidrômetro travado nessa rodada — volume não medido</span>' : '')) +
-              (rec.estimado ? '<br><span style="font-size:11px;color:#2F5F8A;font-weight:700;">📐 Rodada estimada: volume do hidrômetro, horário estimado</span>' : '') +
+              (rec.estimado ? '<br><span style="font-size:11px;color:#2F5F8A;font-weight:700;">📐 ' + (rec.correcao ? 'Tem número estimado pelo app (veja a correção)' : 'Rodada estimada: volume do hidrômetro, horário estimado') + '</span>' : '') +
               (rec.correcao ? '<br><span style="font-size:11px;color:#7A5A18;">✎ Corrigida: ' + escapeHtml(rec.correcao) + '</span>' : '') +
               (rec.responsavel || rec.responsavelFim
                 ? '<br>👤 ' + [rec.responsavel ? 'ligou: ' + escapeHtml(rec.responsavel) : '', rec.responsavelFim ? 'desligou: ' + escapeHtml(rec.responsavelFim) : ''].filter(Boolean).join(' · ')
@@ -11580,9 +11586,9 @@
     return false;
   }
   // { idDaRepetida: rodadaQueFica }
-  function rodadasRepetidas_() {
+  function rodadasRepetidas_(lista) {
     var porDiaBomba = {}, rep = {};
-    bombRecords.forEach(function (r) {
+    (lista || bombRecords).forEach(function (r) {
       if (r._pendingDelete) return;
       var k = isoDe_(r.data) + "|" + r.bomba;
       (porDiaBomba[k] = porDiaBomba[k] || []).push(r);
@@ -11868,11 +11874,12 @@
     var lista = problemasBombeamento_();
     conferenciaLista_ = lista;
     if (!lista.length) {
-      el.innerHTML = '<div style="background:#EAF3E2;border-left:4px solid #2F6B1F;border-radius:4px;padding:10px 12px;font-size:13px;color:#2F6B1F;">✅ Nada pra conferir: nenhum erro de lançamento nos últimos ' + DIAS_CONFERENCIA + ' dias.</div>';
+      el.innerHTML = htmlCaixaAuto_(lista) + '<div style="background:#EAF3E2;border-left:4px solid #2F6B1F;border-radius:4px;padding:10px 12px;font-size:13px;color:#2F6B1F;">✅ Nada pra conferir: nenhum erro de lançamento nos últimos ' + DIAS_CONFERENCIA + ' dias.</div>';
+      ligarCaixaAuto_();
       return;
     }
     var BTN = "border:none;border-radius:5px;padding:7px 10px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;";
-    var html = '<div style="font-size:12px;color:#4A4136;margin-bottom:10px;"><b>' + pluralRel_(lista.length, "registro", "registros") + '</b> pra conferir: ' + escapeHtml(resumoGruposConf_(lista)) + '.</div>';
+    var html = htmlCaixaAuto_(lista) + '<div style="font-size:12px;color:#4A4136;margin-bottom:10px;"><b>' + pluralRel_(lista.length, "registro", "registros") + '</b> pra conferir: ' + escapeHtml(resumoGruposConf_(lista)) + '.</div>';
     // quem mais erra (pra conversar com a pessoa, não pra brigar)
     var porQuem = {};
     lista.forEach(function (p) { if (p.quem) porQuem[p.quem] = (porQuem[p.quem] || 0) + 1; });
@@ -11909,6 +11916,7 @@
       html += '</div>';
     });
     el.innerHTML = html;
+    ligarCaixaAuto_();
     el.querySelectorAll("[data-conf-acao]").forEach(function (b) {
       b.addEventListener("click", function () { acaoConferencia_(conferenciaLista_[parseInt(b.getAttribute("data-conf-acao"), 10)]); });
     });
@@ -11987,6 +11995,1007 @@
     showToast(qtd + " rondas corrigidas.");
   }
   // ================= FIM CONFERÊNCIA DOS LANÇAMENTOS =================
+
+  // ================= CORREÇÃO AUTOMÁTICA DO BOMBEAMENTO (v131) =================
+  // Um toque e o app acerta sozinho os lançamentos que não fecham. Onde falta
+  // número, estima pela vazão normal de cada bomba (mediana das últimas 30
+  // rodadas boas) e marca como estimado. Antes de gravar mostra tudo o que vai
+  // mudar (antes → depois); depois de gravado, dá pra desfazer o lote inteiro.
+  // O que não tem como adivinhar (ex.: rodada aberta sem nenhuma leitura
+  // depois dela) continua na conferência pra corrigir à mão.
+  // Regras, nessa ordem (cada uma já enxerga o que as anteriores acertaram):
+  //  0) correções do backup de 21/09 (revisadas à mão) que ainda faltam
+  //  1) rodada repetida -> sai a repetida
+  //  2) rodada vazia (sem leitura nenhuma) esquecida aberta -> sai
+  //  3) rodada salva no dia errado (começa na leitura em que a seguinte termina) -> muda o dia
+  //  4) desligamento salvo como rodada nova -> junta na rodada que ficou aberta
+  //  5) leitura final menor que a inicial -> acerta a que foi digitada errada
+  //  6) rodada esquecida aberta -> leitura final = inicial da rodada seguinte; fim pelo volume
+  //  7) leitura que não emenda com a rodada anterior -> acerta o número digitado
+  //     errado, ou cria a rodada que ninguém registrou (volume real, horário estimado)
+  //  8) horário que não bate com o volume -> fim pelo volume (ou, se a rodada foi
+  //     criada só no desligamento, o início da noite)
+  //  9) 0 m³ -> "não ligou"
+  // 10) rondas: corrente/tensão trocadas, número no campo errado, horímetro
+  var VAZAO_MIN_OK = 40, VAZAO_MAX_OK = TOL_ALTO;   // faixa aceitável numa estimativa (% da vazão normal)
+  var LS_LOTE_AUTO = "bomb_auto_ultimo_lote";
+  var DIA_MS_ = 86400000;
+  var ROTULO_CAMPO_AUTO_ = {
+    data: "Dia", horarioInicio: "Início", horarioFim: "Fim", leituraInicial: "Leitura inicial", leituraFinal: "Leitura final",
+    naoLigou: "Não ligou", motivoNaoLigou: "Motivo", fotoFim: "Foto do desligamento", responsavelFim: "Quem desligou",
+    observacao: "Observação", corrente: "Corrente", tensao: "Tensão", horimetro: "Horímetro"
+  };
+  function msDoDia_(data) { var d = parseISODate(data); return d ? d.getTime() : NaN; }
+  // fim da rodada em ms (fim menor que o início = passou da meia-noite)
+  function fimRodadaMs_(r) {
+    if (!r.horarioInicio || !r.horarioFim) return null;
+    var a = minutosDeHora_(r.horarioInicio), b = minutosDeHora_(r.horarioFim);
+    return msDoDia_(r.data) + (b + (b < a ? 1440 : 0)) * 60000;
+  }
+  function duracaoRodadaMin_(r) {
+    var f = fimRodadaMs_(r);
+    return f === null ? null : (f - momentoRodada_(r)) / 60000;
+  }
+  function dataDoMs_(ms) { return isoUTC_(new Date(ms)); }
+  function horaDoMs_(ms) { return minToTimeBomb_((((ms % DIA_MS_) + DIA_MS_) % DIA_MS_) / 60000); }
+  function arred5min_(ms) { return Math.round(ms / 300000) * 300000; }
+  function agoraMsLocal_() {
+    var a = new Date();
+    return Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) + (a.getHours() * 60 + a.getMinutes()) * 60000;
+  }
+  function motivoNaoLigouPelaObs_(obs) {
+    var o = semAcentoMin_(obs);
+    if (/entrada de ar|\bar\b/.test(o)) return "Entrada de ar";
+    if (/energia|\bluz\b/.test(o)) return "Falta de energia";
+    if (/manutenc/.test(o)) return "Manutenção";
+    if (/defeito|painel|quebr/.test(o)) return "Defeito na bomba ou no painel";
+    return o ? "Outro (explique na observação)" : "Não informado (0 m³ no hidrômetro)";
+  }
+  // os dois números diferem num dígito só (ou em dois vizinhos invertidos): cara de erro de digitação
+  function digitoTrocado_(a, b) {
+    var x = String(Math.round(a)), y = String(Math.round(b));
+    if (x.length !== y.length || x === y) return false;
+    var dif = [];
+    for (var i = 0; i < x.length; i++) if (x[i] !== y[i]) dif.push(i);
+    if (dif.length === 1) return true;
+    return dif.length === 2 && dif[1] === dif[0] + 1 && x[dif[0]] === y[dif[1]] && x[dif[1]] === y[dif[0]];
+  }
+  // números que dá pra formar com um dígito a menos, a mais, trocado ou dois vizinhos invertidos
+  function variantesDigito_(s) {
+    var out = [], i, d;
+    if (!s) return out;
+    for (i = 0; i <= s.length; i++) for (d = 0; d <= 9; d++) out.push(s.slice(0, i) + d + s.slice(i));
+    for (i = 0; i < s.length; i++) out.push(s.slice(0, i) + s.slice(i + 1));
+    for (i = 0; i < s.length; i++) for (d = 0; d <= 9; d++) out.push(s.slice(0, i) + d + s.slice(i + 1));
+    for (i = 0; i < s.length - 1; i++) out.push(s.slice(0, i) + s[i + 1] + s[i] + s.slice(i + 2));
+    return out;
+  }
+
+  // Monta o plano em cópias dos registros (nada é gravado aqui).
+  // opts: dias (janela, padrão = a da conferência), sem2109 (não usa as correções de 21/09)
+  // Devolve { itens: [{tipo: editar|criar|excluir, colecao, id, r, orig, mudancas, motivos, estimado}],
+  //           restantes: [o que fica na conferência depois], r0: quantas vieram de 21/09 }
+  function planoCorrecaoAutomatica_(opts) {
+    opts = opts || {};
+    var hoje = todayStr(), desde = addDiasStr_(hoje, -(opts.dias || DIAS_CONFERENCIA));
+    var agoraMs = agoraMsLocal_();
+    var B = [], R = [], porIdB = {};
+    bombRecords.forEach(function (r) {
+      if (r._pendingDelete) return;
+      var c = Object.assign({}, r); c._orig = r; c._col = "bombeamento";
+      B.push(c); porIdB[c.id] = c;
+    });
+    rondaRecords.forEach(function (r) {
+      if (r._pendingDelete) return;
+      var c = Object.assign({}, r); c._orig = r; c._col = "rondas";
+      R.push(c);
+    });
+    var REF = {};
+    function refDe(b) {
+      var k = String(b);
+      if (!Object.prototype.hasOwnProperty.call(REF, k)) REF[k] = vazaoReferenciaBomba_(k) || vazaoNominalBomba;
+      return REF[k];
+    }
+    // ---- registro das mudanças ----
+    var mud = {}, ordem = [], seqNovo = 0;
+    function item(r) {
+      var k = r._col + "/" + r.id;
+      if (!mud[k]) { mud[k] = { r: r, antes: {}, motivos: [], estimado: false, tipo: r._novo ? "criar" : "editar" }; ordem.push(k); }
+      return mud[k];
+    }
+    function mudar(r, campos, motivo, estimado) {
+      var m = item(r);
+      Object.keys(campos).forEach(function (c) {
+        if (!Object.prototype.hasOwnProperty.call(m.antes, c)) m.antes[c] = (r[c] === undefined || r[c] === null) ? "" : r[c];
+        r[c] = campos[c];
+      });
+      if (motivo && m.motivos.indexOf(motivo) < 0) m.motivos.push(motivo);
+      if (estimado) m.estimado = true;
+    }
+    function excluir(r, motivo) {
+      var m = item(r);
+      m.tipo = m.tipo === "criar" ? "descartar" : "excluir";
+      m.motivos = [motivo];
+      r._excluido = true;
+    }
+    function criar(campos, motivo, estimado) {
+      var r = Object.assign({ id: "novo-" + (++seqNovo), fotoInicio: "", fotoFim: "", observacao: "", naoLigou: false, motivoNaoLigou: "",
+        estimado: false, correcao: "", responsavel: "", responsavelFim: "", hidrometroTravado: false, conferidoOk: {} }, campos);
+      r._col = "bombeamento"; r._novo = true; r._orig = null;
+      B.push(r); porIdB[r.id] = r;
+      var m = item(r);
+      m.motivos.push(motivo);
+      if (estimado) m.estimado = true;
+      return r;
+    }
+    // ---- consultas nas cópias ----
+    function vivos() { return B.filter(function (r) { return !r._excluido; }); }
+    function emOrdem(a, b) { return (momentoRodada_(a) - momentoRodada_(b)) || ((numCampo_(a.leituraInicial) || 0) - (numCampo_(b.leituraInicial) || 0)); }
+    function cadeia(b) {
+      var k = String(b);
+      return vivos().filter(function (r) { return String(r.bomba) === k; }).sort(emOrdem);
+    }
+    function noPeriodo(r) { var i = isoDe_(r.data); return !!i && i >= desde && i <= hoje; }
+    function jaOk(r, g) { return !!(r.conferidoOk && r.conferidoOk[g]); }
+    var num = numCampo_;
+    function pct(vol, durMin, b) { return durMin > 0 ? vol / (durMin / 60) / refDe(b) * 100 : null; }
+    function plausivel(p) { return p !== null && p >= VAZAO_MIN_OK && p <= VAZAO_MAX_OK; }
+    function leit(n) { return String(Math.round(n)); }
+    function lv(v) { var n = num(v); return isFinite(n) ? String(n) : ""; }
+    function dm(data) { return diaMesConf_(data); }
+    // o administrador tocou "Está certo" em algum aviso dessa rodada: ela não é mexida por causa da vizinha
+    function protegido(x) { return !!x.conferidoOk && Object.keys(x.conferidoOk).some(function (k) { return x.conferidoOk[k]; }); }
+    // rodada com número estimado pelo app: não serve de régua pra mudar uma leitura de verdade
+    function estimada(x) { return x.estimado === true || !!x._fimEstimado; }
+    function distancia(f) { return f === null ? 0 : Math.abs(f - 100); }
+    function vazaoTxt(b) { return "~" + numRel_(refDe(b)) + " m³/h"; }
+    // rodada anterior e seguinte da mesma bomba (das que têm alguma leitura)
+    function vizinhos(r) {
+      var L = cadeia(r.bomba).filter(function (x) { return x === r || isFinite(num(x.leituraInicial)) || isFinite(num(x.leituraFinal)); });
+      var i = L.indexOf(r);
+      return { ant: i > 0 ? L[i - 1] : null, seg: i >= 0 && i < L.length - 1 ? L[i + 1] : null };
+    }
+    // as bombas costumam ser desligadas juntas: se outra bomba da mesma noite
+    // desligou (horário anotado de verdade) até 45 min do estimado, usa o dela
+    function fimIrmao(r, alvoMs) {
+      var iso = isoDe_(r.data), hiR = minutosDeHora_(r.horarioInicio), melhor = null;
+      vivos().forEach(function (s) {
+        if (s === r || String(s.bomba) === String(r.bomba) || isoDe_(s.data) !== iso) return;
+        if (!s.horarioFim || s._fimEstimado || s.estimado || ehNaoLigou_(s)) return;
+        if (Math.abs(minutosDeHora_(s.horarioInicio) - hiR) > 90) return;
+        var f = fimRodadaMs_(s);
+        if (f === null) return;
+        var d = Math.abs(f - alvoMs);
+        if (d <= 45 * 60000 && (!melhor || d < melhor.d)) melhor = { d: d, ms: f };
+      });
+      return melhor ? melhor.ms : null;
+    }
+    // fim pelo volume (na vazão normal), sem passar do começo da rodada seguinte
+    function fimPeloVolume(r, vol, limiteMs) {
+      var durMin = vol / refDe(r.bomba) * 60;
+      if (!(durMin > 0) || durMin > HORAS_DESLIGAMENTO_ESQUECIDO * 60) return null;
+      var ini = momentoRodada_(r), fim = ini + durMin * 60000;
+      var irmao = fimIrmao(r, fim);
+      if (irmao !== null && plausivel(pct(vol, (irmao - ini) / 60000, r.bomba))) fim = irmao;
+      else if (durMin >= 30) fim = arred5min_(fim);
+      else fim = Math.round(fim / 60000) * 60000;
+      if (fim > limiteMs) {
+        fim = limiteMs;
+        if (!plausivel(pct(vol, (fim - ini) / 60000, r.bomba))) return null;
+      }
+      return fim > ini ? fim : null;
+    }
+    // rodada que ninguém registrou, entre p e r: de dia, a partir das 08:00
+    // depois do fim de p (se não couber, logo depois do fim de p)
+    function rodadaDoBuraco(p, r, liR) {
+      var plf = num(p.leituraFinal), gap = liR - plf;
+      if (!(gap > 2)) return null;
+      var durMin = gap * 10 / refDe(r.bomba) * 60;
+      if (durMin > HORAS_DESLIGAMENTO_ESQUECIDO * 60) return null;
+      var fimP = fimRodadaMs_(p);
+      if (fimP === null) return null;
+      var iniR = momentoRodada_(r);
+      var ini = msDoDia_(dataDoMs_(fimP + 30 * 60000)) + 8 * 3600000;
+      if (ini < fimP + 30 * 60000) ini += DIA_MS_;
+      var fim = arred5min_(ini + durMin * 60000);
+      if (fim > iniR - 30 * 60000) {
+        ini = arred5min_(fimP + 30 * 60000);
+        fim = arred5min_(ini + durMin * 60000);
+        if (fim > iniR - 15 * 60000) return null;
+      }
+      if (fim > agoraMs) return null;
+      return { data: dataDoMs_(ini), bomba: String(r.bomba), horarioInicio: horaDoMs_(ini), horarioFim: horaDoMs_(fim),
+               leituraInicial: leit(plf), leituraFinal: leit(liR), _gap: gap };
+    }
+    function criarBuraco(nova, p, r) {
+      var vol = nova._gap * 10;
+      delete nova._gap;
+      var x = criar(nova, "Bombeamento sem registro: o hidrômetro andou " + numRel_(vol) + " m³ entre a rodada de " + dm(p.data) +
+        " e a de " + dm(r.data) + " — volume real do hidrômetro, horário estimado", true);
+      x._fimEstimado = true;
+      return x;
+    }
+    // início da noite numa data: o horário em que as outras bombas foram ligadas
+    function inicioDaNoite(iso, r) {
+      var hs = vivos().filter(function (s) {
+        return s !== r && isoDe_(s.data) === iso && s.horarioInicio && minutosDeHora_(s.horarioInicio) >= 17 * 60;
+      }).map(function (s) { return minutosDeHora_(s.horarioInicio); });
+      return hs.length ? Math.round(medianaNum_(hs)) : 21 * 60 + 30;
+    }
+
+    // ---- 0) correções do backup de 21/09 (revisadas à mão) ----
+    var r0 = 0;
+    if (!opts.sem2109) {
+      var p0 = null;
+      try { p0 = planejarCorrecoesBomb_(); } catch (e) { p0 = null; }
+      var planoCriar = [];
+      (p0 ? p0.plano : []).forEach(function (it) {
+        var c = it.c, mot = c.motivo + " (revisada à mão, backup de 21/09)";
+        if (c.tipo === "criar") { planoCriar.push(c); return; }   // depois das edições (precisa delas pra conferir o buraco)
+        var alvo = porIdB[it.recs[0].id];
+        if (!alvo || it.recs.some(function (x) { return porIdB[x.id] && protegido(porIdB[x.id]); })) return;
+        if (c.tipo === "excluir") excluir(alvo, mot);
+        else {
+          mudar(alvo, c.novo, mot, false);
+          if (c.tipo === "duplicata") it.recs.slice(1).forEach(function (x) {
+            if (porIdB[x.id]) excluir(porIdB[x.id], "Registro repetido (salvo duas vezes) (revisada à mão, backup de 21/09)");
+          });
+        }
+        r0++;
+      });
+      // rodada que faltava: só cria se o buraco ainda existe do mesmo jeito (a rodada de antes
+      // termina na leitura inicial dela, a de depois começa na final e nada no meio).
+      // Se os registros mudaram depois do backup, não cria - as regras abaixo cuidam.
+      planoCriar.forEach(function (c) {
+        var n = c.novo, li = num(n.leituraInicial), lf = num(n.leituraFinal), L = cadeia(n.bomba);
+        var antes = L.some(function (r) { return Math.abs(num(r.leituraFinal) - li) < 0.001; });
+        var depois = L.some(function (r) { return Math.abs(num(r.leituraInicial) - lf) < 0.001; });
+        var noMeio = L.some(function (r) {
+          var a = num(r.leituraInicial), b = num(r.leituraFinal);
+          return isFinite(a) && isFinite(b) && b > a && a < lf && b > li;
+        });
+        if (!antes || !depois || noMeio) return;
+        var x = criar({ data: n.data, bomba: String(n.bomba), horarioInicio: n.horarioInicio, horarioFim: n.horarioFim,
+                leituraInicial: n.leituraInicial, leituraFinal: n.leituraFinal, naoLigou: !!n.naoLigou, motivoNaoLigou: n.motivoNaoLigou || "" },
+              c.motivo + " (revisada à mão, backup de 21/09)", !n.naoLigou);
+        x._fimEstimado = true;
+        r0++;
+      });
+    }
+
+    // ---- 1) repetidas ----
+    var rep = rodadasRepetidas_(vivos());
+    Object.keys(rep).forEach(function (id) {
+      var r = porIdB[id], fica = rep[id];
+      if (!r || r._excluido || !noPeriodo(r) || jaOk(r, "repetida")) return;
+      excluir(r, "Rodada repetida: a mesma rodada foi salva duas vezes (fica a das " + (fica.horarioInicio || "?") + ")");
+    });
+
+    // ---- 2) rodada vazia esquecida aberta ----
+    vivos().forEach(function (r) {
+      if (!noPeriodo(r) || !rodadaAberta_(r) || jaOk(r, "desligar")) return;
+      if (!leituraVazia_(r.leituraInicial) || !leituraVazia_(r.leituraFinal) || r.horarioFim) return;
+      if (r.fotoInicio || r.fotoFim || String(r.observacao || "").trim() || horasLigada_(r) < 1) return;
+      var temDepois = cadeia(r.bomba).some(function (q) { return q !== r && momentoRodada_(q) > momentoRodada_(r); });
+      if (!temDepois && horasLigada_(r) <= HORAS_DESLIGAMENTO_ESQUECIDO) return;
+      excluir(r, "Rodada vazia (sem leitura nenhuma) — aberta por engano");
+    });
+
+    // ---- 3) salva no dia errado ----
+    ["1", "2", "3", "4"].forEach(function (b) {
+      for (var volta = 0; volta < 30; volta++) {
+        var L = cadeia(b), mexeu = false;
+        for (var i = 0; i < L.length - 1 && !mexeu; i++) {
+          var r = L[i], q = L[i + 1];
+          if (!noPeriodo(r) || jaOk(r, "sequencia")) continue;
+          var li = num(r.leituraInicial), lf = num(r.leituraFinal), qli = num(q.leituraInicial), qlf = num(q.leituraFinal);
+          if (!isFinite(li) || !isFinite(qli) || !isFinite(qlf) || qlf <= qli) continue;
+          if (Math.abs(li - qlf) > 2 || Math.abs(qli - li) <= 2) continue;   // r começa onde q termina
+          if (isFinite(lf) && lf < qlf - 2) continue;
+          var fimQ = fimRodadaMs_(q);
+          if (fimQ === null) continue;
+          var novoIni = msDoDia_(dataDoMs_(fimQ)) + minutosDeHora_(r.horarioInicio) * 60000;
+          if (novoIni <= fimQ) novoIni += DIA_MS_;
+          if (novoIni - momentoRodada_(r) > 3 * DIA_MS_ || novoIni > agoraMs) continue;
+          var dur = duracaoRodadaMin_(r), depois = L[i + 2];
+          if (depois && novoIni + (dur || 0) * 60000 >= momentoRodada_(depois)) continue;
+          var novaData = dataDoMs_(novoIni);
+          mudar(r, { data: novaData }, "Salva no dia errado (" + dm(r.data) + "): ela começa na leitura em que a rodada de " +
+            dm(q.data) + " terminou — é do dia " + dm(novaData));
+          mexeu = true;
+        }
+        if (!mexeu) break;
+      }
+    });
+
+    // ---- 4) desligamento salvo como rodada nova ----
+    vivos().forEach(function (r) {
+      if (r._excluido || !noPeriodo(r) || jaOk(r, "leitura")) return;
+      var li = num(r.leituraInicial), lf = num(r.leituraFinal);
+      if (isFinite(li) || !isFinite(lf)) return;
+      if (r.horarioFim && difMinutosHora_(r.horarioInicio, r.horarioFim) > 15) return;
+      var mR = momentoRodada_(r);
+      var cands = cadeia(r.bomba).filter(function (p) {
+        if (p === r || !rodadaAberta_(p) || !leituraVazia_(p.leituraFinal) || !isFinite(num(p.leituraInicial))) return false;
+        var mp = momentoRodada_(p);
+        return mp < mR && mR - mp <= 30 * 3600000;
+      });
+      var p = cands[cands.length - 1];
+      if (!p) return;
+      var hora = r.horarioFim || r.horarioInicio;
+      var fimMs = p.horarioFim ? fimRodadaMs_(p) : mR;
+      var pc = pct((lf - num(p.leituraInicial)) * 10, (fimMs - momentoRodada_(p)) / 60000, p.bomba);
+      if (pc === null || pc < 30 || pc > VAZAO_MAX_OK) return;
+      var campos = { leituraFinal: lv(r.leituraFinal) };
+      if (!p.horarioFim) campos.horarioFim = hora;
+      var foto = r.fotoFim || r.fotoInicio;
+      if (foto && !p.fotoFim) campos.fotoFim = foto;
+      if (r.responsavel && !p.responsavelFim) campos.responsavelFim = r.responsavel;
+      var obs = String(r.observacao || "").trim();
+      if (obs && String(p.observacao || "").indexOf(obs) < 0) campos.observacao = (p.observacao ? p.observacao + " | " : "") + obs;
+      mudar(p, campos, "O desligamento (" + hora + " de " + dm(r.data) + ") estava salvo como rodada nova — juntado aqui");
+      excluir(r, "Era o desligamento da rodada de " + dm(p.data) + " (" + p.horarioInicio + ") salvo como rodada nova — juntado nela");
+    });
+
+    // ---- 5) leitura final menor que a inicial ----
+    vivos().forEach(function (r) {
+      if (!noPeriodo(r) || jaOk(r, "leitura") || ehNaoLigou_(r)) return;
+      var li = num(r.leituraInicial), lf = num(r.leituraFinal);
+      if (!isFinite(li) || !isFinite(lf) || lf >= li) return;
+      var v = vizinhos(r), ant = v.ant, seg = v.seg, b = r.bomba, dur = duracaoRodadaMin_(r);
+      var sli = seg ? num(seg.leituraInicial) : NaN, alf = ant ? num(ant.leituraFinal) : NaN;
+      // a final foi digitada errada: a certa é a inicial da rodada seguinte
+      if (isFinite(sli) && sli >= li && (dur ? plausivel(pct((sli - li) * 10, dur, b)) : (sli - li) * 10 / refDe(b) <= HORAS_DESLIGAMENTO_ESQUECIDO)) {
+        mudar(r, { leituraFinal: lv(seg.leituraInicial) }, "Leitura final digitada errada (" + leit(lf) + ", menor que a inicial) — a certa é a inicial da rodada seguinte (" + leit(sli) + ")");
+        return;
+      }
+      // a inicial foi digitada errada: a certa é a final da rodada anterior
+      if (isFinite(alf) && alf <= lf && dur && plausivel(pct((lf - alf) * 10, dur, b))) {
+        mudar(r, { leituraInicial: lv(ant.leituraFinal) }, "Leitura inicial digitada errada (" + leit(li) + ", maior que a final) — a certa é a final da rodada anterior (" + leit(alf) + ")");
+        return;
+      }
+      // nenhuma das duas emenda: estima a inicial pela vazão normal
+      if (dur && dur >= 60) {
+        var est = Math.round(lf - dur / 60 * refDe(b) / 10);
+        var piso = ant ? (isFinite(alf) ? alf : num(ant.leituraInicial)) : -Infinity;
+        if (est >= piso - 2 && est < lf) {
+          mudar(r, { leituraInicial: leit(est) }, "Leitura inicial digitada errada (" + leit(li) + ", maior que a final) — estimada pela vazão normal da bomba (" + vazaoTxt(b) + ")", true);
+        }
+      }
+    });
+
+    // ---- 6) rodada esquecida aberta ----
+    vivos().forEach(function (r) {
+      if (!noPeriodo(r) || !rodadaAberta_(r) || jaOk(r, "desligar")) return;
+      var li = num(r.leituraInicial);
+      if (!isFinite(li)) return;
+      var v = vizinhos(r), seg = v.seg;
+      if (!seg && horasLigada_(r) <= HORAS_DESLIGAMENTO_ESQUECIDO) return;   // pode estar ligada ainda
+      var b = r.bomba, lf = num(r.leituraFinal), sli = seg ? num(seg.leituraInicial) : NaN;
+      var limite = seg ? momentoRodada_(seg) : agoraMs;
+      var campos = {}, partes = [], est = false;
+      if (!isFinite(lf)) {
+        if (!isFinite(sli) || sli < li) return;   // não tem de onde tirar a leitura final
+        lf = sli; campos.leituraFinal = lv(seg.leituraInicial);
+        partes.push("leitura final = inicial da rodada seguinte (" + leit(sli) + ", " + dm(seg.data) + ")");
+      } else if (!r.horarioFim && isFinite(sli) && Math.abs(sli - lf) > 2 && sli >= li &&
+                 (sli - li) * 10 / refDe(b) <= HORAS_DESLIGAMENTO_ESQUECIDO &&
+                 momentoRodada_(r) + (sli - li) * 10 / refDe(b) * 3600000 <= limite) {
+        partes.push("a leitura final (" + leit(lf) + ") não emendava com a rodada seguinte — ficou a inicial dela (" + leit(sli) + ")");
+        lf = sli; campos.leituraFinal = lv(seg.leituraInicial);
+      }
+      var vol = (lf - li) * 10;
+      if (vol < 0) return;
+      if (!r.horarioFim) {
+        if (vol <= 10) {
+          campos.horarioFim = r.horarioInicio; campos.naoLigou = true; campos.motivoNaoLigou = motivoNaoLigouPelaObs_(r.observacao);
+          partes.push("o hidrômetro não andou — marcada como \"não ligou\"");
+        } else {
+          var fim = fimPeloVolume(r, vol, limite);
+          if (fim === null) return;
+          campos.horarioFim = horaDoMs_(fim); est = true; r._fimEstimado = true;
+          partes.push("fim estimado pelo volume (" + numRel_(vol) + " m³ na vazão normal, " + vazaoTxt(b) + "): " + campos.horarioFim);
+        }
+      } else {
+        var dur = duracaoRodadaMin_(r), pc = pct(vol, dur, b);
+        if (pc !== null && pc > VAZAO_MAX_OK) {
+          // a seguinte começou bem mais adiante (a bomba rodou de novo sem registro): estima pela duração
+          var lfe = Math.round(li + dur / 60 * refDe(b) / 10);
+          campos.leituraFinal = leit(lfe); est = true;
+          partes = ["leitura final estimada pela vazão normal (" + leit(lfe) + ", " + vazaoTxt(b) + ")"];
+        }
+      }
+      mudar(r, campos, "Ninguém registrou o desligamento: " + partes.join("; "), est);
+    });
+
+    // ---- 7) leitura que não emenda com a rodada anterior ----
+    function voltou(r, p) {
+      var b = r.bomba, li = num(r.leituraInicial), lf = num(r.leituraFinal), pli = num(p.leituraInicial), plf = num(p.leituraFinal);
+      var durR = duracaoRodadaMin_(r), durP = estimada(p) ? null : duracaoRodadaMin_(p);
+      var fR = function (x) { return (durR && isFinite(lf)) ? pct((lf - x) * 10, durR, b) : null; };
+      var fP = function (x) { return (durP && isFinite(pli)) ? pct((x - pli) * 10, durP, b) : null; };
+      var pequena = plf - li <= 20 || digitoTrocado_(li, plf);
+      // A) muda a inicial desta (rodada ainda sem leitura final: só diferença pequena ou erro de um dígito)
+      var okA = isFinite(lf) ? (lf >= plf && plausivel(fR(plf))) : (!r.horarioFim && pequena);
+      if (okA && estimada(p) && !pequena) okA = false;   // a anterior tem número estimado: não manda na leitura real
+      // B) muda a final da anterior
+      var okB = !protegido(p) && !estimada(p) && isFinite(pli) && li >= pli && !ehNaoLigou_(p) && plausivel(fP(li));
+      if (okA && okB) {
+        // as duas emendam: fica a que deixa as duas rodadas mais perto da vazão normal (empate: muda a inicial)
+        var notaA = Math.max(distancia(fP(plf)), distancia(fR(plf))), notaB = Math.max(distancia(fP(li)), distancia(fR(li)));
+        if (notaB + 5 < notaA) okA = false; else okB = false;
+      }
+      var txtA = "Leitura inicial (" + leit(li) + ") menor que a final da rodada anterior (" + leit(plf) + ", " + dm(p.data) + ") — o hidrômetro não volta; ajustada pra emendar";
+      var txtB = "Leitura final (" + leit(plf) + ") maior que a inicial da rodada seguinte (" + leit(li) + ", " + dm(r.data) + ") — o hidrômetro não volta; ajustada pra emendar";
+      if (okA) { mudar(r, { leituraInicial: lv(p.leituraFinal) }, txtA); return; }
+      if (okB) { mudar(p, { leituraFinal: lv(r.leituraInicial) }, txtB); return; }
+      // a inicial foi copiada de uma rodada antiga: estima pela vazão e cria a rodada que faltou
+      if (durR && durR >= 60 && isFinite(lf) && !estimada(p)) {
+        var est = Math.round(lf - durR / 60 * refDe(b) / 10);
+        if (est > plf + 2 && est < lf) {
+          var bur = est - plf > 20 ? rodadaDoBuraco(p, r, est) : null;
+          if (bur || est - plf <= 20) {
+            mudar(r, { leituraInicial: leit(est) }, "Leitura inicial (" + leit(li) + ") copiada errada — o hidrômetro não volta; estimada pela vazão normal (" + vazaoTxt(b) + ")", true);
+            if (bur) criarBuraco(bur, p, r);
+          }
+        }
+      }
+    }
+    function pulou(r, p) {
+      var b = r.bomba, li = num(r.leituraInicial), lf = num(r.leituraFinal), pli = num(p.leituraInicial), plf = num(p.leituraFinal);
+      var durR = duracaoRodadaMin_(r), durP = estimada(p) ? null : duracaoRodadaMin_(p);
+      var fR = function (x) { return (durR && isFinite(lf)) ? pct((lf - x) * 10, durR, b) : null; };
+      var fP = function (x) { return (durP && isFinite(pli)) ? pct((x - pli) * 10, durP, b) : null; };
+      // A) a inicial desta foi digitada errada (com a final da anterior, a vazão fica normal; ou só um dígito diferente)
+      var okA = isFinite(lf) ? (lf >= plf && (!plausivel(fR(li)) || digitoTrocado_(li, plf)) && plausivel(fR(plf))) : digitoTrocado_(li, plf);
+      // B) a final da anterior foi digitada errada
+      var okB = !protegido(p) && !estimada(p) && !ehNaoLigou_(p) && isFinite(pli) && (!plausivel(fP(plf)) || digitoTrocado_(plf, li)) && plausivel(fP(li));
+      if (okA && okB) {
+        var notaA = Math.max(distancia(fP(plf)), distancia(fR(plf))), notaB = Math.max(distancia(fP(li)), distancia(fR(li)));
+        if (notaB + 5 < notaA) okA = false; else okB = false;
+      }
+      if (okA) {
+        mudar(r, { leituraInicial: lv(p.leituraFinal) }, "Leitura inicial (" + leit(li) + ") digitada errada — não emendava com a final da rodada anterior (" + leit(plf) + ", " + dm(p.data) + ")");
+        return;
+      }
+      if (okB) {
+        mudar(p, { leituraFinal: lv(r.leituraInicial) }, "Leitura final (" + leit(plf) + ") digitada errada — não emendava com a inicial da rodada seguinte (" + leit(li) + ", " + dm(r.data) + ")");
+        return;
+      }
+      // a anterior tinha ficado aberta e o fim dela foi estimado numa correção automática de antes:
+      // a leitura final era do meio da rodada. Estende até a inicial desta (se couber), em vez de inventar rodada
+      var ca = p.corrigidoAuto;
+      if (ca && ca.antes && ca.depois && ca.antes.horarioFim === "" && ca.depois.horarioFim === p.horarioFim && !protegido(p) && isFinite(pli)) {
+        var fimE = fimPeloVolume(p, (li - pli) * 10, momentoRodada_(r));
+        if (fimE !== null) {
+          mudar(p, { leituraFinal: lv(r.leituraInicial), horarioFim: horaDoMs_(fimE) }, "O fim tinha sido estimado (ninguém registrou o desligamento) e a rodada seguinte mostra que ela rodou até a leitura " +
+            leit(li) + " — fim estimado de novo pelo volume: " + horaDoMs_(fimE), true);
+          p._fimEstimado = true;
+          return;
+        }
+      }
+      // a bomba rodou sem ninguém registrar: cria a rodada com o volume real do hidrômetro
+      var bur = rodadaDoBuraco(p, r, li);
+      if (bur) criarBuraco(bur, p, r);
+    }
+    ["1", "2", "3", "4"].forEach(function (b) {
+      var ultimo = null;
+      cadeia(b).forEach(function (r) {
+        if (r._excluido) return;
+        var li = num(r.leituraInicial);
+        if (!isFinite(li) && !isFinite(num(r.leituraFinal))) return;
+        if (isFinite(li) && ultimo && noPeriodo(r) && !jaOk(r, "sequencia")) {
+          var d = li - num(ultimo.leituraFinal);
+          if (d < -2) voltou(r, ultimo);
+          else if (d > 20) pulou(r, ultimo);
+        }
+        var c = consumoRodada_(r);
+        ultimo = (isFinite(num(r.leituraFinal)) && (c === null || c >= 0)) ? r : null;
+      });
+    });
+
+    // ---- 8) horário que não bate com o volume ----
+    vivos().forEach(function (r) {
+      if (!noPeriodo(r) || jaOk(r, "volume")) return;
+      var a = analiseRodada_(r);
+      if (!a || a.alerta !== "alto" || a.consumo < 0) return;
+      var b = r.bomba, vol = a.consumo, v = vizinhos(r), seg = v.seg, ant = v.ant;
+      var limite = seg ? momentoRodada_(seg) : agoraMs;
+      if (minutosDeHora_(r.horarioInicio) >= 12 * 60) {
+        // rodada da noite: o horário de fim ou a leitura final foi anotado errado. Só mexe no horário
+        // quando a leitura está confirmada (a rodada seguinte começa nela) ou quando o fim ficou
+        // colado no início (aí não tem como ser número errado)
+        var sli8 = seg ? num(seg.leituraInicial) : NaN, li8 = num(r.leituraInicial), lf8 = num(r.leituraFinal);
+        var colado = difMinutosHora_(r.horarioInicio, r.horarioFim) <= 15;
+        if (isFinite(sli8) && Math.abs(sli8 - lf8) > 2) {
+          if (!colado && sli8 >= li8 && plausivel(pct((sli8 - li8) * 10, a.registradoMin, b))) {
+            mudar(r, { leituraFinal: lv(seg.leituraInicial) }, "Leitura final (" + leit(lf8) + ") digitada errada: dava " + numRel_(vol) +
+              " m³, impossível pro horário — a certa é a inicial da rodada seguinte (" + leit(sli8) + ")");
+          }
+          return;
+        }
+        if (!isFinite(sli8) && !colado) return;   // sem a rodada seguinte pra confirmar a leitura: pode ser número errado
+        var fim = fimPeloVolume(r, vol, limite);
+        if (fim === null) return;
+        var hf = horaDoMs_(fim);
+        r._fimEstimado = true;
+        mudar(r, { horarioFim: hf }, "Fim (" + r.horarioFim + ") não batia com o volume: " + numRel_(vol) + " m³ em " +
+          (a.registradoMin < 60 ? Math.round(a.registradoMin) + " min" : formatHoras_(a.registradoMin)) + " — fim estimado pelo volume: " + hf, true);
+        return;
+      }
+      if (difMinutosHora_(r.horarioInicio, r.horarioFim) > 15) return;
+      // de madrugada, com início = fim: criada só na hora do desligamento.
+      // A rodada começou na noite (a da data dela ou a da véspera - fica a que
+      // encaixa entre a rodada anterior e a seguinte e bate com as outras bombas)
+      var hfMin = minutosDeHora_(r.horarioFim);
+      var fimAnt = ant ? (fimRodadaMs_(ant) || momentoRodada_(ant)) : null;
+      var cands = [0, -1].map(function (k) {
+        var dia = addDiasStr_(isoDe_(r.data), k), ini0 = inicioDaNoite(dia, r);
+        var ini = msDoDia_(dia) + ini0 * 60000, fimN = msDoDia_(dia) + (hfMin + (hfMin < ini0 ? 1440 : 0)) * 60000;
+        var cabe = fimN <= limite && fimN <= agoraMs && (fimAnt === null || fimAnt <= ini);
+        var junto = vivos().some(function (s) {
+          return s !== r && String(s.bomba) !== String(b) && isoDe_(s.data) === dia && s.horarioFim &&
+            Math.abs(minutosDeHora_(s.horarioInicio) - ini0) <= 90 && difMinutosHora_(s.horarioFim, r.horarioFim) <= 30;
+        });
+        return { dia: dia, ini0: ini0, ini: ini, fim: fimN, cabe: cabe, junto: junto };
+      }).filter(function (c) { return c.cabe; });
+      var juntos = cands.filter(function (c) { return c.junto; });
+      var esc = juntos.length === 1 ? juntos[0] : (!juntos.length && cands.length === 1 ? cands[0] : null);   // duas noites possíveis: confere à mão
+      if (!esc) return;
+      var hiNovo = minToTimeBomb_(esc.ini0), dur = (esc.fim - esc.ini) / 60000, pc = pct(vol, dur, b);
+      var campos = { horarioInicio: hiNovo };
+      if (esc.dia !== isoDe_(r.data)) campos.data = esc.dia;
+      var txt = "Criada só na hora do desligamento (início = fim = " + r.horarioInicio + "): a rodada começou na noite de " + dm(esc.dia) + ", às " + hiNovo + ", junto com as outras bombas";
+      if (plausivel(pc)) { mudar(r, campos, txt, true); return; }
+      if (pc === null || pc < VAZAO_MIN_OK || !ant) return;
+      // volume demais pra uma noite só: a parte de antes vira uma rodada de dia (bombeamento sem registro)
+      var lf = num(r.leituraFinal), est = Math.round(lf - dur / 60 * refDe(b) / 10);
+      var rNovo = { data: esc.dia, horarioInicio: hiNovo, bomba: b };
+      var bur = (est > num(ant.leituraFinal) + 2 && est < lf) ? rodadaDoBuraco(ant, rNovo, est) : null;
+      if (!bur) return;
+      campos.leituraInicial = leit(est);
+      mudar(r, campos, txt + "; o volume não cabe numa noite só — a parte do dia virou uma rodada separada e a leitura inicial foi estimada pela vazão normal (" + vazaoTxt(b) + ")", true);
+      criarBuraco(bur, ant, r);
+    });
+
+    // ---- 9) 0 m³ -> não ligou ----
+    vivos().forEach(function (r) {
+      if (!noPeriodo(r) || jaOk(r, "parado") || r.naoLigou === true || r.hidrometroTravado) return;
+      if (!r.horarioInicio || !r.horarioFim) return;
+      var li = num(r.leituraInicial), lf = num(r.leituraFinal);
+      if (!isFinite(li) || !isFinite(lf) || lf - li < 0 || lf - li > 1) return;
+      if (duracaoRodadaMin_(r) < 60) return;
+      var mot = motivoNaoLigouPelaObs_(r.observacao);
+      mudar(r, { naoLigou: true, motivoNaoLigou: mot }, "O hidrômetro não andou (0 m³) — marcada como \"não ligou\"" +
+        (/^(Não informado|Outro)/.test(mot) ? "" : " (" + mot.toLowerCase() + ", pela observação)") +
+        ". Se a bomba rodou e o hidrômetro travou, abra a rodada e marque \"hidrômetro travado\"");
+    });
+
+    // ---- 10) rondas ----
+    // ronda feita bem fora do horário previsto: vale a hora em que foi feita de verdade
+    var rondaAtrasada = {};
+    R.forEach(function (x) { if (x.horarioReal && x.horarioPrevisto && difMinutosHora_(x.horarioReal, x.horarioPrevisto) > 30) rondaAtrasada[x.id] = true; });
+    function momentoRealRonda(r) {
+      var m = momentoRonda_(r.data, r.horarioPrevisto);
+      if (!r.horarioReal || !r.horarioPrevisto) return m;
+      var d = minutosDeHora_(r.horarioReal) - minutosDeHora_(r.horarioPrevisto);
+      if (d > 720) d -= 1440; else if (d < -720) d += 1440;
+      return m + d * 60000;
+    }
+    function estimarHorimetro(r) {
+      var lista = indiceHorimetro_(r.bomba), m = momentoRealRonda(r), h0 = num(r.horimetro);
+      // as leituras seguintes concordam com o número anotado: o horímetro foi trocado (ou a régua é que
+      // está errada) - não mexe, fica pra conferir
+      if (h0 > 0) {
+        var seguintes = lista.filter(function (x) { return x.m > m && x.m - m <= 12 * 3600000 && x.id !== r.id && !rondaAtrasada[x.id]; }).slice(0, 2);
+        if (seguintes.length && seguintes.every(function (x) { return horimetroFecha_({ m: m, v: h0 }, x); })) return null;
+      }
+      var ant = null, dep = null;
+      lista.forEach(function (x) {
+        if (!x.boa || x.id === r.id || rondaAtrasada[x.id]) return;   // vizinha fora de hora não serve de régua
+        if (x.m <= m) ant = x;
+        else if (!dep) dep = x;
+      });
+      var v = null, como = "";
+      if (ant && dep && dep.m - ant.m <= 8 * 3600000) {
+        var horas = (dep.m - ant.m) / 3600000, sobe = dep.v - ant.v;
+        if (sobe >= 0 && sobe <= horas + FOLGA_HORIMETRO) {
+          v = ant.v + sobe * (m - ant.m) / (dep.m - ant.m);
+          como = "entre " + ant.v + " (ronda das " + ant.hp + ") e " + dep.v + " (ronda das " + dep.hp + ")";
+        }
+      }
+      if (v === null && ant && r.bombaLigada !== false && m - ant.m <= 3 * 3600000) {
+        v = ant.v + (m - ant.m) / 3600000;
+        como = ant.v + " da ronda das " + ant.hp + " + as horas ligada";
+      }
+      if (v === null) return null;
+      v = Math.round(v);
+      if (Math.abs(num(r.horimetro) - v) <= 2) return null;   // o anotado já fecha com as vizinhas: não mexe
+      // aproveita o número anotado quando só faltou, sobrou ou trocou um dígito
+      var anot = String(r.horimetro || "").replace(/\D/g, ""), melhor = null;
+      variantesDigito_(anot).forEach(function (s) {
+        var n = parseInt(s, 10);
+        if (!isFinite(n) || s.charAt(0) === "0") return;
+        var d = Math.abs(n - v);
+        if (d <= 2 && (!melhor || d < melhor.d)) melhor = { d: d, n: n };
+      });
+      if (melhor) return { v: melhor.n, est: false, txt: "horímetro " + r.horimetro + " estava com um dígito faltando, sobrando ou trocado — o certo é " + melhor.n + " (fecha com " + como + ")" };
+      return { v: v, est: true, txt: "horímetro " + r.horimetro + " não fechava com as rondas vizinhas — estimado " + como + ": " + v };
+    }
+    function ehSoft(r) { return tipoPainelDaBomba_(r.bomba) === "soft" || r.painelTipo === "soft"; }
+    function horimetroFechaNa(bomba, h, r) {
+      var ref = horimetroReferencia_(bomba, r.data, r.horarioPrevisto, r.id);
+      return !!ref && horimetroFecha_({ m: ref.m, v: ref.valor }, { m: momentoRonda_(r.data, r.horarioPrevisto), v: h });
+    }
+    var porRonda = {};
+    R.forEach(function (r) {
+      if (!noPeriodo(r) || !ehSoft(r)) return;
+      var k = isoDe_(r.data) + "|" + r.horarioPrevisto;
+      (porRonda[k] = porRonda[k] || []).push(r);
+    });
+    Object.keys(porRonda).forEach(function (k) {
+      var L = porRonda[k];
+      if (L.length !== 2 || String(L[0].bomba) === String(L[1].bomba)) return;
+      var a = L[0], b = L[1], ha = num(a.horimetro), hb = num(b.horimetro);
+      if (!(ha > 0) || !(hb > 0) || jaOk(a, "eletrico") || jaOk(b, "eletrico")) return;
+      if (horimetroFechaNa(a.bomba, ha, a) || horimetroFechaNa(b.bomba, hb, b)) return;    // cada um fecha com a sua bomba
+      if (!horimetroFechaNa(a.bomba, hb, a) || !horimetroFechaNa(b.bomba, ha, b)) return;  // destrocando, os dois fecham
+      var va = { corrente: a.corrente, tensao: a.tensao, horimetro: a.horimetro };
+      var vb = { corrente: b.corrente, tensao: b.tensao, horimetro: b.horimetro };
+      mudar(a, vb, "Ronda: os números da Bomba " + b.bomba + " foram anotados na Bomba " + a.bomba + " e vice-versa (o horímetro mostra) — destrocados");
+      mudar(b, va, "Ronda: os números da Bomba " + a.bomba + " foram anotados na Bomba " + b.bomba + " e vice-versa (o horímetro mostra) — destrocados");
+    });
+    R.forEach(function (r) {
+      if (!noPeriodo(r) || !ehSoft(r)) return;
+      var ach = conferirEletricaRonda_(r.bomba, r.bombaLigada, r.corrente, r.tensao, r.horimetro, r.data, r.horarioPrevisto, r.id);
+      if (!ach.length) return;
+      if (ach.some(function (p) { return p.tipo === "trocada"; }) && !jaOk(r, "trocada")) {
+        mudar(r, { corrente: r.tensao, tensao: r.corrente }, "Corrente e tensão estavam trocadas (" + r.corrente + " e " + r.tensao + ")");
+      }
+      if (jaOk(r, "eletrico")) return;
+      var tem = function (tp) { return ach.some(function (p) { return p.tipo === tp; }); };
+      var c = num(r.corrente), t = num(r.tensao), h = num(r.horimetro), nor = normaisEletricos_(r.bomba);
+      var campos = {}, txt = [], est = false;
+      if (tem("corrente") || tem("tensao")) {
+        if (c > 0 && h > 0 && Math.abs(c - h) <= 5 && t > 0 && nor.corrente && t >= nor.corrente / 2 && t <= nor.corrente * 2) {
+          campos.corrente = r.tensao; campos.tensao = "";
+          txt.push("os números estavam um campo pro lado (o horímetro no campo da corrente e a corrente no da tensão) — a tensão ficou em branco");
+        } else if (c > 0 && !(t > 0) && nor.tensao && c >= nor.tensao * 0.8 && c <= nor.tensao * 1.2) {
+          campos.tensao = r.corrente; campos.corrente = "";
+          txt.push("a tensão (" + r.corrente + " V) estava no campo da corrente");
+        }
+      }
+      if (tem("horimetro")) {
+        var eh = estimarHorimetro(r);
+        if (eh) { campos.horimetro = String(eh.v); txt.push(eh.txt); est = eh.est; }
+      }
+      if (txt.length) mudar(r, campos, "Ronda: " + txt.join("; "), est);
+    });
+
+    // ---- o que fica pra conferir à mão (a conferência rodando em cima das cópias) ----
+    var restantes = [], bkB = bombRecords, bkR = rondaRecords;
+    try {
+      bombRecords = vivos();
+      rondaRecords = R;
+      restantes = problemasBombeamento_().slice();
+    } finally {
+      bombRecords = bkB; rondaRecords = bkR;
+    }
+
+    // ---- lista final ----
+    var itens = [];
+    ordem.forEach(function (k) {
+      var m = mud[k], r = m.r;
+      if (m.tipo === "descartar") return;
+      var o = r._orig || {};
+      var it = { tipo: m.tipo, colecao: r._col, id: r.id, r: r, orig: r._orig, motivos: m.motivos.slice(), estimado: m.estimado, mudancas: [],
+                 bomba: String(r.bomba), data: isoDe_(m.tipo === "excluir" ? o.data : r.data),
+                 hora: r._col === "rondas" ? r.horarioPrevisto : (m.tipo === "excluir" ? o.horarioInicio : r.horarioInicio) };
+      if (m.tipo === "editar") {
+        Object.keys(m.antes).forEach(function (c) {
+          var dep = r[c] === undefined || r[c] === null ? "" : r[c];
+          if (String(m.antes[c]) !== String(dep)) it.mudancas.push({ campo: c, antes: m.antes[c], depois: dep });
+        });
+        if (!it.mudancas.length) return;
+      }
+      itens.push(it);
+    });
+    itens.sort(function (a, b) {
+      if (a.data !== b.data) return a.data < b.data ? 1 : -1;   // mais recente primeiro
+      if (a.colecao !== b.colecao) return a.colecao === "bombeamento" ? -1 : 1;
+      if (a.bomba !== b.bomba) return (parseInt(a.bomba, 10) || 0) - (parseInt(b.bomba, 10) || 0);
+      return minutosDeHora_(a.hora) - minutosDeHora_(b.hora);
+    });
+    return { itens: itens, restantes: restantes, r0: r0 };
+  }
+
+  // ---- textos da prévia ----
+  function contarAuto_(itens) {
+    var c = { editar: 0, excluir: 0, criar: 0, rondas: 0, estimado: 0 };
+    itens.forEach(function (it) {
+      if (it.colecao === "rondas") c.rondas++;
+      else c[it.tipo]++;
+      if (it.estimado) c.estimado++;
+    });
+    return c;
+  }
+  function resumoAutoLinhas_(c) {
+    return [
+      c.editar ? "• " + pluralRel_(c.editar, "rodada corrigida", "rodadas corrigidas") : "",
+      c.excluir ? "• " + pluralRel_(c.excluir, "rodada excluída", "rodadas excluídas") + " (repetida, vazia ou desligamento salvo à parte)" : "",
+      c.criar ? "• " + pluralRel_(c.criar, "rodada nova", "rodadas novas") + " (bombeamento sem registro: volume real do hidrômetro)" : "",
+      c.rondas ? "• " + pluralRel_(c.rondas, "ronda corrigida", "rondas corrigidas") : "",
+      c.estimado ? "📐 " + pluralRel_(c.estimado, "fica marcada", "ficam marcadas") + " como estimada" + (c.estimado === 1 ? "" : "s") : ""
+    ].filter(Boolean).join("\n");
+  }
+  function fmtValorAuto_(campo, v) {
+    if (v === undefined || v === null || v === "") return "(vazio)";
+    if (campo === "data") return diaMesConf_(v);
+    if (campo === "naoLigou") return v === true ? "sim" : "não";
+    if (campo === "fotoFim" || campo === "fotoInicio") return "📷 foto";
+    var s = String(v);
+    return s.length > 40 ? s.slice(0, 38) + "…" : s;
+  }
+  function tituloItemAuto_(it) {
+    if (it.colecao === "rondas") return "Ronda das " + (it.hora || "?") + " de " + diaMesConf_(it.data) + " · Bomba " + it.bomba;
+    var r = it.r;
+    var t = "Bomba " + it.bomba + " · " + diaMesConf_(it.data) + " · " + (it.hora || "?");
+    if (it.tipo === "criar") return t + " → " + (r.horarioFim || "?") + " · rodada nova";
+    if (it.tipo === "excluir") return t + " · sai (excluída)";
+    return t;
+  }
+  function linhasItemAuto_(it) {
+    var r = it.r, o = it.orig || {};
+    if (it.tipo === "criar") {
+      var vol = (numCampo_(r.leituraFinal) - numCampo_(r.leituraInicial)) * 10;
+      return ["Leituras " + r.leituraInicial + " → " + r.leituraFinal + (isFinite(vol) ? " (" + numRel_(vol) + " m³)" : "")];
+    }
+    if (it.tipo === "excluir") {
+      var li = leituraVazia_(o.leituraInicial) ? "—" : o.leituraInicial, lf = leituraVazia_(o.leituraFinal) ? "—" : o.leituraFinal;
+      return ["Era: " + (o.horarioInicio || "?") + " → " + (o.horarioFim || "—") + " · leituras " + li + " → " + lf];
+    }
+    return it.mudancas.map(function (m) {
+      return (ROTULO_CAMPO_AUTO_[m.campo] || m.campo) + ": " + fmtValorAuto_(m.campo, m.antes) + " → " + fmtValorAuto_(m.campo, m.depois);
+    });
+  }
+
+  // ---- a caixa na conferência ----
+  var autoPreviaAberta_ = false, autoPlano_ = null, autoGravando_ = false;
+  // lote = "auto-" + horário em base 36: dá pra mostrar quando foi
+  function quandoLote_(lote) {
+    var ms = parseInt(String(lote || "").replace(/^auto-/, ""), 36);
+    if (!isFinite(ms) || ms <= 0) return "";
+    var d = new Date(ms), p2 = function (n) { return String(n).padStart(2, "0"); };
+    return p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + " às " + p2(d.getHours()) + ":" + p2(d.getMinutes());
+  }
+  // o lote mais novo que ainda está valendo (pelo que o celular enxerga; na hora de desfazer, confere no Firebase)
+  function ultimoLoteAuto_() {
+    var l = "";
+    bombRecords.forEach(function (r) { if (r.loteAuto && r.loteAuto > l) l = r.loteAuto; });
+    rondaRecords.forEach(function (r) { if (r.loteAuto && r.loteAuto > l) l = r.loteAuto; });
+    try { var s = localStorage.getItem(LS_LOTE_AUTO) || ""; if (s > l) l = s; } catch (e) {}
+    return l;
+  }
+  function htmlCaixaAuto_(lista) {
+    var plano = null;
+    try { plano = planoCorrecaoAutomatica_(); } catch (e) { console.error("[correcao automatica]", e); }
+    autoPlano_ = plano;
+    var n = plano ? plano.itens.length : 0, lote = ultimoLoteAuto_();
+    if (!n) autoPreviaAberta_ = false;
+    if (!n && !lote) return "";
+    var BTN = "border:none;border-radius:5px;padding:8px 11px;font-size:12.5px;font-weight:700;cursor:pointer;margin:0 6px 6px 0;";
+    var h = '<div id="caixa-auto" style="background:#EEF4F8;border:1px solid #BFD3E2;border-left:4px solid #2F7DB0;border-radius:4px;padding:10px 12px 6px;margin-bottom:12px;">' +
+      '<div style="font-size:13.5px;font-weight:700;color:#1F4E6E;">🪄 Correção automática</div>';
+    if (n) {
+      h += '<div style="font-size:12px;color:#33505F;margin:3px 0 8px;line-height:1.4;">O app acerta sozinho ' +
+        (n === 1 ? 'o registro que não fecha' : 'os ' + n + ' registros que não fecham') +
+        '. Onde falta número, ele estima pela vazão normal de cada bomba e marca como estimado. Você vê tudo antes de gravar e dá pra desfazer depois.</div>';
+      if (!autoPreviaAberta_) h += '<button type="button" id="btn-auto-ver" style="' + BTN + 'background:#2F7DB0;color:#fff;">🪄 Ver o que vai ser corrigido (' + n + ')</button>';
+    } else {
+      h += '<div style="font-size:12px;color:#33505F;margin:3px 0 8px;">Nada mais pra acertar sozinho' + (lista.length ? ': o que sobrou na lista precisa de você.' : '.') + '</div>';
+    }
+    if (lote && !(n && autoPreviaAberta_)) {
+      var q = quandoLote_(lote);
+      h += '<button type="button" id="btn-auto-desfazer" style="' + BTN + 'background:#fff;color:#8A2E2E;border:1px solid #E1B9AE;">↩ Desfazer a correção automática' + (q ? ' de ' + q : '') + '</button>';
+    }
+    if (n && autoPreviaAberta_) h += htmlPreviaAuto_(plano);
+    return h + '</div>';
+  }
+  function htmlPreviaAuto_(plano) {
+    var c = contarAuto_(plano.itens);
+    var BTN = "border:none;border-radius:5px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer;";
+    var h = '<div id="auto-previa" style="margin:4px 0 6px;">' +
+      '<div style="font-size:12px;color:#241F1A;line-height:1.5;margin-bottom:8px;white-space:pre-line;">' + escapeHtml(resumoAutoLinhas_(c)) + '</div>';
+    plano.itens.forEach(function (it, i) {
+      var cor = it.tipo === "excluir" ? "#B4442E" : (it.tipo === "criar" ? "#4C7C59" : "#2F7DB0");
+      h += '<div data-auto-item="' + i + '" style="background:#fff;border:1px solid #D5E2EC;border-left:3px solid ' + cor + ';border-radius:4px;padding:7px 9px;margin-bottom:5px;">' +
+        '<div style="font-size:12px;font-weight:700;color:#241F1A;">' + escapeHtml(tituloItemAuto_(it)) +
+          (it.estimado ? ' <span style="font-size:10.5px;font-weight:700;color:#2F5F8A;background:#E3EEF6;border-radius:3px;padding:1px 5px;white-space:nowrap;">📐 estimado</span>' : '') + '</div>' +
+        linhasItemAuto_(it).map(function (l) { return '<div style="font-size:12px;color:#1F4E6E;margin-top:2px;">' + escapeHtml(l) + '</div>'; }).join("") +
+        '<div style="font-size:11.5px;color:#6B6153;margin-top:3px;line-height:1.35;">' + escapeHtml(it.motivos.join(" · ")) + '</div>' +
+      '</div>';
+    });
+    if (plano.restantes.length) {
+      h += '<div style="font-size:12px;color:#7A5A18;background:#FBF4E4;border-radius:4px;padding:7px 9px;margin:8px 0 2px;line-height:1.4;">' +
+        '<b>Fica' + (plano.restantes.length === 1 ? '' : 'm') + ' ' + pluralRel_(plano.restantes.length, "registro", "registros") + ' pra você conferir</b> (sem número pra estimar com segurança): ' +
+        escapeHtml(resumoGruposConf_(plano.restantes)) + '. Continua' + (plano.restantes.length === 1 ? '' : 'm') + ' na lista abaixo.</div>';
+    }
+    // barra presa embaixo da janela: o "Gravar" fica sempre à mão, mesmo com a lista comprida
+    h += '<div style="position:sticky;bottom:-26px;background:#EEF4F8;padding:8px 0 30px;margin-bottom:-24px;display:flex;gap:8px;flex-wrap:wrap;box-shadow:0 -7px 8px -7px rgba(0,0,0,.25),0 12px 0 0 #EEF4F8;">' +
+        '<button type="button" id="btn-auto-aplicar" style="' + BTN + 'background:#2F6B1F;color:#fff;flex:1;min-width:170px;">✅ Gravar as ' + plano.itens.length + ' correç' + (plano.itens.length === 1 ? 'ão' : 'ões') + '</button>' +
+        '<button type="button" id="btn-auto-cancelar" style="' + BTN + 'background:#fff;color:#4A4136;border:1px solid #D2C7AB;">Cancelar</button>' +
+      '</div></div>';
+    return h;
+  }
+  function ligarCaixaAuto_() {
+    var porId = function (id) { return document.getElementById(id); };
+    if (porId("btn-auto-ver")) porId("btn-auto-ver").addEventListener("click", function () {
+      autoPreviaAberta_ = true; renderConferenciaBomb_();
+      var cx = porId("caixa-auto");
+      if (cx && cx.scrollIntoView) cx.scrollIntoView({ block: "start" });
+    });
+    if (porId("btn-auto-cancelar")) porId("btn-auto-cancelar").addEventListener("click", function () { autoPreviaAberta_ = false; renderConferenciaBomb_(); });
+    if (porId("btn-auto-aplicar")) porId("btn-auto-aplicar").addEventListener("click", aplicarCorrecaoAutomatica_);
+    if (porId("btn-auto-desfazer")) porId("btn-auto-desfazer").addEventListener("click", desfazerCorrecaoAutomatica_);
+  }
+
+  // ---- gravar (um lote: dá pra desfazer tudo de uma vez) ----
+  // todos os pacotes entram na fila do Firebase de uma vez (se a internet estiver lenta, sobem juntos depois)
+  function commitEmLotes_(ops) {
+    var fila = [];
+    for (var i = 0; i < ops.length; i += 400) {
+      var lb = db.batch();
+      ops.slice(i, i + 400).forEach(function (op) { if (op.criar) lb.set(op.ref, op.dados); else lb.update(op.ref, op.dados); });
+      fila.push(lb.commit());
+    }
+    return comLimite_(Promise.all(fila), 25000).then(function () { return ops.length; });
+  }
+  // "impressão digital" do plano: pra gravar exatamente o que a pessoa viu na prévia
+  function assinaturaPlanoAuto_(plano) {
+    return (plano ? plano.itens : []).map(function (it) {
+      if (it.tipo === "criar") { var r = it.r; return "c|" + [r.data, r.bomba, r.horarioInicio, r.horarioFim, r.leituraInicial, r.leituraFinal].join(","); }
+      return it.tipo.charAt(0) + "|" + it.colecao + "|" + it.id + "|" + it.mudancas.map(function (m) { return m.campo + "=" + String(m.depois).slice(0, 60); }).join(",");
+    }).sort().join("\n");
+  }
+  // foto não vai inteira dentro da marca de desfazer (o documento dobraria de tamanho): vai só a "impressão digital"
+  function marcaFoto_(v) { v = String(v || ""); return v ? "§" + v.length + ":" + v.slice(-16) : ""; }
+  function aplicarCorrecaoAutomatica_() {
+    if (autoGravando_) return;
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return; }
+    if (!navigator.onLine) { showToast("Precisa de internet pra gravar as correções."); return; }
+    var plano = planoCorrecaoAutomatica_();   // refaz agora, com os dados de agora
+    if (!plano.itens.length) { autoPreviaAberta_ = false; showToast("Nada pra corrigir."); renderConferenciaBomb_(); return; }
+    if (assinaturaPlanoAuto_(plano) !== assinaturaPlanoAuto_(autoPlano_)) {
+      // chegou registro novo ou passou da hora desde que a prévia abriu: mostra de novo antes de gravar
+      autoPreviaAberta_ = true;
+      renderConferenciaBomb_();
+      alert("A lista mudou desde que a prévia abriu (chegou registro novo ou passou da hora). Confira de novo e toque em Gravar.");
+      return;
+    }
+    if (!window.confirm("Gravar " + pluralRel_(plano.itens.length, "correção", "correções") + "?\n\n" + resumoAutoLinhas_(contarAuto_(plano.itens)) +
+        "\n\nCada registro fica marcado (✎ Corrigida: Automática). Se não gostar, é só tocar em \"Desfazer a correção automática\".")) return;
+    garantirAdminPlantao_(function () { gravarCorrecaoAutomatica_(plano); });
+  }
+  function gravarCorrecaoAutomatica_(plano) {
+    var lote = "auto-" + Date.now().toString(36);
+    var em = fmtDate(todayStr()).slice(0, 5);
+    var ts = firebase.firestore.FieldValue.serverTimestamp();
+    var ops = [];
+    plano.itens.forEach(function (it) {
+      var col = db.collection(it.colecao), o = it.orig || {};
+      var corr = "Automática (" + em + "): " + it.motivos.join("; ");
+      if (it.tipo === "criar") {
+        var r = it.r, doc = {};
+        ["data", "bomba", "horarioInicio", "horarioFim", "leituraInicial", "leituraFinal", "fotoInicio", "fotoFim",
+         "observacao", "motivoNaoLigou", "responsavel", "responsavelFim"].forEach(function (k) { doc[k] = r[k] === undefined || r[k] === null ? "" : r[k]; });
+        doc.naoLigou = r.naoLigou === true;
+        doc.estimado = !doc.naoLigou;
+        doc.excluido = false; doc.hidrometroTravado = false;
+        doc.correcao = corr; doc.criadoAuto = lote; doc.loteAuto = lote; doc.criadoEm = ts; doc.atualizadoEm = ts;
+        // como ela nasceu: se alguém acertar depois, o desfazer não apaga
+        doc.corrigidoAuto = { lote: lote, em: em, criado: true, depois: { data: doc.data, horarioInicio: doc.horarioInicio, horarioFim: doc.horarioFim,
+          leituraInicial: doc.leituraInicial, leituraFinal: doc.leituraFinal } };
+        ops.push({ criar: true, ref: col.doc(uid()), dados: doc });
+        return;
+      }
+      // novos = o que grava; antes/depois = a marca pra desfazer
+      var antes = {}, depois = {}, novos = {};
+      if (it.tipo === "excluir") { antes.excluido = false; depois.excluido = true; novos.excluido = true; }
+      else it.mudancas.forEach(function (m) {
+        antes[m.campo] = m.antes; novos[m.campo] = m.depois;
+        depois[m.campo] = /^foto/.test(m.campo) ? marcaFoto_(m.depois) : m.depois;
+      });
+      if (it.colecao === "bombeamento" && it.estimado && o.estimado !== true) { antes.estimado = false; depois.estimado = true; novos.estimado = true; }
+      antes.correcao = o.correcao || "";
+      antes.loteAuto = o.loteAuto || "";
+      ops.push({ ref: col.doc(it.id), dados: Object.assign({}, novos, {
+        correcao: corr, loteAuto: lote, atualizadoEm: ts,
+        corrigidoAuto: { lote: lote, em: em, antes: antes, depois: depois, anterior: o.corrigidoAuto || null }
+      }) });
+    });
+    autoGravando_ = true;
+    travaTela_(true, "🪄 Gravando as correções...");
+    try { localStorage.setItem(LS_LOTE_AUTO, lote); } catch (e) {}
+    commitEmLotes_(ops).then(function (n) {
+      autoGravando_ = false; travaTela_(false);
+      autoPreviaAberta_ = false;
+      alert("✅ Pronto: " + pluralRel_(n, "correção gravada", "correções gravadas") + "." +
+        (plano.restantes.length ? "\n\n" + (plano.restantes.length === 1 ? "Fica 1 registro" : "Ficam " + plano.restantes.length + " registros") + " pra conferir à mão (estão na lista)." : ""));
+      try { renderConferenciaBomb_(); } catch (e) {}
+    }).catch(function (err) {
+      autoGravando_ = false; travaTela_(false);
+      if (err && err.code === "pendentes") alert("As correções já estão gravadas no celular e estão subindo pro Firebase (internet lenta). Deixe o app aberto uns minutos.");
+      else alert("⚠️ Não gravou: " + motivoFirestore_(err));
+      try { renderConferenciaBomb_(); } catch (e) {}
+    });
+  }
+  // ---- desfazer: o lote mais novo que ainda vale (procurado no Firebase, inclusive as excluídas) ----
+  function desfazerCorrecaoAutomatica_() {
+    if (!db || autoGravando_) return;
+    if (!navigator.onLine) { showToast("Precisa de internet pra desfazer."); return; }
+    garantirAdminPlantao_(function () {
+      autoGravando_ = true;
+      travaTela_(true, "↩ Procurando a última correção automática...");
+      var apagar = firebase.firestore.FieldValue.delete(), ts = firebase.firestore.FieldValue.serverTimestamp();
+      var cols = ["bombeamento", "rondas"], lote = "";
+      Promise.all(cols.map(function (c) { return db.collection(c).where("loteAuto", ">", "").get(); })).then(function (snaps) {
+        var docs = [];
+        snaps.forEach(function (snap, k) {
+          snap.forEach(function (doc) { var d = doc.data(); docs.push({ col: cols[k], id: doc.id, d: d }); if (d.loteAuto > lote) lote = d.loteAuto; });
+        });
+        var meus = docs.filter(function (x) { return x.d.loteAuto === lote; });
+        travaTela_(false);
+        if (!lote || !meus.length) {
+          autoGravando_ = false;
+          try { localStorage.removeItem(LS_LOTE_AUTO); } catch (e) {}
+          alert("Não tem correção automática pra desfazer.");
+          try { renderConferenciaBomb_(); } catch (e) {}
+          return null;
+        }
+        if (!window.confirm("Desfazer a correção automática de " + quandoLote_(lote) + " (" + pluralRel_(meus.length, "registro", "registros") + ")?\n\n" +
+            "O que ela mudou volta como era antes, as rodadas que ela criou saem e as que ela excluiu voltam. Se alguém já mexeu num registro depois, o que a pessoa fez fica.")) {
+          autoGravando_ = false;
+          return null;
+        }
+        travaTela_(true, "↩ Desfazendo a correção automática...");
+        var ops = meus.map(function (x) {
+          var d = x.d, ca = d.corrigidoAuto || {}, ref = db.collection(x.col).doc(x.id);
+          var igual = function (campo, alvo) {
+            var atual = d[campo] === undefined || d[campo] === null ? "" : d[campo];
+            return typeof alvo === "string" && alvo.charAt(0) === "§" ? marcaFoto_(atual) === alvo : String(atual) === String(alvo);
+          };
+          if (d.criadoAuto === lote) {
+            var dep = ca.depois || {};
+            var mexida = Object.keys(dep).some(function (c) { return !igual(c, dep[c]); });
+            if (mexida) return { ref: ref, dados: { loteAuto: "", atualizadoEm: ts } };   // alguém acertou depois: fica
+            return { ref: ref, dados: { excluido: true, loteAuto: "", correcao: (d.correcao || "") + " (desfeita)", atualizadoEm: ts } };
+          }
+          if (ca.lote !== lote) return { ref: ref, dados: { loteAuto: "", atualizadoEm: ts } };
+          var antes = ca.antes || {}, depois = ca.depois || {};
+          var volta = { loteAuto: antes.loteAuto || "", corrigidoAuto: ca.anterior ? ca.anterior : apagar, atualizadoEm: ts };
+          Object.keys(antes).forEach(function (campo) {
+            if (campo === "loteAuto") return;
+            // só volta o que ainda está como a correção deixou (se alguém mexeu depois, fica o de agora)
+            var mexido = Object.prototype.hasOwnProperty.call(depois, campo) && !igual(campo, depois[campo]);
+            if (campo === "correcao" || !mexido) volta[campo] = antes[campo];
+          });
+          return { ref: ref, dados: volta };
+        });
+        return commitEmLotes_(ops).then(function (n) {
+          autoGravando_ = false; travaTela_(false);
+          try { if ((localStorage.getItem(LS_LOTE_AUTO) || "") >= lote) localStorage.removeItem(LS_LOTE_AUTO); } catch (e) {}
+          autoPreviaAberta_ = false;
+          alert("↩ Desfeito: " + pluralRel_(n, "registro voltou", "registros voltaram") + " como era antes.");
+          try { renderConferenciaBomb_(); } catch (e) {}
+        });
+      }).catch(function (err) {
+        autoGravando_ = false; travaTela_(false);
+        if (err && err.code === "pendentes") alert("O desfazer já está gravado no celular e está subindo pro Firebase (internet lenta). Deixe o app aberto uns minutos.");
+        else alert("⚠️ Não consegui desfazer: " + motivoFirestore_(err));
+      });
+    });
+  }
+  // ================= FIM CORREÇÃO AUTOMÁTICA =================
 
   // (v129) RONDA: corrente, tensão e horímetro conferidos na hora de digitar.
   // Em setembro foram 41 leituras com a corrente no lugar da tensão, uma
