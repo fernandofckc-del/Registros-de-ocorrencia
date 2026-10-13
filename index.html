@@ -655,6 +655,26 @@
   </div>
 </div>
 
+<!-- (v132) RELATÓRIO DO GERADOR: escolhe o período e manda -->
+<div class="modal-overlay" id="modal-rel-gerador-overlay">
+  <div class="modal-box" style="position:relative;">
+    <button class="modal-close" id="btn-close-rel-gerador">✕</button>
+    <div class="modal-title">📤 Relatório do Gerador</div>
+    <div class="modal-sub">Escolhe o período e manda. WhatsApp: imagem nítida, que abre direto na conversa. PDF: completo, pra arquivar. Texto: mensagem simples, pra colar onde quiser.</div>
+    <div style="display:flex;gap:8px;">
+      <div class="field" style="flex:1;min-width:0;"><span class="field-label">De</span><input type="date" id="rel-ger-ini"></div>
+      <div class="field" style="flex:1;min-width:0;"><span class="field-label">Até</span><input type="date" id="rel-ger-fim"></div>
+    </div>
+    <div id="rel-ger-atalhos" style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 12px;"></div>
+    <div id="rel-ger-previa"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="save-btn" id="btn-rel-ger-whatsapp" style="flex:1;width:auto;margin-top:0;background:#25A244;">📤 WhatsApp</button>
+      <button class="save-btn" id="btn-rel-ger-pdf" style="flex:1;width:auto;margin-top:0;background:#2F7DB0;">📄 PDF</button>
+    </div>
+    <button class="photo-btn" id="btn-rel-ger-texto" style="background:#8A8072;margin-top:8px;">💬 Mandar como texto</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-base-alarmes-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-base-alarmes">✕</button>
@@ -1278,7 +1298,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v131';
+  var APP_CACHE_NAME = 'registro-irrigacao-v132';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -5957,9 +5977,17 @@
 
 
   // ================= GERADOR (leituras acumuladas) =================
+  // (v132) Ordena pela data de verdade (a que veio da planilha pode estar
+  // como dd/mm/aaaa) e, no mesmo dia, pelos números do painel - eles só
+  // sobem, então a leitura da tarde nunca fica antes da leitura da manhã.
   function geradorOrdenados_() {
+    function dia(r) { var d = parseISODate(r.data); return d ? d.getTime() : 0; }
+    function n(v) { var x = num_(v); return x === null ? 0 : x; }
     return geradorRecords.filter(function (r) { return !r._pendingDelete; })
-      .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
+      .sort(function (a, b) {
+        return (dia(a) - dia(b)) || (n(a.horasOperacao) - n(b.horasOperacao)) ||
+          (n(a.litrosCombustivel) - n(b.litrosCombustivel)) || (n(a.energiaKwh) - n(b.energiaKwh));
+      });
   }
   function num_(v) { var n = parseFloat(v); return isFinite(n) ? n : null; }
 
@@ -7856,6 +7884,9 @@
 
     html += '<button class="save-btn" id="btn-nova-leitura-gerador" style="background:#4C7C59;margin-top:0;">⛽ Nova Leitura do Gerador</button>';
     html += '<button class="save-btn" id="btn-abrir-alarme" style="background:#B4442E;margin-top:8px;">🚨 Registrar Alarme</button>';
+    if (ordenados.length || geradorAlarmesRecords.length) {
+      html += '<button class="save-btn" id="btn-relatorio-gerador" style="background:#25A244;margin-top:8px;">📤 Enviar Relatório do Gerador</button>';
+    }
 
     if (geradorAlarmesRecords.length) {
       html += '<div class="card" style="margin-top:12px;"><h3 class="panel-title">🚨 Alarmes Registrados</h3>';
@@ -7946,6 +7977,8 @@
   }
   function ligarBotoesAlarmeGerador_(el) {
     document.getElementById("btn-abrir-alarme").addEventListener("click", abrirModalAlarme_);
+    var btnRelGer = document.getElementById("btn-relatorio-gerador");
+    if (btnRelGer) btnRelGer.addEventListener("click", abrirRelGerador_);
     el.querySelectorAll("[data-resolver-alarme]").forEach(function (b) {
       b.addEventListener("click", function () { marcarAlarmeResolvido_(b.getAttribute("data-resolver-alarme")); });
     });
@@ -9559,8 +9592,9 @@
   function pluralRel_(n, um, varios) { return n + " " + (n === 1 ? um : varios); }
   function corPctRel_(p) { return p >= 95 ? "#2F6B1F" : (p >= 85 ? "#B8862B" : "#B4442E"); }
   // "24/08/2026 a 22/09/2026 (30 dias)"
-  function periodoTxtRel_() {
-    var di = parseISODate(relDataInicio), df = parseISODate(relDataFim);
+  function periodoTxtRel_() { return periodoTxtEntre_(relDataInicio, relDataFim); }
+  function periodoTxtEntre_(ini, fim) {
+    var di = parseISODate(ini), df = parseISODate(fim);
     if (di && df) return fmtDate(isoUTC_(di)) + " a " + fmtDate(isoUTC_(df)) + " (" + pluralRel_(diffDaysUTC(df, di) + 1, "dia", "dias") + ")";
     if (di) return "Desde " + fmtDate(isoUTC_(di));
     if (df) return "Até " + fmtDate(isoUTC_(df));
@@ -10674,6 +10708,577 @@
         "Imagens baixadas — é só mandar pelo WhatsApp.");
     });
   }
+
+  // ================= RELATÓRIO DO GERADOR (v132) =================
+  // Botão "📤 Enviar Relatório do Gerador" na aba Gerador: escolhe o período e
+  // manda pelo WhatsApp (imagem), PDF ou texto. Os números do painel são
+  // totais acumulados, então o que rodou/gastou/gerou no período é a última
+  // leitura dele menos a última leitura ANTES dele (se não tiver nenhuma
+  // antes, conta a partir da primeira do período) - é a soma dos "Desde ..."
+  // da aba, leitura a leitura. Pegar a ponta e não somar as diferenças faz
+  // um número digitado errado no meio do caminho não estragar o total.
+  var relGerIni = "", relGerFim = "";
+  var CAMPOS_GER_ = ["horasOperacao", "litrosCombustivel", "energiaKwh"];
+  var CAMPO_GER_TXT_ = { horasOperacao: ["horas", "as horas"], litrosCombustivel: ["litros", "os litros"], energiaKwh: ["kWh", "os kWh"] };
+  var COLS_LEIT_GER_ = [{ t: "Dia", w: 230 }, { t: "Horas", w: 170, al: "right" }, { t: "Litros", w: 180, al: "right" },
+                        { t: "kWh", w: 190, al: "right" }, { t: "L/kWh", w: 170, al: "right" }, { t: "Bateria", w: 180, al: "right" }];
+
+  // número no jeito brasileiro (1.234,5); "—" quando não tem. fixo = sempre
+  // com todas as casas (0,30 L/kWh; 27,0 V)
+  function numGer_(n, casas, fixo) {
+    if (n === null || n === undefined || !isFinite(n)) return "—";
+    if (casas === undefined) casas = 1;
+    return Number(n).toLocaleString("pt-BR", { minimumFractionDigits: fixo ? casas : 0, maximumFractionDigits: casas });
+  }
+  function diasTxtGer_(n) { return n > 0 ? pluralRel_(n, "dia", "dias") : "no mesmo dia"; }
+  function juntarE_(itens) {
+    return itens.length > 1 ? itens.slice(0, -1).join(", ") + " e " + itens[itens.length - 1] : (itens[0] || "");
+  }
+  function nomeAlarmeGer_(a) {
+    return (a.codigo || "") + (a.nome && a.nome !== a.codigo ? (a.codigo ? " — " : "") + a.nome : "");
+  }
+
+  // Tudo o que a prévia, a imagem, o PDF e o texto precisam, calculado uma vez só.
+  function montarRelGerador_() {
+    var dIni = relGerIni ? parseISODate(relGerIni) : null, dFim = relGerFim ? parseISODate(relGerFim) : null;
+    function noPeriodo(data) {
+      var d = parseISODate(data);
+      return !!d && (!dIni || d >= dIni) && (!dFim || d <= dFim);
+    }
+    var anterior = {};        // último número visto de cada campo (pra saber o que mudou)
+    var base = {}, fim = {};  // por campo: de qual leitura até qual vai a conta do período
+    var leituras = [];
+    geradorOrdenados_().forEach(function (r) {
+      if (!parseISODate(r.data)) return;
+      var dentro = noPeriodo(r.data);
+      var linha = { r: r, delta: {}, negativos: [] };
+      CAMPOS_GER_.forEach(function (c) {
+        var v = num_(r[c]);
+        linha.delta[c] = null;
+        if (v === null) return;
+        var ant = anterior[c];
+        if (ant) linha.delta[c] = v - ant.v;
+        if (dentro) {
+          if (!base[c]) base[c] = ant || { v: v, r: r };
+          fim[c] = { v: v, r: r };
+          if (linha.delta[c] !== null && linha.delta[c] < 0) linha.negativos.push(c);
+        }
+        anterior[c] = { v: v, r: r };
+      });
+      if (dentro) leituras.push(linha);
+    });
+    var alarmes = geradorAlarmesRecords.filter(function (a) { return noPeriodo(a.data); }); // já vêm do mais novo pro mais antigo
+    if (!leituras.length && !alarmes.length) return null;
+
+    var tot = {}, foraDeOrdem = [], spanIni = null, spanFim = null;
+    CAMPOS_GER_.forEach(function (c) {
+      tot[c] = null;
+      var b = base[c], f = fim[c];
+      if (!b || !f || b.r === f.r) return;            // um número só: ainda não tem com o que comparar
+      if (f.v < b.v) { foraDeOrdem.push(c); return; }  // painel zerado ou número digitado errado
+      tot[c] = f.v - b.v;
+      if (!spanIni || dataAntes_(b.r.data, spanIni.data)) spanIni = b.r;
+      if (!spanFim || dataAntes_(spanFim.data, f.r.data)) spanFim = f.r;
+    });
+    var h = tot.horasOperacao, l = tot.litrosCombustivel, e = tot.energiaKwh;
+    return {
+      periodo: periodoTxtEntre_(relGerIni, relGerFim),
+      leituras: leituras, tot: tot, foraDeOrdem: foraDeOrdem,
+      spanIni: spanIni, spanFim: spanFim,
+      dias: spanIni ? diffDaysUTC(parseISODate(spanFim.data), parseISODate(spanIni.data)) : null,
+      lPorKwh: l !== null && e > 0 ? l / e : null,
+      lPorHora: l !== null && h > 0 ? l / h : null,
+      kwMedio: e !== null && h > 0 ? e / h : null,
+      estranhas: leituras.filter(function (x) { return x.negativos.length; }),
+      alarmes: alarmes,
+      abertos: alarmes.filter(function (a) { return !a.resolvido; }).length,
+      ultima: leituras.length ? leituras[leituras.length - 1].r : null
+    };
+  }
+
+  // número do painel menor que o da leitura anterior = quase sempre digitado errado
+  function avisoRelGer_(R) {
+    if (!R.estranhas.length) return "";
+    var onde = R.estranhas.map(function (x) {
+      return fmtDate(x.r.data).slice(0, 5) + " (" + juntarE_(x.negativos.map(function (c) { return CAMPO_GER_TXT_[c][0]; })) + ")";
+    });
+    var txt = "Conferir: em " + juntarE_(onde) + " o número do painel ficou menor que na leitura anterior — pode ter sido digitado errado (ou o painel foi zerado).";
+    if (R.foraDeOrdem.length) {
+      txt += " Por isso " + juntarE_(R.foraDeOrdem.map(function (c) { return CAMPO_GER_TXT_[c][1]; })) + " do período ficaram de fora da conta.";
+    }
+    return txt;
+  }
+
+  // por que não deu pra fazer a conta do período (tem leitura, mas nenhum total)
+  function semContaTxtGer_(R) {
+    if (R.foraDeOrdem.length) return "Não deu pra calcular o período: os números do painel não fecham (veja o aviso)";
+    if (R.leituras.length === 1) return "Só uma leitura no período e nenhuma antes dela — não tem com o que comparar pra calcular o que rodou, gastou e gerou";
+    return "As leituras do período não têm os mesmos números pra comparar — não deu pra calcular o que rodou, gastou e gerou";
+  }
+
+  // observações das leituras e dos alarmes do período, da mais nova pra mais antiga
+  function obsRelGer_(R) {
+    var obs = [];
+    R.leituras.forEach(function (x) {
+      if (x.r.observacao) obs.push({ data: x.r.data, quando: fmtDate(x.r.data).slice(0, 5), txt: x.r.observacao });
+    });
+    R.alarmes.forEach(function (a) {
+      if (a.observacao) obs.push({ data: a.data, quando: fmtDate(a.data).slice(0, 5) + " · alarme " + (a.codigo || a.nome), txt: a.observacao });
+    });
+    return obs.sort(function (a, b) {
+      var da = parseISODate(a.data), db = parseISODate(b.data);
+      return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+    });
+  }
+
+  // ---- janela: período (De/Até + atalhos), prévia e os 3 jeitos de mandar ----
+  function abrirRelGerador_() {
+    if (!relGerIni && !relGerFim) { var p = periodoRelatorio_("30"); relGerIni = p.ini; relGerFim = p.fim; }
+    atualizarRelGerador_();
+    document.getElementById("modal-rel-gerador-overlay").classList.add("active");
+  }
+  function fecharRelGerador_() {
+    document.getElementById("modal-rel-gerador-overlay").classList.remove("active");
+    // com a janela aberta a aba não se redesenha sozinha - redesenha agora
+    try { if (document.getElementById("tab-gerador").classList.contains("active")) renderGerador(); } catch (e) {}
+  }
+  // "ultima" = só o dia da última leitura (a conta vai da leitura anterior até ela)
+  function periodoRelGer_(tipo) {
+    if (tipo === "ultima") {
+      var ord = geradorOrdenados_(), d = ord.length ? parseISODate(ord[ord.length - 1].data) : null;
+      var iso = d ? isoUTC_(d) : todayStr();
+      return { ini: iso, fim: iso };
+    }
+    return periodoRelatorio_(tipo);
+  }
+  function atualizarRelGerador_() {
+    if (relGerIni && relGerFim && relGerIni > relGerFim) { var troca = relGerIni; relGerIni = relGerFim; relGerFim = troca; }
+    document.getElementById("rel-ger-ini").value = relGerIni;
+    document.getElementById("rel-ger-fim").value = relGerFim;
+    var CHIP = "border-radius:14px;padding:6px 12px;font-size:12.5px;cursor:pointer;";
+    var atalhos = [["ultima", "Última leitura"], ["7", "7 dias"], ["30", "30 dias"], ["mes", "Este mês"], ["mesPassado", "Mês passado"], ["90", "90 dias"]];
+    if (!geradorOrdenados_().length) atalhos.shift();
+    var elA = document.getElementById("rel-ger-atalhos");
+    elA.innerHTML = atalhos.map(function (a) {
+      var p = periodoRelGer_(a[0]);
+      var ativo = p.ini === relGerIni && p.fim === relGerFim;
+      return '<button type="button" data-rel-ger-atalho="' + a[0] + '" style="' + CHIP +
+        (ativo ? 'border:1px solid #4C6B2F;background:#4C6B2F;color:#fff;font-weight:700;' : 'border:1px solid #D2C7AB;background:#FBF8F1;color:#4A4136;') +
+        '">' + a[1] + '</button>';
+    }).join("");
+    elA.querySelectorAll("[data-rel-ger-atalho]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var p = periodoRelGer_(b.getAttribute("data-rel-ger-atalho"));
+        relGerIni = p.ini; relGerFim = p.fim;
+        atualizarRelGerador_();
+      });
+    });
+    var R = montarRelGerador_();
+    ["btn-rel-ger-whatsapp", "btn-rel-ger-pdf", "btn-rel-ger-texto"].forEach(function (id) {
+      var b = document.getElementById(id);
+      b.disabled = !R;
+      b.style.opacity = R ? "" : ".5";
+    });
+    document.getElementById("rel-ger-previa").innerHTML = previaRelGerHtml_(R);
+  }
+  function previaRelGerHtml_(R) {
+    var caixa = "background:#FFFDF8;border:1px solid #DCD3BC;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12.5px;color:#4A4136;line-height:1.6;";
+    if (!R) return '<div style="' + caixa + 'text-align:center;color:#6B6153;">Nenhuma leitura nem alarme nesse período.</div>';
+    var L = [];
+    if (!R.leituras.length) {
+      L.push("Nenhuma leitura do painel nesse período.");
+    } else if (!R.spanIni) {
+      L.push(semContaTxtGer_(R) + ".");
+    } else {
+      L.push("<b>Da leitura de " + fmtDate(R.spanIni.data) + " até a de " + fmtDate(R.spanFim.data) + "</b> (" + diasTxtGer_(R.dias) + ")");
+      var p = [];
+      if (R.tot.horasOperacao !== null) p.push("⏱ " + numGer_(R.tot.horasOperacao, 1) + " h");
+      if (R.tot.litrosCombustivel !== null) p.push("⛽ " + numGer_(R.tot.litrosCombustivel, 1) + " L");
+      if (R.tot.energiaKwh !== null) p.push("⚡ " + numGer_(R.tot.energiaKwh, 1) + " kWh");
+      if (p.length) L.push(p.join(" · "));
+      if (R.lPorKwh !== null) L.push("📊 " + numGer_(R.lPorKwh, 2, true) + " L/kWh de consumo médio");
+    }
+    if (R.leituras.length) L.push("📋 " + pluralRel_(R.leituras.length, "leitura", "leituras") + " no período");
+    L.push(R.alarmes.length
+      ? "🚨 " + pluralRel_(R.alarmes.length, "alarme", "alarmes") + (R.abertos ? " (" + R.abertos + " em aberto)" : " (todos resolvidos)")
+      : "✅ Nenhum alarme no período");
+    var aviso = avisoRelGer_(R);
+    if (aviso) L.push('<span style="color:#8A5A18;font-weight:700;">⚠ ' + escapeHtml(aviso) + '</span>');
+    return '<div style="' + caixa + '">' + L.join("<br>") + '</div>';
+  }
+
+  // ---- texto pro WhatsApp (o *negrito* e o _itálico_ já saem formatados lá) ----
+  function textoRelGerador_(R) {
+    var L = [];
+    L.push("*🔌 RELATÓRIO DO GERADOR*");
+    L.push("_" + R.periodo + "_");
+    L.push("");
+    if (!R.leituras.length) {
+      L.push("Nenhuma leitura do painel nesse período.");
+    } else {
+      if (R.spanIni) {
+        L.push("*No período* (da leitura de " + fmtDate(R.spanIni.data).slice(0, 5) + " até a de " + fmtDate(R.spanFim.data).slice(0, 5) + ", " + diasTxtGer_(R.dias) + "):");
+        if (R.tot.horasOperacao !== null) L.push("⏱ " + numGer_(R.tot.horasOperacao, 1) + " horas rodadas");
+        if (R.tot.litrosCombustivel !== null) L.push("⛽ " + numGer_(R.tot.litrosCombustivel, 1) + " litros consumidos");
+        if (R.tot.energiaKwh !== null) L.push("⚡ " + numGer_(R.tot.energiaKwh, 1) + " kWh gerados");
+        var med = [];
+        if (R.lPorKwh !== null) med.push(numGer_(R.lPorKwh, 2, true) + " L/kWh");
+        if (R.lPorHora !== null) med.push(numGer_(R.lPorHora, 1) + " L por hora");
+        if (R.kwMedio !== null) med.push(numGer_(R.kwMedio, 0) + " kW de carga média");
+        if (med.length) L.push("📊 " + med.join(" · "));
+        var porDia = [];
+        if (R.dias > 1 && R.tot.horasOperacao !== null) porDia.push(numGer_(R.tot.horasOperacao / R.dias, 1) + " h");
+        if (R.dias > 1 && R.tot.litrosCombustivel !== null) porDia.push(numGer_(R.tot.litrosCombustivel / R.dias, 0) + " L");
+        if (porDia.length) L.push("📅 Média por dia: " + porDia.join(" e "));
+      } else {
+        L.push(semContaTxtGer_(R) + ".");
+      }
+      var u = R.ultima, pt = [];
+      if (num_(u.horasOperacao) !== null) pt.push("Horas: " + numGer_(num_(u.horasOperacao), 1));
+      if (num_(u.litrosCombustivel) !== null) pt.push("Combustível: " + numGer_(num_(u.litrosCombustivel), 1) + " L");
+      if (num_(u.energiaKwh) !== null) pt.push("Energia: " + numGer_(num_(u.energiaKwh), 1) + " kWh");
+      if (num_(u.tensaoBateria) !== null) pt.push("Bateria: " + numGer_(num_(u.tensaoBateria), 1, true) + " V");
+      L.push("");
+      L.push("*Painel na última leitura (" + fmtDate(u.data) + "):*");
+      L.push(pt.join(" · "));
+      L.push("");
+      L.push("*Leituras (" + R.leituras.length + ")* — o que rodou desde a anterior:");
+      R.leituras.forEach(function (x) {
+        var p = [];
+        if (x.delta.horasOperacao !== null) p.push(numGer_(x.delta.horasOperacao, 1) + " h");
+        if (x.delta.litrosCombustivel !== null) p.push(numGer_(x.delta.litrosCombustivel, 1) + " L");
+        if (x.delta.energiaKwh !== null) p.push(numGer_(x.delta.energiaKwh, 1) + " kWh");
+        L.push("• " + fmtDate(x.r.data).slice(0, 5) + " (" + diaSemanaRel_(x.r.data) + ") — " + (p.length ? p.join(" · ") : "primeira leitura") +
+          (x.negativos.length ? " ⚠️" : ""));
+        if (x.r.observacao) L.push("   Obs.: " + x.r.observacao);
+      });
+    }
+    var aviso = avisoRelGer_(R);
+    if (aviso) { L.push(""); L.push("⚠️ " + aviso); }
+    L.push("");
+    if (!R.alarmes.length) {
+      L.push("✅ Nenhum alarme registrado no período.");
+    } else {
+      L.push("*🚨 Alarmes (" + R.alarmes.length + ")* — " + (R.abertos ? R.abertos + " em aberto" : "todos resolvidos"));
+      R.alarmes.slice().reverse().forEach(function (a) {   // do mais antigo pro mais novo, como as leituras
+        L.push("• " + fmtDate(a.data).slice(0, 5) + (a.hora ? " " + a.hora : "") + " — " + nomeAlarmeGer_(a) + " — " + (a.resolvido ? "resolvido" : "*em aberto*"));
+        if (a.observacao) L.push("   Obs.: " + a.observacao);
+      });
+    }
+    L.push("");
+    L.push("_Registro de Ocorrências · Irrigação_");
+    return L.join("\n");
+  }
+  function enviarRelGeradorTexto_() {
+    var R = montarRelGerador_();
+    if (!R) { showToast("Nada pra mandar nesse período."); return; }
+    var texto = textoRelGerador_(R);
+    if (navigator.share) {
+      navigator.share({ title: "Relatório do Gerador", text: texto }).catch(function () {});
+    } else {
+      window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
+    }
+  }
+
+  // ---- imagem (WhatsApp) e PDF: mesmo jeito do relatório de bombeamento ----
+  function nomeArqRelGer_(ext, sufixo) {
+    return "relatorio-gerador-" + (relGerIni || "inicio") + "_a_" + (relGerFim || "hoje") + (sufixo ? "-" + sufixo : "") + "." + ext;
+  }
+  // quebra o texto em linhas que cabem na largura
+  function linhasRelGer_(ctx, txt, maxW, px, negrito) {
+    fonteRel_(ctx, px, negrito);
+    var linhas = [], linha = "";
+    String(txt).split(" ").forEach(function (p) {
+      var teste = linha ? linha + " " + p : p;
+      if (linha && ctx.measureText(teste).width > maxW) { linhas.push(linha); linha = p; }
+      else linha = teste;
+    });
+    if (linha) linhas.push(linha);
+    return linhas;
+  }
+  // faixa colorida com um recado (quebra em mais linhas se precisar); devolve o y de baixo
+  function faixaRelGer_(ctx, y, txt, cor, fundo, corTxt) {
+    var M = REL_M, TW = REL_W - 2 * REL_M, ALT = 36;
+    var linhas = linhasRelGer_(ctx, txt, TW - 64, 26, true);
+    var h = 30 + linhas.length * ALT;
+    ctx.fillStyle = fundo; ctx.fillRect(M, y, TW, h);
+    ctx.fillStyle = cor; ctx.fillRect(M, y, 8, h);
+    fonteRel_(ctx, 26, true); ctx.fillStyle = corTxt; ctx.textAlign = "left";
+    linhas.forEach(function (ln, i) { ctx.fillText(ln, M + 34, y + 42 + i * ALT); });
+    return y + h;
+  }
+  // quadro de número grande (grande = os 3 de cima; os outros são menores)
+  function quadroRelGer_(ctx, x, y, w, valor, rotulo, sub, grande) {
+    var h = grande ? 176 : 136, px = grande ? 60 : 44;
+    ctx.fillStyle = "#F4EFE2"; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "#DCD3BC"; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    fonteRel_(ctx, px, true);
+    while (px > 24 && ctx.measureText(valor).width > w - 28) { px -= 2; fonteRel_(ctx, px, true); }
+    var cor = valor === "—" ? "#B8AE98" : (grande ? "#2F7DB0" : "#4C6B2F");
+    if (grande) {
+      textoRel_(ctx, valor, x + w / 2, y + 84, px, cor, true, "center");
+      textoRel_(ctx, rotulo, x + w / 2, y + 130, 26, "#4A4136", false, "center");
+    } else {
+      textoRel_(ctx, valor, x + w / 2, y + 50, px, cor, true, "center");
+      textoRel_(ctx, rotulo, x + w / 2, y + 87, 23, "#4A4136", false, "center");
+      if (sub) textoRel_(ctx, sub, x + w / 2, y + 114, 20, "#8A8072", false, "center");
+    }
+    return h;
+  }
+  // linhas da tabela "leitura a leitura", da mais nova pra mais antiga
+  function linhasLeitRelGer_(R) {
+    var SEM = { t: "—", cor: "#B8AE98" };
+    return R.leituras.slice().reverse().map(function (x) {
+      function cel(c) {
+        var d = x.delta[c];
+        if (d === null) return SEM;
+        return d < 0 ? { t: numGer_(d, 1), cor: "#B4442E", negrito: true } : numGer_(d, 1);
+      }
+      var dl = x.delta.litrosCombustivel, de = x.delta.energiaKwh, bat = num_(x.r.tensaoBateria);
+      return [fmtDate(x.r.data).slice(0, 5) + " " + diaSemanaRel_(x.r.data), cel("horasOperacao"), cel("litrosCombustivel"), cel("energiaKwh"),
+        dl > 0 && de > 0 ? numGer_(dl / de, 2, true) : SEM,
+        bat !== null ? numGer_(bat, 1, true) + " V" : SEM];
+    });
+  }
+  // tabela "leitura a leitura"; max = quantas linhas cabem (o resto fica pro PDF)
+  function blocoLeiturasRelGer_(ctx, y, R, max) {
+    var M = REL_M, TW = REL_W - 2 * REL_M;
+    var linhas = linhasLeitRelGer_(R);
+    y += 46; textoCabeRel_(ctx, "Leitura a leitura", M, y, TW, 31, "#241F1A", true);
+    y += 34; textoCabeRel_(ctx, "O que rodou, gastou e gerou desde a leitura anterior · da mais nova pra mais antiga", M, y, TW, 22, "#6B6153", false);
+    y += 18;
+    y = tabelaRel_(ctx, M, y, COLS_LEIT_GER_, linhas.slice(0, max), { fonte: 26, altLinha: 50 });
+    if (linhas.length > max) {
+      y += 34;
+      textoRel_(ctx, "+ " + pluralRel_(linhas.length - max, "leitura mais antiga", "leituras mais antigas") + " — a lista completa está no PDF e no app", M, y, 23, "#6B6153");
+      y += 6;
+    }
+    return y;
+  }
+  // observações, até onde couber (yMax); o resto fica pro PDF
+  function blocoObsRelGer_(ctx, y, R, yMax) {
+    var M = REL_M, TW = REL_W - 2 * REL_M, ALT = 32;
+    var obs = obsRelGer_(R);
+    if (!obs.length || y + 46 + 20 + ALT > yMax) return y;
+    y += 46; textoCabeRel_(ctx, "Observações", M, y, TW, 31, "#241F1A", true);
+    y += 10;
+    var mostradas = 0;
+    for (var i = 0; i < obs.length; i++) {
+      var linhas = linhasRelGer_(ctx, obs[i].quando + " — " + obs[i].txt, TW - 24, 23, false);
+      if (y + linhas.length * ALT + 44 > yMax) break;
+      fonteRel_(ctx, 23, false); ctx.fillStyle = "#4A4136"; ctx.textAlign = "left";
+      linhas.forEach(function (ln, k) { y += ALT; ctx.fillText(ln, M + (k ? 24 : 0), y); });
+      y += 8;
+      mostradas++;
+    }
+    if (mostradas < obs.length) {
+      y += 30;
+      textoRel_(ctx, "+ " + pluralRel_(obs.length - mostradas, "observação", "observações") + " — estão no PDF e no app", M, y, 22, "#6B6153");
+    }
+    return y;
+  }
+
+  // Imagem principal: os números do período, o painel na última leitura e os
+  // alarmes. o.leituras/o.obs = põe também a tabela e as observações (quando
+  // cabe tudo numa imagem só); o.maxAlarmes = quantos alarmes listar.
+  function imagemResumoGer_(R, o) {
+    var M = REL_M, TW = REL_W - 2 * REL_M, GAP = 24, w3 = (TW - 2 * GAP) / 3;
+    var t = novoCanvasRel_(2400), ctx = t.ctx;
+    var y = cabecalhoRel_(ctx, "Relatório do Gerador", R.periodo) + 30;
+
+    if (R.spanIni) {
+      y = paragrafoRel_(ctx, "Conta feita entre a leitura de " + fmtDate(R.spanIni.data) + " e a de " + fmtDate(R.spanFim.data) +
+        " (" + diasTxtGer_(R.dias) + ") · " + pluralRel_(R.leituras.length, "leitura", "leituras") + " no período", M, y + 16, TW, 24, "#4A4136", 32) + 26;
+      [[R.tot.horasOperacao, "horas rodadas"], [R.tot.litrosCombustivel, "litros consumidos"], [R.tot.energiaKwh, "kWh gerados"]].forEach(function (k, i) {
+        quadroRelGer_(ctx, M + i * (w3 + GAP), y, w3, numGer_(k[0], 1), k[1], "", true);
+      });
+      y += 176 + 18;
+      [[numGer_(R.lPorKwh, 2, true), "litros por kWh", "consumo médio"],
+       [numGer_(R.lPorHora, 1), "litros por hora", "com o gerador rodando"],
+       [numGer_(R.kwMedio, 0), "kW de carga", "média (kWh ÷ horas)"]].forEach(function (k, i) {
+        quadroRelGer_(ctx, M + i * (w3 + GAP), y, w3, k[0], k[1], k[2], false);
+      });
+      y += 136;
+      var porDia = [];
+      if (R.dias > 1 && R.tot.horasOperacao !== null) porDia.push(numGer_(R.tot.horasOperacao / R.dias, 1) + " h");
+      if (R.dias > 1 && R.tot.litrosCombustivel !== null) porDia.push(numGer_(R.tot.litrosCombustivel / R.dias, 0) + " L");
+      if (porDia.length) { y += 46; textoRel_(ctx, "Média por dia: " + porDia.join(" e ") + " (em " + R.dias + " dias)", M, y, 25, "#4A4136", true); }
+      y = paragrafoRel_(ctx, "Os números do painel são acumulados: a conta usa a última leitura antes do período e a última dentro dele.",
+        M, y + 38, TW, 21, "#8A8072", 28) + 8;
+    } else {
+      y = faixaRelGer_(ctx, y + 16, R.leituras.length ? semContaTxtGer_(R) : "Nenhuma leitura do painel nesse período",
+        "#B8862B", "#FBF4E4", "#5A4210");
+    }
+    var aviso = avisoRelGer_(R);
+    if (aviso) y = faixaRelGer_(ctx, y + 22, aviso, "#B8862B", "#FBF4E4", "#5A4210");
+
+    // ---- painel na última leitura ----
+    if (R.ultima) {
+      var u = R.ultima, w4 = (TW - 3 * 16) / 4;
+      y += 62; textoCabeRel_(ctx, "Painel na última leitura · " + fmtDate(u.data) + " " + diaSemanaRel_(u.data), M, y, TW, 30, "#241F1A", true);
+      y += 20;
+      [["Horas totais", num_(u.horasOperacao), " h"], ["Combustível total", num_(u.litrosCombustivel), " L"],
+       ["Energia total", num_(u.energiaKwh), " kWh"], ["Bateria", num_(u.tensaoBateria), " V", true]].forEach(function (k, i) {
+        var x = M + i * (w4 + 16);
+        ctx.fillStyle = "#FFFFFF"; ctx.fillRect(x, y, w4, 104);
+        ctx.strokeStyle = "#DCD3BC"; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w4 - 2, 102);
+        textoRel_(ctx, k[0], x + 18, y + 36, 21, "#6B6153");
+        textoCabeRel_(ctx, k[1] !== null ? numGer_(k[1], 1, k[3]) + k[2] : "—", x + 18, y + 82, w4 - 36, 34, k[1] !== null ? "#241F1A" : "#B8AE98", true);
+      });
+      y += 104;
+      if (u.responsavel) { y += 32; textoRel_(ctx, "Leitura registrada por " + u.responsavel, M, y, 21, "#8A8072"); }
+    }
+
+    // ---- alarmes ----
+    y += 62; textoRel_(ctx, "Alarmes no período", M, y, 31, "#241F1A", true);
+    y += 20;
+    if (!R.alarmes.length) {
+      y = faixaRelGer_(ctx, y, "Nenhum alarme registrado no período", "#2F6B1F", "#EAF3E2", "#2F6B1F");
+    } else {
+      y = faixaRelGer_(ctx, y, pluralRel_(R.alarmes.length, "alarme", "alarmes") + (R.abertos ? " · " + R.abertos + " ainda em aberto" : " · todos resolvidos"),
+        R.abertos ? "#B4442E" : "#B8862B", R.abertos ? "#FBEDE8" : "#FBF4E4", R.abertos ? "#5A2418" : "#5A4210");
+      var maxA = Math.min(R.alarmes.length, o.maxAlarmes || 0);
+      if (maxA > 0) {
+        y = tabelaRel_(ctx, M, y + 10, [{ t: "Quando", w: 230 }, { t: "Alarme", w: 660 }, { t: "Situação", w: 230 }],
+          R.alarmes.slice(0, maxA).map(function (a) {
+            return [fmtDate(a.data).slice(0, 5) + (a.hora ? " " + a.hora : ""), nomeAlarmeGer_(a),
+              a.resolvido ? { t: "Resolvido", cor: "#2F6B1F", negrito: true } : { t: "Em aberto", cor: "#B4442E", negrito: true }];
+          }), { fonte: 26, altLinha: 50 });
+      }
+      if (R.alarmes.length > maxA) {
+        y += 34;
+        textoRel_(ctx, maxA ? "+ " + pluralRel_(R.alarmes.length - maxA, "alarme mais antigo", "alarmes mais antigos") + " — a lista completa está no PDF e no app"
+          : "A lista completa vem nas próximas páginas.", M, y, 22, "#6B6153");
+        y += 6;
+      }
+    }
+
+    if (o.leituras && R.leituras.length) y = blocoLeiturasRelGer_(ctx, y + 16, R, R.leituras.length);
+    if (o.obs) y = blocoObsRelGer_(ctx, y + 10, R, Infinity);
+    y += 56;
+    rodapeRel_(ctx, y);
+    return { cv: cortaRel_(t.cv, y + 24), altura: y + 24 };
+  }
+
+  // Segunda imagem (quando não cabe tudo numa só): leitura a leitura + observações
+  function imagemLeiturasGer_(R) {
+    var MAXH = 1600;
+    var t = novoCanvasRel_(MAXH), ctx = t.ctx;
+    var y = cabecalhoRel_(ctx, "Leituras do gerador", R.periodo);
+    var cabem = Math.max(1, Math.floor((MAXH - y - 98 - 50 - 40 - 80) / 50));
+    if (R.leituras.length) y = blocoLeiturasRelGer_(ctx, y, R, cabem);
+    y = blocoObsRelGer_(ctx, y + 10, R, MAXH - 90);
+    y += 48;
+    rodapeRel_(ctx, y);
+    return cortaRel_(t.cv, y + 22);
+  }
+
+  // WhatsApp: tudo numa imagem só quando cabe (até 1.600 px de altura, que o
+  // WhatsApp não reduz); senão, o resumo numa e as leituras na outra.
+  function imagensRelGerador_(R) {
+    var uma = imagemResumoGer_(R, { leituras: true, obs: true, maxAlarmes: 6 });
+    if (uma.altura <= 1600) return [{ cv: uma.cv, sufixo: "" }];
+    var maxA = 6, res = imagemResumoGer_(R, { maxAlarmes: maxA });
+    while (res.altura > 1600 && maxA > 0) { maxA--; res = imagemResumoGer_(R, { maxAlarmes: maxA }); }
+    var imgs = [{ cv: res.cv, sufixo: "1-resumo" }];
+    if (R.leituras.length || obsRelGer_(R).length) imgs.push({ cv: imagemLeiturasGer_(R), sufixo: "2-leituras" });
+    return imgs;
+  }
+
+  // PDF: o resumo na 1ª folha e as listas completas nas seguintes
+  function secoesPdfRelGer_(R) {
+    var s = [];
+    var dia = function (iso) { return fmtDate(iso).slice(0, 5) + " " + diaSemanaRel_(iso); };
+    if (R.leituras.length) {
+      s.push({ titulo: "Leitura a leitura", explic: "O que rodou, gastou e gerou desde a leitura anterior. Da mais antiga pra mais nova.",
+        cols: COLS_LEIT_GER_, linhas: linhasLeitRelGer_(R).reverse() });
+      s.push({ titulo: "Números do painel em cada leitura", explic: "Totais acumulados, do jeito que estavam no painel.",
+        cols: [{ t: "Dia", w: 200 }, { t: "Horas", w: 180, al: "right" }, { t: "Combustível (L)", w: 220, al: "right" },
+               { t: "Energia (kWh)", w: 220, al: "right" }, { t: "Quem", w: 300 }],
+        linhas: R.leituras.map(function (x) {
+          return [dia(x.r.data), numGer_(num_(x.r.horasOperacao), 1), numGer_(num_(x.r.litrosCombustivel), 1),
+                  numGer_(num_(x.r.energiaKwh), 1), x.r.responsavel || "—"];
+        }) });
+    }
+    if (R.alarmes.length) {
+      s.push({ titulo: "Alarmes", cor: "#8A2E2E", explic: "Do mais antigo pro mais novo. O que foi feito em cada um está nas observações.",
+        cols: [{ t: "Quando", w: 180 }, { t: "Alarme", w: 620 }, { t: "Situação", w: 160 }, { t: "Quem", w: 160 }],
+        linhas: R.alarmes.slice().reverse().map(function (a) {
+          return [fmtDate(a.data).slice(0, 5) + (a.hora ? " " + a.hora : ""), nomeAlarmeGer_(a),
+                  a.resolvido ? { t: "Resolvido", cor: "#2F6B1F", negrito: true } : { t: "Em aberto", cor: "#B4442E", negrito: true },
+                  a.responsavel || "—"];
+        }) });
+    }
+    return s;
+  }
+  // Observações numa folha própria, com o texto inteiro (numa tabela o texto
+  // comprido ficaria cortado com "...")
+  function paginasObsRelGer_(R) {
+    var obs = obsRelGer_(R).reverse();   // da mais antiga pra mais nova
+    if (!obs.length) return [];
+    var M = REL_M, TW = REL_W - 2 * REL_M, ALT = 33, LIM = REL_A4 - 80;
+    var pags = [], ctx = null, y = 0;
+    function novaPag() {
+      var t = novoCanvasRel_(REL_A4); ctx = t.ctx; pags.push(t.cv);
+      y = cabecalhoRel_(ctx, "Gerador — observações", R.periodo) + 10;
+    }
+    novaPag();
+    obs.forEach(function (o) {
+      var linhas = linhasRelGer_(ctx, o.txt, TW - 24, 24, false);
+      if (y + 44 + linhas.length * ALT > LIM) novaPag();
+      y += 44; textoCabeRel_(ctx, o.quando, M, y, TW, 25, "#241F1A", true);
+      fonteRel_(ctx, 24, false); ctx.fillStyle = "#4A4136"; ctx.textAlign = "left";
+      linhas.forEach(function (ln) { y += ALT; ctx.fillText(ln, M + 24, y); });
+      y += 6;
+    });
+    pags.forEach(function (cv, k) {
+      var c2 = cv.getContext("2d");
+      rodapeRel_(c2, REL_A4 - 30);
+      if (pags.length > 1) textoRel_(c2, (k + 1) + "/" + pags.length, REL_W - M, REL_A4 - 30, 20, "#8A8072", false, "right");
+    });
+    return pags;
+  }
+  function gerarRelGeradorPDF_() {
+    var R = montarRelGerador_();
+    if (!R) { showToast("Nada pra mandar nesse período."); return; }
+    showToast("Gerando PDF...");
+    var pags;
+    try {
+      pags = [imagemResumoGer_(R, { maxAlarmes: 0 }).cv];
+      var secoes = secoesPdfRelGer_(R);
+      if (secoes.length) pags = pags.concat(paginasTabelaRel_("Gerador — detalhes", R.periodo, secoes));
+      pags = pags.concat(paginasObsRelGer_(R));
+    } catch (e) {
+      console.error("[relatório gerador] PDF:", e);
+      showToast("Não consegui gerar o PDF.");
+      return;
+    }
+    canvasesParaPdfA4_(pags, 0.9, function (blob) {
+      if (!blob) { showToast("Não consegui gerar o PDF."); return; }
+      var file = new File([blob], nomeArqRelGer_("pdf"), { type: "application/pdf" });
+      compartilharArquivosRel_([file], "Relatório do Gerador", "Gerador — " + R.periodo, "PDF baixado.");
+    });
+  }
+  function compartilharRelGeradorImagem_() {
+    var R = montarRelGerador_();
+    if (!R) { showToast("Nada pra mandar nesse período."); return; }
+    showToast("Preparando a imagem...");
+    var imgs;
+    try { imgs = imagensRelGerador_(R); } catch (e) {
+      console.error("[relatório gerador] imagens:", e);
+      showToast("Não consegui gerar a imagem.");
+      return;
+    }
+    Promise.all(imgs.map(function (im) {
+      return new Promise(function (ok) { im.cv.toBlob(function (b) { ok(b); }, "image/png"); });
+    })).then(function (blobs) {
+      if (blobs.some(function (b) { return !b; })) { showToast("Não consegui gerar a imagem."); return; }
+      var files = blobs.map(function (b, i) { return new File([b], nomeArqRelGer_("png", imgs[i].sufixo), { type: "image/png" }); });
+      compartilharArquivosRel_(files, "Relatório do Gerador", "Gerador — " + R.periodo,
+        files.length > 1 ? "Imagens baixadas — é só mandar pelo WhatsApp." : "Imagem baixada — é só mandar pelo WhatsApp.");
+    });
+  }
+  // ================= FIM RELATÓRIO DO GERADOR =================
 
   function abrirFotoAmpliada_(url, legenda) {
     document.getElementById("foto-lightbox-img").src = url;
@@ -14258,6 +14863,15 @@
     }
     document.getElementById("gerador-foto-input-camera").addEventListener("change", processarFotoGerador_);
     document.getElementById("gerador-foto-input-galeria").addEventListener("change", processarFotoGerador_);
+    document.getElementById("btn-close-rel-gerador").addEventListener("click", fecharRelGerador_);
+    document.getElementById("modal-rel-gerador-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-rel-gerador-overlay") fecharRelGerador_();
+    });
+    document.getElementById("rel-ger-ini").addEventListener("change", function (e) { relGerIni = e.target.value; atualizarRelGerador_(); });
+    document.getElementById("rel-ger-fim").addEventListener("change", function (e) { relGerFim = e.target.value; atualizarRelGerador_(); });
+    document.getElementById("btn-rel-ger-whatsapp").addEventListener("click", compartilharRelGeradorImagem_);
+    document.getElementById("btn-rel-ger-pdf").addEventListener("click", gerarRelGeradorPDF_);
+    document.getElementById("btn-rel-ger-texto").addEventListener("click", enviarRelGeradorTexto_);
     document.getElementById("btn-tudo-ok").addEventListener("click", marcarTudoOk_);
     document.getElementById("btn-bomba-ant").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual - 1); });
     document.getElementById("btn-bomba-prox").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual + 1); });
