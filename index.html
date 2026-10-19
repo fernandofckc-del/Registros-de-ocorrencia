@@ -369,6 +369,10 @@
         <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #B0B8A8, #5A6650);">📄</span>
         <span class="hub-label">Relatórios</span>
       </button>
+      <button class="hub-circle" data-tab="cadastro">
+        <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #8FD0A0, #2E7A4A);">🔗</span>
+        <span class="hub-label">Cadastro</span>
+      </button>
     </div>
   </section>
 
@@ -497,6 +501,11 @@
     <!-- RELATÓRIOS (somente administrador) -->
     <section id="tab-relatorios" class="tab-panel">
       <div id="relatorios-content"></div>
+    </section>
+
+    <!-- (v133) CADASTRO DE PRODUTOS (somente administrador) -->
+    <section id="tab-cadastro" class="tab-panel">
+      <div id="cadastro-content"></div>
     </section>
   </main>
 
@@ -1298,7 +1307,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v132';
+  var APP_CACHE_NAME = 'registro-irrigacao-v133';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -4337,6 +4346,7 @@
           '<div class="empty-state">Não consegui carregar a Escala agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
       }
     }
+    if (tab === "cadastro") renderCadastro_();
     if (tab === "plantao") {
       try { renderPlantao(); } catch (err) {
         document.getElementById("plantao-content").innerHTML =
@@ -9266,6 +9276,7 @@
   // ================= ABA RELATÓRIOS (somente administrador) =================
   var relatorioLiberado = false;   // vale só enquanto o app estiver aberto
   var anotacoesLiberado = false;   // idem - as anotações são pessoais, não pra qualquer um ver
+  var cadastroLiberado = false;    // idem - a planilha de cadastro de produtos é só do administrador
   var relDataInicio = "", relDataFim = "";
 
   function renderRelatorios() {
@@ -9555,6 +9566,65 @@
     resultEl.textContent = "Verificando...";
     postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
       if (res && res.ok) { anotacoesLiberado = true; renderAnotacoes(); }
+      else { resultEl.className = "test-result fail"; resultEl.textContent = (res && res.error) || "Senha incorreta."; }
+    }).catch(function () {
+      resultEl.className = "test-result fail"; resultEl.textContent = "Erro de conexão.";
+    });
+  }
+
+  // ================= ABA CADASTRO (v133, somente administrador) =================
+  // Planilha no SharePoint onde o produto é lançado para outra pessoa cadastrar
+  // no outro sistema. O SharePoint não deixa abrir dentro do app, então abre em outra aba.
+  var LINK_CADASTRO_PRODUTOS = "https://santiya365-my.sharepoint.com/:x:/g/personal/auxiliaradm_peirot_com/IQBCHc7PxlNSRYSi8OG4fYRqAcBnRRhxD1gbq5JNwYONS6E?e=VGc2Fy";
+
+  function renderCadastro_() {
+    var el = document.getElementById("cadastro-content");
+    if (!cadastroLiberado) {
+      el.innerHTML =
+        '<div class="card card-cadeado" style="margin-top:20px;">' +
+          '<div style="text-align:center;font-size:34px;margin-bottom:6px;">🔒</div>' +
+          '<div class="modal-title" style="text-align:center;">Cadastro de Produtos</div>' +
+          '<div class="modal-sub" style="text-align:center;">A planilha de cadastro é de uso exclusivo seu. Digite a senha de administrador para liberar nesta sessão.</div>' +
+          '<div class="field"><span class="field-label">Senha de administrador</span><input id="cad-senha" type="password"></div>' +
+          '<button class="save-btn" id="btn-liberar-cad" style="background:#4C6B2F;">Liberar</button>' +
+          '<div id="cad-senha-result" class="test-result"></div>' +
+        '</div>';
+      document.getElementById("btn-liberar-cad").addEventListener("click", liberarCadastro_);
+      document.getElementById("cad-senha").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") liberarCadastro_();
+      });
+      return;
+    }
+    el.innerHTML =
+      '<div class="card" style="margin-top:20px;">' +
+        '<h3 class="panel-title">🔗 Cadastro de Produtos</h3>' +
+        '<div class="modal-sub" style="margin-bottom:10px;">Lance o produto na planilha para ser cadastrado no outro sistema. Ela abre no Excel / navegador, fora do app.</div>' +
+        '<a class="save-btn" href="' + escapeHtml(LINK_CADASTRO_PRODUTOS) + '" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;background:#2E7A4A;margin-top:0;">📄 Abrir planilha de cadastro</a>' +
+        '<button class="photo-btn" id="btn-copiar-link-cad" style="background:#2F7DB0;margin-top:10px;">📋 Copiar link</button>' +
+        '<div id="cad-copiar-result" style="font-size:11.5px;color:#6B6153;margin-top:6px;"></div>' +
+        '<button class="photo-btn" id="btn-bloquear-cad" style="background:#8A8072;margin-top:14px;">🔒 Bloquear novamente</button>' +
+      '</div>';
+    document.getElementById("btn-copiar-link-cad").addEventListener("click", function () {
+      var r = document.getElementById("cad-copiar-result");
+      (navigator.clipboard ? navigator.clipboard.writeText(LINK_CADASTRO_PRODUTOS) : Promise.reject())
+        .then(function () { r.textContent = "Link copiado."; })
+        .catch(function () { r.textContent = LINK_CADASTRO_PRODUTOS; });
+    });
+    document.getElementById("btn-bloquear-cad").addEventListener("click", function () {
+      cadastroLiberado = false; renderCadastro_();
+    });
+  }
+
+  function liberarCadastro_() {
+    var pass = document.getElementById("cad-senha").value.trim();
+    var resultEl = document.getElementById("cad-senha-result");
+    resultEl.className = "test-result"; resultEl.style.display = "block";
+    if (!config.url) { resultEl.className = "test-result fail"; resultEl.textContent = "Configure a sincronização primeiro."; return; }
+    if (!pass) { resultEl.className = "test-result fail"; resultEl.textContent = "Digite a senha."; return; }
+    if (!navigator.onLine) { resultEl.className = "test-result fail"; resultEl.textContent = "Precisa de internet para validar a senha."; return; }
+    resultEl.textContent = "Verificando...";
+    postToBackend({ action: "verificar_admin", adminToken: pass }).then(function (res) {
+      if (res && res.ok) { cadastroLiberado = true; renderCadastro_(); }
       else { resultEl.className = "test-result fail"; resultEl.textContent = (res && res.error) || "Senha incorreta."; }
     }).catch(function () {
       resultEl.className = "test-result fail"; resultEl.textContent = "Erro de conexão.";
