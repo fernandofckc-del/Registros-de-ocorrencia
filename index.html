@@ -1307,7 +1307,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v133';
+  var APP_CACHE_NAME = 'registro-irrigacao-v134';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1951,28 +1951,6 @@
       showToast("Erro ao apagar - tenta de novo.");
     });
   }
-  // Sobe as fotos novas (base64) pro Drive via Apps Script, devolve a
-  // lista final de URLs (fotos que já eram URL passam direto). Se não tem
-  // internet ou o Apps Script falhar, guarda a foto em base64 mesmo -
-  // melhor mostrar a foto localmente do que perder o registro todo.
-  function resolverFotosOcorrencia_(fotos) {
-    if (!fotos || !fotos.length) return Promise.resolve([]);
-    var temBase64 = fotos.some(function (f) { return String(f).indexOf("data:image") === 0; });
-    if (!temBase64) return Promise.resolve(fotos);
-    return postToBackend({ token: config.token, action: "upload_fotos_ocorrencia", fotos: fotos, id: uid() }).then(function (res) {
-      if (res && res.ok && res.urls) return res.urls;
-      // Mostra o erro DE VERDADE, não só um aviso genérico - assim dá pra
-      // saber o motivo exato sem precisar abrir o Apps Script pra conferir.
-      showToast("Não consegui subir a foto: " + ((res && res.error) || "motivo desconhecido"));
-      return fotos; // mantém base64 por enquanto, tenta de novo depois
-    }).catch(function (err) {
-      showToast("Sem internet pra subir a foto agora - salvo localmente, tenta de novo depois.");
-      return fotos;
-    });
-  }
-  // Mesma função de cima, só que pra UMA foto só (Bombeamento e Rondas
-  // guardam foto única por campo, não um array como Ocorrências) - reusa
-  // o mesmo caminho de upload, sem duplicar lógica.
   // Se alguma foto não subiu pro Drive, ela vai em base64 DENTRO do documento
   // do Firestore - e cada documento tem limite de 1 MB. 4 fotos de 1080px
   // chegam perto disso; passando, o servidor recusa e a ocorrência INTEIRA se
@@ -2047,6 +2025,15 @@
     return !!(el && el.classList.contains("active"));
   }
   function ehBase64_(f) { return typeof f === "string" && f.indexOf("data:image") === 0; }
+  // "data:image/jpeg;base64,..." -> Blob, pra anexar no compartilhar a foto
+  // que ainda não subiu pro Drive (sem precisar de internet)
+  function blobDeDataUrl_(dataUrl) {
+    var partes = String(dataUrl).split(",");
+    var tipo = (/^data:([^;,]+)/.exec(partes[0]) || [])[1] || "image/jpeg";
+    var bin = atob(partes[1] || ""), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: tipo });
+  }
 
   // Lista as fotos ainda em base64 de UM registro, guardando de onde cada
   // uma veio (qual campo ou qual posição da lista) pra devolver o link do
@@ -2169,6 +2156,21 @@
 
   var reenvioFotosRodando = false;
   var reenvioPedidoDurante_ = false; // alguém pediu envio enquanto outro estava rodando
+  // (v134) Por que a última foto não subiu pro Drive - aparece na tela de
+  // enviar a ocorrência. Antes só dizia "tenta de novo" (ou "sem internet",
+  // mesmo quando era o servidor recusando), e tentar de novo não resolvia.
+  var ultimoErroFoto_ = "";
+  function anotarErroFoto_(msg) {
+    msg = String(msg || "motivo desconhecido");
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) msg = "a conexão caiu no meio do envio (internet fraca?)";
+    else if (/<html|<!doctype/i.test(msg)) msg = "o Apps Script deu erro (respondeu uma página de erro em vez do link da foto) - pode precisar autorizar o script de novo";
+    ultimoErroFoto_ = msg;
+  }
+  function motivoFotoPresa_() {
+    if (!config || !config.url || !config.token) return "este celular está sem a sincronização configurada (⚙️ → URL e token do Apps Script), então a foto não tem como subir pro Drive.";
+    if (!navigator.onLine) return "o celular está sem internet agora.";
+    return ultimoErroFoto_ ? "a última tentativa de subir falhou: " + ultimoErroFoto_ + "." : "";
+  }
   function reenviarFotosPendentes_(opcoes) {
     var silencioso = !!(opcoes && opcoes.silencioso);
     // Já está enviando? Anota o pedido: quando terminar, roda de novo pra
@@ -2210,8 +2212,10 @@
         if (!navigator.onLine) return; // internet caiu no meio - o resto fica pra próxima
         return postToBackend({ token: config.token, action: "upload_fotos_ocorrencia", fotos: [f.foto], id: uid() }).then(function (res) {
           var u = res && res.ok && res.urls && res.urls[0];
-          if (typeof u === "string" && /^https?:\/\//.test(u)) { links[f.k] = u; lembrarFotoEnviada_(f.k, u); }
+          if (typeof u === "string" && /^https?:\/\//.test(u)) { links[f.k] = u; lembrarFotoEnviada_(f.k, u); ultimoErroFoto_ = ""; }
+          else anotarErroFoto_((res && res.error) || "o servidor não devolveu o link da foto");
         }).catch(function (err) {
+          anotarErroFoto_(err && err.message);
           console.warn("[fotos] reenvio não deu agora, tenta depois:", err);
         });
       });
@@ -2261,11 +2265,6 @@
     return (lista || []).some(function (f) { return ehBase64_(f); });
   }
   // ================= FIM REENVIO AUTOMÁTICO DE FOTOS =================
-
-  function resolverUmaFoto_(foto) {
-    if (!foto) return Promise.resolve("");
-    return resolverFotosOcorrencia_([foto]).then(function (urls) { return (urls && urls[0]) || foto; });
-  }
 
   function loadManutRecords() {
     try {
@@ -4066,6 +4065,9 @@
     var r = records.find(function (x) { return x.id === id; });
     if (!r) return;
     enviarOcorrenciaAtualId = id;
+    // foto que ficou só no celular: já tenta subir pro Drive enquanto a
+    // pessoa escolhe pra quem mandar (o envio não espera por isso)
+    if (temFotoBase64_(r.fotos)) reenviarFotosPendentes_({ silencioso: true });
     document.getElementById("enviar-resumo-ocorrencia").textContent =
       r.setor + " · " + escapeHtml(r.tipo) + (r.operacaoCausadora ? " (" + r.operacaoCausadora + ")" : "");
 
@@ -4112,36 +4114,32 @@
     var querEmail = document.getElementById("enviar-canal-email").checked;
     if (!querWhatsapp && !querEmail) { resultEl.className = "test-result fail"; resultEl.textContent = "Marca pelo menos um canal (WhatsApp ou e-mail)."; return; }
 
-    // Olha TODAS as fotos da ocorrência (não só a primeira) - uma foto ainda
-    // em base64 (não subiu pro Drive ainda) não entra no link nem no e-mail,
-    // mas ainda pode ser tentada de novo.
-    var todasFotos = r.fotos || [];
-    var fotosProntas = todasFotos.filter(function (f) { return f && String(f).indexOf("data:image") !== 0; });
-    var fotosPendentes = todasFotos.filter(function (f) { return f && String(f).indexOf("data:image") === 0; });
-
-    if (fotosPendentes.length) {
-      resultEl.className = "test-result";
-      resultEl.innerHTML = (fotosProntas.length ? fotosProntas.length + " foto(s) já prontas, " : "") +
-        fotosPendentes.length + " foto(s) ainda não subiram pro Drive (pode ter faltado internet no momento de salvar).<br><br>" +
-        '<button class="save-btn" id="btn-tentar-subir-foto" style="background:#D6A233;margin-top:0;">🔄 Tentar subir agora</button>';
-      var btnTentar = document.getElementById("btn-tentar-subir-foto");
-      btnTentar.addEventListener("click", function () {
-        btnTentar.disabled = true;
-        btnTentar.textContent = "Tentando...";
-        resolverFotosOcorrencia_(todasFotos).then(function (urls) {
-          var aindaFaltou = urls.some(function (u) { return String(u).indexOf("data:image") === 0; });
-          r.fotos = urls;
-          salvarOcorrenciaFirestore_(r.id, { fotos: urls }, false);
-          if (!aindaFaltou) {
-            showToast("Todas as fotos subiram! Montando a mensagem de novo...");
-          } else {
-            showToast("Algumas ainda não subiram - sem internet suficiente. Tenta de novo em instantes.");
-          }
-          confirmarEnvioOcorrencia_(); // reconstroi tudo com o que já tiver pronto
-        });
-      });
-      return;
+    // (v134) Foto que ainda não subiu pro Drive (ficou em base64 dentro do
+    // registro) NÃO trava mais o envio. Antes aparecia só "Tentar subir
+    // agora" e, se o envio pro Drive falhasse, não tinha como mandar a
+    // ocorrência pro responsável. Agora ela vai do mesmo jeito: aparece na
+    // página do link (que lê o registro no Firebase) e vai anexada no
+    // "Compartilhar com as fotos" direto do celular. O envio pro Drive
+    // continua tentando sozinho em segundo plano.
+    var todasFotos = (r.fotos || []).filter(function (f) { return !!f; });
+    var fotosProntas = todasFotos.filter(function (f) { return !ehBase64_(f); });   // já estão no Drive
+    var fotosPendentes = todasFotos.filter(function (f) { return ehBase64_(f); });  // ainda só no celular
+    var avisos = [];
+    if (r._pendenteFirestore) {
+      avisos.push("⏳ Essa ocorrência ainda não chegou no servidor (falta internet?) - o link só abre depois que ela subir. Pelo \"Compartilhar com as fotos\" vai tudo agora.");
     }
+    if (fotosPendentes.length) {
+      var umaFoto = fotosPendentes.length === 1;
+      avisos.push("📷 " + fotosPendentes.length + (umaFoto ? " foto ainda não subiu" : " fotos ainda não subiram") +
+        " pro Drive - mas não precisa esperar: " + (umaFoto ? "ela aparece no link e vai junto" : "elas aparecem no link e vão junto") +
+        " no \"Compartilhar com as fotos\". O app continua tentando subir sozinho.");
+      var motivoFoto = motivoFotoPresa_();
+      if (motivoFoto) avisos.push("Motivo: " + motivoFoto);
+    }
+    var avisoFotos = avisos.length
+      ? '<div style="background:#FBF4E4;border:1px solid #D6A233;border-radius:6px;padding:8px 10px;margin-bottom:12px;font-size:11.5px;color:#7A5A18;line-height:1.45;">' +
+          avisos.map(escapeHtml).join("<br>") + '</div>'
+      : "";
 
     // Em vez de colar o texto todo + um link por foto na mensagem (o que
     // ficava grande e travava o WhatsApp em celulares mais fracos), manda
@@ -4187,14 +4185,15 @@
     var botaoEmailAuto = "";
     if (emailsParaEnvioAutomatico.length) {
       botaoEmailAuto = '<button class="save-btn" id="btn-email-automatico" style="background:#8A5A44;margin-top:0;margin-bottom:6px;">✉️ Enviar E-mail Automático (com fotos anexadas)</button>' +
-        '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Manda sozinho pra: ' + emailsParaEnvioAutomatico.map(function (e) { return escapeHtml(e.nome); }).join(", ") + '. Sem abrir nada.</div>';
+        '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Manda sozinho pra: ' + emailsParaEnvioAutomatico.map(function (e) { return escapeHtml(e.nome); }).join(", ") + '. Sem abrir nada.' +
+        (fotosPendentes.length ? ' A foto que ainda não está no Drive vai pelo link do e-mail.' : '') + '</div>';
     }
     var botaoAnexar = "";
-    if (fotosProntas.length && querWhatsapp && navigator.share) {
+    if (todasFotos.length && querWhatsapp && navigator.share) {
       botaoAnexar = '<button class="save-btn" id="btn-anexar-fotos-verdade" style="background:#25A244;margin-top:0;margin-bottom:10px;">📎 Compartilhar com as Fotos de Verdade Anexadas</button>' +
-        '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Abre o menu de compartilhar do celular com ' + fotosProntas.length + ' foto(s) de verdade - você escolhe o contato/grupo do WhatsApp na hora.</div>';
+        '<div style="font-size:11px;color:#6B6153;margin-bottom:14px;">Abre o menu de compartilhar do celular com ' + todasFotos.length + ' foto(s) de verdade - você escolhe o contato/grupo do WhatsApp na hora.</div>';
     }
-    resultEl.innerHTML = botaoEmailAuto + botaoAnexar +
+    resultEl.innerHTML = avisoFotos + botaoEmailAuto + botaoAnexar +
       (prontos.length ? '<b>Ou toca pra abrir o WhatsApp (manda o link da página):</b><br><br>' +
         prontos.map(function (p, i) {
           return '<a href="' + p.url + '" target="_blank" data-abrir-envio="' + i + '" style="display:block;background:#2F7DB0;color:#fff;text-decoration:none;text-align:center;padding:10px;border-radius:6px;margin-bottom:8px;font-weight:700;">' + p.label + '</a>';
@@ -4231,32 +4230,57 @@
 
     var btnAnexar = document.getElementById("btn-anexar-fotos-verdade");
     if (btnAnexar) {
+      var voltarBtnAnexar = function () {
+        btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
+      };
       btnAnexar.addEventListener("click", function () {
         btnAnexar.disabled = true;
         btnAnexar.textContent = "Preparando fotos...";
-        Promise.all(fotosProntas.map(function (f, i) {
+        // A foto que ainda está só no celular (base64) vira arquivo na hora,
+        // sem internet; a que já está no Drive é baixada. Se uma não baixar,
+        // as outras vão assim mesmo (antes uma falha cancelava todas).
+        Promise.all(todasFotos.map(function (f, i) {
+          var nome = "ocorrencia_foto" + (i + 1) + ".jpg";
+          if (ehBase64_(f)) {
+            try {
+              var b = blobDeDataUrl_(f);
+              return Promise.resolve(new File([b], nome, { type: b.type }));
+            } catch (errB64) {
+              console.error("[enviar ocorrência] foto " + (i + 1) + " do celular com defeito:", errB64);
+              return Promise.resolve(null);
+            }
+          }
           return fetch(urlFoto_(f)).then(function (resp) {
-            if (!resp.ok) throw new Error("Falha ao buscar foto " + (i + 1));
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
             return resp.blob();
           }).then(function (blob) {
-            return new File([blob], "ocorrencia_foto" + (i + 1) + ".jpg", { type: blob.type || "image/jpeg" });
+            return new File([blob], nome, { type: blob.type || "image/jpeg" });
+          }).catch(function (err) {
+            console.error("[enviar ocorrência] não consegui baixar a foto " + (i + 1) + " pra anexar:", err);
+            return null;
           });
-        })).then(function (arquivos) {
+        })).then(function (lista) {
+          var arquivos = lista.filter(Boolean);
+          if (!arquivos.length) {
+            showToast("Não consegui baixar as fotos pra anexar - tenta pelo link, ou confere a internet.");
+            voltarBtnAnexar();
+            return;
+          }
           var dadosShare = { files: arquivos, text: textoMsg, title: "Ocorrência Operacional" };
           if (navigator.canShare && !navigator.canShare(dadosShare)) {
             showToast("O celular não aceitou anexar essas fotos - tenta pelo link do WhatsApp.");
-            btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
+            voltarBtnAnexar();
             return;
           }
-          navigator.share(dadosShare).catch(function (err) {
+          var faltaram = lista.length - arquivos.length;
+          if (faltaram) showToast(faltaram + (faltaram === 1 ? " foto não baixou - ela vai só pelo link." : " fotos não baixaram - elas vão só pelo link."));
+          return navigator.share(dadosShare).catch(function (err) {
             if (err && err.name !== "AbortError") showToast("Não consegui abrir o compartilhar: " + err.message);
-          }).finally(function () {
-            btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
-          });
+          }).finally(voltarBtnAnexar);
         }).catch(function (err) {
-          console.error("[enviar ocorrência] erro ao buscar fotos pra anexar:", err);
-          showToast("Não consegui baixar as fotos pra anexar - tenta pelo link, ou confere a internet.");
-          btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
+          console.error("[enviar ocorrência] erro ao preparar o compartilhar:", err);
+          showToast("Não consegui preparar as fotos - tenta pelo link do WhatsApp.");
+          voltarBtnAnexar();
         });
       });
     }

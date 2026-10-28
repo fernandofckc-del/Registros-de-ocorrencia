@@ -93,7 +93,10 @@
     if (r.descricao) html += '<div class="descricao">' + escapeHtml(r.descricao) + '</div>';
     html += '</div>';
 
-    var fotos = (r.fotos || []).filter(function (f) { return f && String(f).indexOf("data:image") !== 0; });
+    // A foto que ainda não subiu pro Drive fica guardada dentro do próprio
+    // registro (base64) - ela aparece aqui do mesmo jeito. Antes era escondida,
+    // e quem recebia o link via a ocorrência sem a foto.
+    var fotos = (r.fotos || []).filter(function (f) { return !!f; });
     if (fotos.length) {
       html += '<div class="fotos-titulo">' + fotos.length + (fotos.length > 1 ? " Fotos" : " Foto") + '</div>';
       fotos.forEach(function (f) {
