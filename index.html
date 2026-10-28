@@ -373,6 +373,10 @@
         <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #8FD0A0, #2E7A4A);">🔗</span>
         <span class="hub-label">Cadastro</span>
       </button>
+      <button class="hub-circle" data-tab="equipamentos">
+        <span class="hub-emoji" style="background:radial-gradient(circle at 35% 30%, #F2C27A, #9A5B1E);">🛠️<span id="nav-badge-equip" class="nav-badge" style="display:none;background:#8A2E2E;">0</span></span>
+        <span class="hub-label">Equip.</span>
+      </button>
     </div>
   </section>
 
@@ -506,6 +510,11 @@
     <!-- (v133) CADASTRO DE PRODUTOS (somente administrador) -->
     <section id="tab-cadastro" class="tab-panel">
       <div id="cadastro-content"></div>
+    </section>
+
+    <!-- (v135) EQUIPAMENTOS: manutenção de RTU, bombas etc. -->
+    <section id="tab-equipamentos" class="tab-panel">
+      <div id="equipamentos-content"></div>
     </section>
   </main>
 
@@ -681,6 +690,63 @@
       <button class="save-btn" id="btn-rel-ger-pdf" style="flex:1;width:auto;margin-top:0;background:#2F7DB0;">📄 PDF</button>
     </div>
     <button class="photo-btn" id="btn-rel-ger-texto" style="background:#8A8072;margin-top:8px;">💬 Mandar como texto</button>
+  </div>
+</div>
+
+<!-- (v135) EQUIPAMENTO: cadastro, o que fazer e de quanto em quanto tempo, histórico -->
+<div class="modal-overlay" id="modal-equip-overlay">
+  <div class="modal-box" style="position:relative;">
+    <button class="modal-close" id="btn-close-equip">✕</button>
+    <div class="modal-title" id="equip-modal-title" style="padding-right:26px;">Novo Equipamento</div>
+    <div class="modal-sub">Ex.: RTU 03, Bomba 2, Filtro do cabeçal. Depois diga o que precisa de manutenção e de quanto em quanto tempo.</div>
+    <div class="field"><span class="field-label">Nome</span><input id="equip-nome" type="text" placeholder="Ex.: RTU 03" autocomplete="off"></div>
+    <div class="field"><span class="field-label">Tipo</span><input id="equip-tipo" type="text" list="equip-tipos-lista" placeholder="Ex.: RTU, Bomba, Filtro" autocomplete="off"><datalist id="equip-tipos-lista"></datalist></div>
+    <div class="field"><span class="field-label">Onde fica (opcional)</span><input id="equip-local" type="text" placeholder="Ex.: Setor D1 · válvulas V7 a V9"></div>
+    <div class="field">
+      <span class="field-label">É uma das bombas do Bombeamento?</span>
+      <select id="equip-bomba"><option value="">Não</option><option value="1">Sim, a Bomba 1</option><option value="2">Sim, a Bomba 2</option><option value="3">Sim, a Bomba 3</option><option value="4">Sim, a Bomba 4</option></select>
+      <div style="font-size:11px;color:#6B6153;">Se for, dá pra marcar manutenção por horas rodadas: o app soma as horas das rodadas do Bombeamento.</div>
+    </div>
+    <div class="field">
+      <span class="field-label">Manutenções (o que fazer e de quanto em quanto tempo)</span>
+      <div id="equip-dica" style="font-size:11.5px;color:#2F6B1F;font-weight:600;"></div>
+      <div id="equip-planos"></div>
+      <datalist id="equip-servicos-lista"></datalist>
+      <button type="button" class="photo-btn" id="btn-equip-add-plano" style="background:#8A5A44;padding:9px;font-size:13px;">➕ Adicionar manutenção</button>
+    </div>
+    <div class="field"><span class="field-label">Observação (opcional)</span><textarea id="equip-obs" placeholder="Modelo, número de série, fornecedor..."></textarea></div>
+    <button class="save-btn" id="btn-save-equip" style="background:#4C7C59;">Salvar Equipamento</button>
+    <button class="photo-btn" id="btn-save-equip-proximo" style="background:#2F7DB0;margin-top:8px;">Salvar e cadastrar o próximo</button>
+    <div id="equip-historico"></div>
+    <button class="photo-btn" id="btn-del-equip" style="background:#8A8072;margin-top:14px;display:none;">🗑 Excluir equipamento</button>
+  </div>
+</div>
+
+<!-- (v135) MANUTENÇÃO FEITA NUM EQUIPAMENTO -->
+<div class="modal-overlay" id="modal-equip-manut-overlay">
+  <div class="modal-box" style="position:relative;">
+    <button class="modal-close" id="btn-close-equip-manut">✕</button>
+    <div class="modal-title" id="equip-manut-title" style="padding-right:26px;">✅ Registrar Manutenção</div>
+    <div class="modal-sub">O que foi feito e em qual equipamento. Se foi antes de hoje, é só mudar a data - a próxima é calculada sozinha.</div>
+    <div class="field"><span class="field-label">Equipamento</span><select id="equip-manut-equip"></select></div>
+    <div class="field"><span class="field-label">O que foi feito</span><select id="equip-manut-plano"></select></div>
+    <div class="field" id="equip-manut-outro-wrap" style="display:none;"><span class="field-label">Qual serviço</span><input id="equip-manut-outro" type="text" placeholder="Ex.: Troca da antena do rádio"></div>
+    <div class="field"><span class="field-label">Data</span><input id="equip-manut-data" type="date"></div>
+    <div class="field"><span class="field-label">Quem fez</span><input id="equip-manut-quem" type="text" placeholder="Nome"></div>
+    <div class="field"><span class="field-label">Observação (opcional)</span><textarea id="equip-manut-obs" placeholder="Peça usada, o que estava errado..."></textarea></div>
+    <div class="photo-block">
+      <span class="field-label">Foto (opcional)</span>
+      <input id="equip-manut-foto-camera" type="file" accept="image/*" capture="environment" style="display:none">
+      <input id="equip-manut-foto-galeria" type="file" accept="image/*" style="display:none">
+      <div id="equip-manut-foto-preview" style="margin:6px 0;"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="photo-btn" id="btn-equip-manut-camera" style="flex:1;">📷 Tirar Foto</button>
+        <button class="photo-btn" id="btn-equip-manut-galeria" style="flex:1;background:#8A5A44;">🖼️ Da Galeria</button>
+      </div>
+    </div>
+    <div id="equip-manut-previa" style="font-size:12px;color:#2F5A1E;margin:12px 0 4px;"></div>
+    <button class="save-btn" id="btn-save-equip-manut" style="background:#4C7C59;">Salvar Manutenção</button>
+    <button class="photo-btn" id="btn-del-equip-manut" style="background:#8A8072;margin-top:8px;display:none;">🗑 Excluir este registro</button>
   </div>
 </div>
 
@@ -1307,7 +1373,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v134';
+  var APP_CACHE_NAME = 'registro-irrigacao-v135';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -2018,7 +2084,11 @@
     { nome: "anotação", plural: "anotações", colecao: "anotacoes",
       registros: function () { return anotacoesRecords; }, campos: ["foto"] },
     { nome: "alarme", plural: "alarmes", colecao: "gerador_alarmes",
-      registros: function () { return geradorAlarmesRecords; }, campos: ["foto"] }
+      registros: function () { return geradorAlarmesRecords; }, campos: ["foto"] },
+    // (v135) foto da manutenção de equipamento
+    { nome: "manutenção de equipamento", plural: "manutenções de equipamento", colecao: "equipamentos_manut",
+      registros: function () { return equipManutRecords; }, campos: ["foto"],
+      emEdicao: function () { return telaAtiva_("modal-equip-manut-overlay") ? editingEquipManutId : null; } }
   ];
   function telaAtiva_(id) {
     var el = document.getElementById(id);
@@ -4371,6 +4441,14 @@
       }
     }
     if (tab === "cadastro") renderCadastro_();
+    if (tab === "equipamentos") {
+      // se a conexão com o Firebase dessa aba caiu (ex.: regras liberadas agora há pouco), religa
+      try { iniciarListenerEquipamentos_(); iniciarListenerEquipManut_(); } catch (e) {}
+      try { renderEquipamentos(); } catch (err) {
+        document.getElementById("equipamentos-content").innerHTML =
+          '<div class="empty-state">Não consegui carregar os Equipamentos agora.<br><span style="font-size:11px;opacity:.7;">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
+      }
+    }
     if (tab === "plantao") {
       try { renderPlantao(); } catch (err) {
         document.getElementById("plantao-content").innerHTML =
@@ -4396,9 +4474,15 @@
     var bombasEsquecidasCount = bombRecords.filter(function (r) {
       return rodadaAberta_(r) && r.data && dataAntes_(r.data, hojeBadge);
     }).length;
+    // (v135) manutenção de equipamento atrasada
+    var equipAtrasadas = 0;
+    try {
+      equipAtrasadas = itensManutEquip_().filter(function (it) { return it.status === "atrasada"; }).length;
+      atualizarBadgeEquip_();
+    } catch (e) {}
     var br = document.getElementById("nav-badge-resumo");
     if (br) {
-      var totalAlerta = abertasCount + overdue + bombasEsquecidasCount;
+      var totalAlerta = abertasCount + overdue + bombasEsquecidasCount + equipAtrasadas;
       if (totalAlerta > 0) { br.style.display = "flex"; br.textContent = totalAlerta; }
       else { br.style.display = "none"; }
     }
@@ -4745,7 +4829,21 @@
       html += '<button class="photo-btn" data-ir-gerador="1" style="background:#8A5A44;margin-top:8px;">Ver Gerador</button></div>';
     }
 
+    // ---- (v135) Equipamentos: manutenção atrasada ou chegando ----
+    var urgentesEq = itensManutEquip_().filter(function (it) { return it.status === "atrasada" || it.status === "breve"; });
+    if (urgentesEq.length) {
+      html += '<div class="card" style="margin-top:4px;"><h3 class="panel-title">🛠️ Manutenção de equipamentos</h3>';
+      urgentesEq.slice(0, 5).forEach(function (it) {
+        html += '<div style="border-left:3px solid ' + STATUS_EQUIP[it.status].cor + ';padding:3px 8px;margin-bottom:6px;font-size:12px;color:#4A4136;">' +
+          '<b>' + escapeHtml(it.eq.nome) + ' · ' + escapeHtml(it.plano.nome) + '</b><br>' + escapeHtml(statusTxtEquip_(it)) + '</div>';
+      });
+      if (urgentesEq.length > 5) html += '<div style="font-size:11.5px;color:#6B6153;">+ ' + pluralRel_(urgentesEq.length - 5, "outra", "outras") + '</div>';
+      html += '<button class="photo-btn" data-ir-equip="1" style="background:#9A5B1E;margin-top:8px;">Ver Equipamentos</button></div>';
+    }
+
     el.innerHTML = html;
+    var bEq = el.querySelector("[data-ir-equip]");
+    if (bEq) bEq.addEventListener("click", function () { switchTab("equipamentos"); });
     var b1 = el.querySelector("[data-ir-historico]");
     if (b1) b1.addEventListener("click", function () { switchTab("historico"); });
     var b2 = el.querySelector("[data-ir-manutencao]");
@@ -7639,6 +7737,41 @@
       return { data: fmtDate(r.data), texto: r.texto, responsavel: r.responsavel || "" };
     }));
 
+    // ---- (v135) Equipamentos: cada manutenção de cada um, e o que já foi feito ----
+    var ROTULO_STATUS_EQUIP = { atrasada: "Atrasada", breve: "Vence em breve", em_dia: "Em dia", sem: "Sem registro" };
+    var linhasEquip = [];
+    equipRecords.forEach(function (eq) {
+      var base = { nome: eq.nome, tipo: eq.tipo, local: eq.local, bomba: eq.bomba ? "Bomba " + eq.bomba : "" };
+      if (!(eq.planos || []).length) {
+        linhasEquip.push(Object.assign({ servico: "", cada: "", ultima: "", proxima: "", situacao: "Sem manutenção cadastrada" }, base));
+        return;
+      }
+      eq.planos.forEach(function (pl) {
+        var it = statusPlanoEquip_(eq, pl);
+        linhasEquip.push(Object.assign({
+          servico: pl.nome, cada: cadaTxtEquip_(pl), ultima: it.ultima ? fmtDate(it.ultima.data) : "",
+          proxima: it.proxima ? fmtDateUTC(it.proxima) : "",
+          situacao: ROTULO_STATUS_EQUIP[it.status] + (it.ultima ? " · " + statusTxtEquip_(it) : "")
+        }, base));
+      });
+    });
+    novaAba_("Equipamentos", [
+      { titulo: "Equipamento", chave: "nome", largura: 18 }, { titulo: "Tipo", chave: "tipo", largura: 14 },
+      { titulo: "Onde fica", chave: "local", largura: 24 }, { titulo: "Bomba", chave: "bomba", largura: 9 },
+      { titulo: "Manutenção", chave: "servico", largura: 24 }, { titulo: "Intervalo", chave: "cada", largura: 22 },
+      { titulo: "Última", chave: "ultima", largura: 12 }, { titulo: "Próxima", chave: "proxima", largura: 12 },
+      { titulo: "Situação", chave: "situacao", largura: 60 }
+    ], linhasEquip);
+    novaAba_("Manut_Equipamentos", [
+      { titulo: "Data", chave: "data", largura: 12 }, { titulo: "Equipamento", chave: "equip", largura: 18 },
+      { titulo: "Serviço", chave: "servico", largura: 26 }, { titulo: "Quem fez", chave: "quem", largura: 14 },
+      { titulo: "Observação", chave: "obs", largura: 36 }, { titulo: "Foto", chave: "foto", largura: 40 }
+    ], equipManutRecords.map(function (m) {
+      var eq = equipPorId_(m.equipamentoId);
+      return { data: fmtDate(m.data), equip: eq ? eq.nome : "(excluído)", servico: m.servico, quem: m.responsavel,
+        obs: m.observacao, foto: ehBase64_(m.foto) ? "(foto ainda no celular)" : urlFoto_(m.foto) };
+    }));
+
     var buffer = await wb.xlsx.writeBuffer();
     var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     var url = URL.createObjectURL(blob);
@@ -8266,6 +8399,656 @@
     if (!confirm("Excluir essa leitura do gerador?")) return;
     apagarGeradorFirestore_(id);
   }
+
+  // ================= EQUIPAMENTOS: MANUTENÇÃO (v135) =================
+  // Cadastro dos equipamentos (RTU das válvulas, bombas, filtros...) e, pra
+  // cada um, o que tem que ser feito e de quanto em quanto tempo (ex.: RTU ->
+  // troca de bateria a cada 12 meses; bomba -> troca de rolamento a cada
+  // 8.000 h). Cada manutenção feita vira um registro e o app calcula a
+  // próxima: pela data (dias/meses) ou, nas bombas do Bombeamento, pelas
+  // horas que a bomba rodou desde a última vez (soma das rodadas).
+  // Firestore: "equipamentos" (o cadastro, com as manutenções de cada um em
+  // "planos") e "equipamentos_manut" (cada manutenção feita).
+  var equipRecords = [];
+  var equipManutRecords = [];
+  var equipListenerAtivo = false, equipManutListenerAtivo = false;
+  var equipErro_ = "", equipManutErro_ = "";   // motivo quando o Firebase recusa (ex.: regras sem as coleções novas)
+  var equipFiltroTipo = "Todos";
+  var editingEquipId = null;
+  var editingEquipManutId = null;
+  var equipPlanosRascunho = [];   // manutenções sendo editadas na janela do equipamento
+  var pendingFotoEquipManut = null;
+  var TIPOS_EQUIP_PADRAO = ["RTU", "Bomba", "Filtro", "Painel elétrico", "Inversor", "Válvula", "Gerador"];
+  var SERVICOS_EQUIP_PADRAO = ["Troca de bateria", "Limpeza do painel solar", "Troca de rolamento", "Lubrificação",
+    "Troca de óleo", "Troca de selo mecânico", "Reaperto dos bornes", "Limpeza do filtro", "Revisão geral"];
+  // tipo cadastrado pela primeira vez: já sugere o serviço mais comum dele
+  var SERVICO_SUGERIDO_POR_TIPO = { "rtu": "Troca de bateria", "bomba": "Troca de rolamento" };
+  var STATUS_EQUIP = {
+    atrasada: { cor: "#B4442E", fundo: "#FBEDE8" },
+    breve: { cor: "#D6A233", fundo: "#FBF4E4" },
+    em_dia: { cor: "#4C7C59", fundo: "#EEF5EA" },
+    sem: { cor: "#8A8072", fundo: "#F4EFE2" }
+  };
+
+  function diaEquipMs_(s) { var d = parseISODate(s); return d ? d.getTime() : 0; }
+  function ordemEquip_(a, b) {
+    var ta = String(a.tipo || ""), tb = String(b.tipo || "");
+    if (!ta !== !tb) return ta ? -1 : 1;   // sem tipo vai pro fim
+    return ta.localeCompare(tb, "pt-BR") || String(a.nome).localeCompare(String(b.nome), "pt-BR", { numeric: true });
+  }
+  function equipPorId_(id) { return equipRecords.find(function (e) { return e.id === id; }) || null; }
+
+  // ---- Firestore (tempo real, igual às outras abas) ----
+  function iniciarListenerEquipamentos_() {
+    if (equipListenerAtivo || !db) return;
+    equipListenerAtivo = true;
+    db.collection("equipamentos").onSnapshot(function (snapshot) {
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Equipamentos");
+      equipErro_ = "";
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, nome: d.nome || "", tipo: d.tipo || "", local: d.local || "", bomba: d.bomba || "",
+          planos: Array.isArray(d.planos) ? d.planos : [], observacao: d.observacao || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites
+        });
+      });
+      novos.sort(ordemEquip_);
+      equipRecords = novos;
+      equipMudou_();
+    }, function (err) {
+      equipListenerAtivo = false;
+      equipErro_ = motivoFirestore_(err);
+      equipMudou_();
+      // Sem permissão = a coleção nova ainda não foi liberada nas regras do
+      // Firestore: avisa só dentro da aba (tentar de novo sozinho não resolve,
+      // e não acende o aviso de sincronização pra todo mundo). Abrir a aba
+      // tenta de novo.
+      if (err && err.code === "permission-denied") return;
+      falhaListener_("Equipamentos", "equipamentos", err, iniciarListenerEquipamentos_, function () { return equipListenerAtivo; });
+    });
+  }
+  function iniciarListenerEquipManut_() {
+    if (equipManutListenerAtivo || !db) return;
+    equipManutListenerAtivo = true;
+    db.collection("equipamentos_manut").onSnapshot(function (snapshot) {
+      if (!snapshot.metadata.fromCache) listenerVoltou_("Manutenção de equipamentos");
+      equipManutErro_ = "";
+      var novos = [];
+      snapshot.forEach(function (doc) {
+        var d = doc.data();
+        if (d.excluido) return;
+        novos.push({
+          id: doc.id, equipamentoId: d.equipamentoId || "", planoId: d.planoId || "", servico: d.servico || "",
+          data: d.data || "", responsavel: d.responsavel || "", observacao: d.observacao || "", foto: d.foto || "",
+          _pendenteFirestore: doc.metadata.hasPendingWrites, _synced: !doc.metadata.hasPendingWrites
+        });
+      });
+      novos.sort(function (a, b) { return diaEquipMs_(b.data) - diaEquipMs_(a.data); });   // mais nova primeiro
+      equipManutRecords = novos;
+      equipMudou_();
+    }, function (err) {
+      equipManutListenerAtivo = false;
+      equipManutErro_ = motivoFirestore_(err);
+      equipMudou_();
+      if (err && err.code === "permission-denied") return;   // idem
+      falhaListener_("Manutenção de equipamentos", "equipamentos_manut", err, iniciarListenerEquipManut_, function () { return equipManutListenerAtivo; });
+    });
+  }
+  function salvarEquipFirestore_(colecao, id, campos, novo) {
+    if (!db) { showToast("Firebase ainda não carregou - tenta de novo em instantes."); return false; }
+    var dados = Object.assign({}, campos, { atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    if (novo) dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection(colecao).doc(id).set(dados, { merge: true }).catch(function (err) {
+      console.error("[firebase] erro ao salvar em " + colecao + ":", err);
+      avisarErroFirestore_(err);
+    });
+    return true;
+  }
+  function equipMudou_() {
+    try { atualizarBadgeEquip_(); } catch (e) {}
+    // janela do equipamento aberta (sem a de registrar por cima): atualiza só o histórico dela
+    try { if (telaAtiva_("modal-equip-overlay") && !telaAtiva_("modal-equip-manut-overlay")) renderHistoricoEquip_(); } catch (e) {}
+    try { if (telaAtiva_("tab-equipamentos") && !algumModalAberto_()) renderEquipamentos(); } catch (e) {}
+    try { if (telaAtiva_("tab-resumo") && !algumModalAberto_()) renderResumo(); } catch (e) {}
+  }
+
+  // ---- contas: quando vence cada manutenção ----
+  function addMesesUTC_(d, n) {
+    var a = d.getUTCFullYear(), m = d.getUTCMonth() + Math.round(n), dia = d.getUTCDate();
+    var ultimoDia = new Date(Date.UTC(a, m + 1, 0)).getUTCDate();   // 31/01 + 1 mês = 28/02, não 03/03
+    return new Date(Date.UTC(a, m, Math.min(dia, ultimoDia)));
+  }
+  // Horas que a bomba rodou desde a data, somando as rodadas do Bombeamento
+  // que têm início e fim (a rodada da noite conta no dia em que ligou).
+  function horasBombaDesde_(n, desdeIso) {
+    var desde = parseISODate(desdeIso);
+    if (!desde || !n) return 0;
+    var min = 0;
+    bombRecords.forEach(function (r) {
+      if (r._pendingDelete || (parseInt(r.bomba, 10) || 0) !== n || ehNaoLigou_(r)) return;
+      var d = parseISODate(r.data);
+      if (!d || d < desde || !r.horarioInicio || !r.horarioFim) return;
+      var dur = minutosDeHora_(r.horarioFim) - minutosDeHora_(r.horarioInicio);
+      if (dur < 0) dur += 1440;
+      if (dur > 0) min += dur;
+    });
+    return min / 60;
+  }
+  // média de horas por dia da bomba nos últimos 30 dias (pra estimar a data)
+  function horasPorDiaBomba_(n) {
+    return horasBombaDesde_(n, isoUTC_(addDaysUTC(todayUTC(), -29))) / 30;
+  }
+  function statusPlanoEquip_(eq, plano) {
+    var ultima = equipManutRecords.find(function (m) { return m.equipamentoId === eq.id && m.planoId === plano.id; }) || null;
+    var cada = parseFloat(plano.cada) || 0;
+    var r = { eq: eq, plano: plano, ultima: ultima, status: "sem", ordem: 3, dias: null, proxima: null };
+    var dUlt = ultima ? parseISODate(ultima.data) : null;
+    if (!dUlt || !(cada > 0)) return r;
+    var hoje = todayUTC();
+    if (plano.unidade === "horas") {
+      var nb = parseInt(eq.bomba, 10) || 0;
+      if (!nb) { r.semBomba = true; return r; }
+      r.horas = horasBombaDesde_(nb, ultima.data);
+      r.faltamHoras = cada - r.horas;
+      var media = horasPorDiaBomba_(nb);
+      if (r.faltamHoras > 0 && media > 0) {
+        r.proxima = addDaysUTC(hoje, Math.round(r.faltamHoras / media));
+        r.dias = diffDaysUTC(r.proxima, hoje);
+      }
+      r.status = r.faltamHoras <= 0 ? "atrasada"
+        : ((r.dias !== null && r.dias <= 15) || r.faltamHoras <= cada * 0.05 ? "breve" : "em_dia");
+    } else {
+      r.proxima = plano.unidade === "meses" ? addMesesUTC_(dUlt, cada) : addDaysUTC(dUlt, Math.round(cada));
+      r.dias = diffDaysUTC(r.proxima, hoje);
+      var aviso = Math.max(1, Math.min(15, Math.ceil(diffDaysUTC(r.proxima, dUlt) / 4)));   // até 15 dias antes
+      r.status = r.dias < 0 ? "atrasada" : (r.dias <= aviso ? "breve" : "em_dia");
+    }
+    r.ordem = { atrasada: 0, breve: 1, em_dia: 2, sem: 3 }[r.status];
+    return r;
+  }
+  // todas as manutenções de todos os equipamentos, a mais urgente primeiro
+  function itensManutEquip_() {
+    var itens = [];
+    equipRecords.forEach(function (eq) {
+      (eq.planos || []).forEach(function (p) { itens.push(statusPlanoEquip_(eq, p)); });
+    });
+    return itens.sort(function (a, b) {
+      var da = a.dias === null ? 99999 : a.dias, db2 = b.dias === null ? 99999 : b.dias;
+      return (a.ordem - b.ordem) || (da - db2) || String(a.eq.nome).localeCompare(String(b.eq.nome), "pt-BR", { numeric: true });
+    });
+  }
+  function atualizarBadgeEquip_() {
+    var b = document.getElementById("nav-badge-equip");
+    if (!b) return;
+    var n = itensManutEquip_().filter(function (it) { return it.status === "atrasada"; }).length;
+    b.style.display = n ? "flex" : "none";
+    b.textContent = n;
+  }
+  function horasTxtEquip_(h) { return Math.round(h || 0).toLocaleString("pt-BR"); }
+  function cadaTxtEquip_(p) {
+    var n = parseFloat(p.cada) || 0;
+    if (p.unidade === "horas") return "a cada " + horasTxtEquip_(n) + " h de bomba";
+    if (p.unidade === "meses") return "a cada " + pluralRel_(n, "mês", "meses");
+    return "a cada " + pluralRel_(n, "dia", "dias");
+  }
+  function statusTxtEquip_(it) {
+    var u = it.ultima;
+    if (!u) return "Sem registro ainda - quando fizer (ou se souber a última vez), toque em ✅ Feita";
+    var ultTxt = "última " + fmtDate(u.data);
+    if (it.plano.unidade === "horas") {
+      if (it.semBomba) return "Conta por horas, mas o equipamento não está ligado a uma bomba do Bombeamento";
+      var base = horasTxtEquip_(it.horas) + " h rodadas de " + horasTxtEquip_(parseFloat(it.plano.cada) || 0) + " h";
+      if (it.status === "atrasada") return base + " - passou " + horasTxtEquip_(-it.faltamHoras) + " h · " + ultTxt;
+      return base + " - faltam ~" + horasTxtEquip_(it.faltamHoras) + " h" + (it.proxima ? " (~" + fmtDateUTC(it.proxima) + ")" : "") + " · " + ultTxt;
+    }
+    if (it.dias < 0) return "Venceu há " + pluralRel_(-it.dias, "dia", "dias") + " (" + fmtDateUTC(it.proxima) + ") · " + ultTxt;
+    if (it.dias === 0) return "Vence hoje · " + ultTxt;
+    return "Próxima: " + fmtDateUTC(it.proxima) + " (" + (it.dias === 1 ? "amanhã" : "daqui a " + it.dias + " dias") + ") · " + ultTxt;
+  }
+
+  // ---- a aba ----
+  function renderEquipamentos() {
+    var el = document.getElementById("equipamentos-content");
+    var html = '<div class="modal-sub" style="margin-bottom:12px;">Cadastre os equipamentos (RTU, bombas, filtros...) e de quanto em quanto tempo cada manutenção tem que ser feita. O app avisa quando a próxima está chegando ou já passou.</div>';
+    html += '<div style="display:flex;gap:8px;">' +
+      '<button class="save-btn" id="btn-equip-registrar" style="flex:1;width:auto;margin-top:0;background:#4C7C59;"' + (equipRecords.length ? '' : ' disabled') + '>✅ Registrar Manutenção</button>' +
+      '<button class="save-btn" id="btn-equip-novo" style="flex:1;width:auto;margin-top:0;background:#C1501F;">➕ Equipamento</button>' +
+    '</div>';
+    var erro = equipErro_ || equipManutErro_;
+    if (erro) {
+      html += '<div style="background:#FBEDE8;border-left:4px solid #B4442E;border-radius:4px;padding:9px 12px;margin-top:12px;font-size:12px;color:#5A2418;line-height:1.45;">' +
+        '⚠️ Não consegui abrir os equipamentos no Firebase: <b>' + escapeHtml(erro) + '</b>.' +
+        (/permiss/i.test(erro) ? ' Falta liberar as coleções <b>equipamentos</b> e <b>equipamentos_manut</b> nas regras do Firestore, do mesmo jeito que as outras.' : '') +
+      '</div>';
+    }
+    if (!equipRecords.length) {
+      html += '<div class="empty-state" style="padding:36px 16px;">Nenhum equipamento cadastrado ainda.<br><span style="font-size:12px;opacity:.8;">Toque em ➕ Equipamento - ex.: RTU 01, com troca de bateria a cada 12 meses.</span></div>';
+      el.innerHTML = html;
+      ligarBotoesEquip_(el);
+      return;
+    }
+
+    var tipos = [];
+    equipRecords.forEach(function (e) { var t = e.tipo || "Sem tipo"; if (tipos.indexOf(t) === -1) tipos.push(t); });
+    if (equipFiltroTipo !== "Todos" && tipos.indexOf(equipFiltroTipo) === -1) equipFiltroTipo = "Todos";
+    var noFiltro = function (e) { return equipFiltroTipo === "Todos" || (e.tipo || "Sem tipo") === equipFiltroTipo; };
+    var itens = itensManutEquip_().filter(function (it) { return noFiltro(it.eq); });
+    var conta = { atrasada: 0, breve: 0, em_dia: 0, sem: 0 };
+    itens.forEach(function (it) { conta[it.status]++; });
+
+    if (tipos.length > 1) {
+      var CHIP = "border-radius:14px;padding:6px 12px;font-size:12.5px;cursor:pointer;";
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">' +
+        ["Todos"].concat(tipos).map(function (t) {
+          var ativo = t === equipFiltroTipo;
+          return '<button type="button" data-equip-filtro="' + escapeHtml(t) + '" style="' + CHIP +
+            (ativo ? 'border:1px solid #4C6B2F;background:#4C6B2F;color:#fff;font-weight:700;' : 'border:1px solid #D2C7AB;background:#FBF8F1;color:#4A4136;') +
+            '">' + escapeHtml(t) + '</button>';
+        }).join("") + '</div>';
+    }
+    var kpi = function (n, rotulo, cor) {
+      return '<div class="kpi-tile" style="border-color:' + (n ? cor : '#DCD3BC') + ';"><div class="kpi-num" style="color:' + (n ? cor : '#B8AE98') + ';">' + n + '</div><div class="kpi-label">' + rotulo + '</div></div>';
+    };
+    html += '<div class="kpi-row" style="margin-top:12px;">' +
+      kpi(conta.atrasada, "atrasadas", "#B4442E") + kpi(conta.breve, "vencem em breve", "#B8862B") + kpi(conta.em_dia, "em dia", "#4C7C59") +
+    '</div>';
+    if (conta.sem) {
+      html += '<div style="font-size:11.5px;color:#6B6153;margin:-6px 0 12px;">' +
+        pluralRel_(conta.sem, "manutenção ainda sem registro", "manutenções ainda sem registro") +
+        ' - registre a última vez que foi feita pro app começar a contar.</div>';
+    }
+
+    // ---- próximas manutenções, a mais urgente primeiro ----
+    html += '<div class="card"><h3 class="panel-title">🗓 Próximas manutenções</h3>';
+    if (!itens.length) {
+      html += '<div style="font-size:12px;color:#8A8072;">Nenhuma manutenção cadastrada' + (equipFiltroTipo !== "Todos" ? ' nesse tipo' : '') +
+        '. Abra o equipamento e diga o que precisa ser feito.</div>';
+    }
+    itens.forEach(function (it) {
+      var st = STATUS_EQUIP[it.status];
+      html += '<div style="display:flex;align-items:center;gap:8px;background:' + st.fundo + ';border-left:4px solid ' + st.cor + ';border-radius:4px;padding:8px 10px;margin-bottom:6px;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:700;color:#241F1A;">' + escapeHtml(it.eq.nome) + ' · ' + escapeHtml(it.plano.nome) + '</div>' +
+          '<div style="font-size:11.5px;color:#4A4136;margin-top:2px;">' + escapeHtml(statusTxtEquip_(it)) + '</div>' +
+          '<div style="font-size:10.5px;color:#8A8072;margin-top:1px;">' + escapeHtml(cadaTxtEquip_(it.plano)) + (it.eq.local ? ' · ' + escapeHtml(it.eq.local) : '') + '</div>' +
+        '</div>' +
+        '<button type="button" class="del-btn" data-equip-feita="' + escapeHtml(it.eq.id + "|" + it.plano.id) + '" style="flex-shrink:0;border:1px solid ' + st.cor + ';border-radius:6px;padding:6px 9px;font-size:12px;color:#241F1A;background:#FFFDF8;font-weight:700;">✅ Feita</button>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    // ---- o cadastro, por tipo ----
+    var lista = equipRecords.filter(noFiltro);
+    html += '<div class="card"><h3 class="panel-title">🛠️ Equipamentos (' + lista.length + ')</h3>';
+    var tipoAtual = null;
+    lista.forEach(function (e) {
+      var t = e.tipo || "Sem tipo";
+      if (t !== tipoAtual) {
+        tipoAtual = t;
+        html += '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6B6153;margin:10px 0 4px;">' + escapeHtml(t) + '</div>';
+      }
+      // cor do pior caso (aqui "sem registro" pesa mais que "em dia": não dá pra saber)
+      var GRAV = { atrasada: 0, breve: 1, sem: 2, em_dia: 3 };
+      var piores = (e.planos || []).map(function (p) { return statusPlanoEquip_(e, p).status; }).sort(function (a, b) { return GRAV[a] - GRAV[b]; });
+      var cor = piores.length ? STATUS_EQUIP[piores[0]].cor : "#DCD3BC";
+      html += '<div data-equip-abrir="' + escapeHtml(e.id) + '" style="display:flex;align-items:center;gap:8px;border:1px solid #DCD3BC;border-left:4px solid ' + cor + ';border-radius:4px;padding:8px 10px;margin-bottom:6px;background:#FFFDF8;cursor:pointer;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:700;color:#241F1A;">' + escapeHtml(e.nome) + (e.bomba ? ' <span style="font-size:10.5px;font-weight:600;color:#2F7DB0;">· Bomba ' + escapeHtml(e.bomba) + ' do Bombeamento</span>' : '') + '</div>' +
+          (e.local ? '<div style="font-size:11.5px;color:#6B6153;">' + escapeHtml(e.local) + '</div>' : '') +
+          '<div style="font-size:11px;color:#8A8072;margin-top:1px;">' + (e.planos && e.planos.length
+            ? escapeHtml(e.planos.map(function (p) { return p.nome + " (" + cadaTxtEquip_(p).replace("a cada ", "") + ")"; }).join(" · "))
+            : 'Sem manutenção cadastrada') + '</div>' +
+          (e._pendenteFirestore ? '<div>' + syncBadgeHtml_(e) + '</div>' : '') +
+        '</div>' +
+        '<span style="color:#B0A78E;font-size:15px;flex-shrink:0;">›</span>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    // ---- últimas feitas ----
+    var recentes = equipManutRecords.filter(function (m) { var e = equipPorId_(m.equipamentoId); return e && noFiltro(e); }).slice(0, 8);
+    if (recentes.length) {
+      html += '<div class="card"><h3 class="panel-title">📋 Últimas manutenções feitas</h3>';
+      recentes.forEach(function (m) { html += linhaManutEquipHtml_(m, true); });
+      html += '</div>';
+    }
+
+    el.innerHTML = html;
+    ligarBotoesEquip_(el);
+  }
+  function linhaManutEquipHtml_(m, comEquip) {
+    var eq = equipPorId_(m.equipamentoId);
+    var foto = m.foto ? urlFoto_(m.foto) : "";
+    return '<div style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #EFEAD9;">' +
+      (foto ? '<img data-ver-foto="' + escapeHtml(foto) + '" data-ver-legenda="' + escapeHtml((eq ? eq.nome + " · " : "") + m.servico + " · " + fmtDate(m.data)) + '" src="' + escapeHtml(foto) + '" alt="Foto da manutenção" style="width:46px;height:46px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;flex-shrink:0;cursor:pointer;">' : '') +
+      '<div style="flex:1;min-width:0;font-size:12px;color:#3A332B;">' +
+        '<b>' + escapeHtml(fmtDate(m.data)) + '</b> · ' + (comEquip && eq ? escapeHtml(eq.nome) + ' · ' : '') + escapeHtml(m.servico || "—") +
+        (m.responsavel ? ' <span style="color:#6B6153;">· ' + escapeHtml(m.responsavel) + '</span>' : '') +
+        (m.observacao ? '<div style="color:#6B6153;margin-top:2px;">' + escapeHtml(m.observacao) + '</div>' : '') +
+        '<div>' + syncBadgeHtml_(m) + '</div>' +
+      '</div>' +
+      '<button type="button" class="del-btn" data-equip-manut-editar="' + escapeHtml(m.id) + '" title="Corrigir" style="flex-shrink:0;">✏️</button>' +
+    '</div>';
+  }
+  function ligarBotoesEquip_(el) {
+    var bNovo = document.getElementById("btn-equip-novo");
+    if (bNovo) bNovo.addEventListener("click", function () { abrirModalEquip_(null); });
+    var bReg = document.getElementById("btn-equip-registrar");
+    if (bReg) bReg.addEventListener("click", function () { abrirModalEquipManut_({}); });
+    el.querySelectorAll("[data-equip-filtro]").forEach(function (b) {
+      b.addEventListener("click", function () { equipFiltroTipo = b.getAttribute("data-equip-filtro"); renderEquipamentos(); });
+    });
+    el.querySelectorAll("[data-equip-feita]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var p = b.getAttribute("data-equip-feita").split("|");
+        abrirModalEquipManut_({ equipId: p[0], planoId: p[1] });
+      });
+    });
+    el.querySelectorAll("[data-equip-abrir]").forEach(function (b) {
+      b.addEventListener("click", function () { abrirModalEquip_(b.getAttribute("data-equip-abrir")); });
+    });
+    ligarEditarManutEquip_(el);
+  }
+  function ligarEditarManutEquip_(el) {
+    el.querySelectorAll("[data-equip-manut-editar]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        abrirModalEquipManut_({ editId: b.getAttribute("data-equip-manut-editar") });
+      });
+    });
+  }
+
+  // ---- janela do equipamento (cadastro + o que fazer + histórico) ----
+  function planoVazioEquip_() { return { id: uid(), nome: "", cada: "", unidade: "meses", novo: true, ultima: "" }; }
+  function preencherListasEquip_() {
+    var tipos = TIPOS_EQUIP_PADRAO.slice();
+    equipRecords.forEach(function (e) { if (e.tipo && tipos.indexOf(e.tipo) === -1) tipos.push(e.tipo); });
+    document.getElementById("equip-tipos-lista").innerHTML = tipos.map(function (t) { return '<option value="' + escapeHtml(t) + '">'; }).join("");
+    var servicos = SERVICOS_EQUIP_PADRAO.slice();
+    equipRecords.forEach(function (e) {
+      (e.planos || []).forEach(function (p) { if (p.nome && servicos.indexOf(p.nome) === -1) servicos.push(p.nome); });
+    });
+    document.getElementById("equip-servicos-lista").innerHTML = servicos.map(function (s) { return '<option value="' + escapeHtml(s) + '">'; }).join("");
+  }
+  // base = { nome, tipo, planos, dica } pra "Salvar e cadastrar o próximo"
+  function abrirModalEquip_(id, base) {
+    var eq = id ? equipPorId_(id) : null;
+    base = base || {};
+    editingEquipId = eq ? eq.id : null;
+    document.getElementById("equip-modal-title").textContent = eq ? "Editar · " + eq.nome : "Novo Equipamento";
+    document.getElementById("equip-nome").value = eq ? eq.nome : (base.nome || "");
+    document.getElementById("equip-tipo").value = eq ? eq.tipo : (base.tipo || "");
+    document.getElementById("equip-local").value = eq ? eq.local : "";
+    document.getElementById("equip-bomba").value = eq ? String(eq.bomba || "") : "";
+    document.getElementById("equip-obs").value = eq ? eq.observacao : "";
+    equipPlanosRascunho = (eq ? eq.planos : (base.planos || [])).map(function (p) {
+      return { id: eq ? p.id : uid(), nome: p.nome || "", cada: p.cada ? String(p.cada) : "", unidade: p.unidade || "meses",
+               novo: !eq, ultima: eq ? "" : (p.ultima || "") };
+    });
+    if (!equipPlanosRascunho.length) equipPlanosRascunho.push(planoVazioEquip_());
+    preencherListasEquip_();
+    renderPlanosEquip_();
+    document.getElementById("equip-dica").textContent = base.dica || "";
+    document.getElementById("btn-save-equip-proximo").style.display = eq ? "none" : "";
+    document.getElementById("btn-del-equip").style.display = eq ? "" : "none";
+    renderHistoricoEquip_();
+    document.getElementById("modal-equip-overlay").classList.add("active");
+  }
+  function fecharModalEquip_() {
+    document.getElementById("modal-equip-overlay").classList.remove("active");
+    editingEquipId = null;
+    equipMudou_();
+  }
+  function renderPlanosEquip_() {
+    var el = document.getElementById("equip-planos");
+    var temBomba = !!document.getElementById("equip-bomba").value;
+    if (!equipPlanosRascunho.length) {
+      el.innerHTML = '<div style="font-size:12px;color:#8A8072;margin-bottom:6px;">Nenhuma manutenção - toque em ➕ pra adicionar.</div>';
+      return;
+    }
+    el.innerHTML = equipPlanosRascunho.map(function (p, i) {
+      var opcoes = [["dias", "dias"], ["meses", "meses"]];
+      if (temBomba || p.unidade === "horas") opcoes.push(["horas", "horas de bomba"]);
+      return '<div style="border:1px solid #DCD3BC;border-radius:6px;padding:8px;margin-bottom:8px;background:#FFFDF8;">' +
+        '<div style="display:flex;gap:6px;align-items:center;">' +
+          '<input data-plano-campo="nome" data-plano-i="' + i + '" type="text" list="equip-servicos-lista" autocomplete="off" placeholder="O que fazer (ex.: Troca de bateria)" value="' + escapeHtml(p.nome) + '" style="flex:1;min-width:0;">' +
+          '<button type="button" class="del-btn" data-plano-del="' + i + '" title="Tirar essa manutenção" style="flex-shrink:0;">✕</button>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12.5px;color:#6B6153;">a cada' +
+          '<input data-plano-campo="cada" data-plano-i="' + i + '" type="number" min="1" step="1" inputmode="numeric" value="' + escapeHtml(p.cada) + '" style="width:88px;flex-shrink:0;">' +
+          '<select data-plano-campo="unidade" data-plano-i="' + i + '" style="flex:1;min-width:0;">' +
+            opcoes.map(function (o) { return '<option value="' + o[0] + '"' + (p.unidade === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join("") +
+          '</select>' +
+        '</div>' +
+        (p.novo ? '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12px;color:#6B6153;">última vez (se souber)' +
+          '<input data-plano-campo="ultima" data-plano-i="' + i + '" type="date" value="' + escapeHtml(p.ultima) + '" style="flex:1;min-width:0;"></div>' : '') +
+      '</div>';
+    }).join("");
+    el.querySelectorAll("[data-plano-campo]").forEach(function (inp) {
+      var guardar = function () {
+        var p = equipPlanosRascunho[parseInt(inp.getAttribute("data-plano-i"), 10)];
+        if (p) p[inp.getAttribute("data-plano-campo")] = inp.value;
+      };
+      inp.addEventListener("input", guardar);
+      inp.addEventListener("change", guardar);
+    });
+    el.querySelectorAll("[data-plano-del]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        equipPlanosRascunho.splice(parseInt(b.getAttribute("data-plano-del"), 10), 1);
+        renderPlanosEquip_();
+      });
+    });
+  }
+  // Equipamento novo: ao escolher o tipo, copia as manutenções de outro do
+  // mesmo tipo (cadastrar 20 RTU não pode dar trabalho), ou sugere a mais comum.
+  function aoMudarTipoEquip_() {
+    if (editingEquipId) return;
+    var vazio = equipPlanosRascunho.every(function (p) { return !String(p.nome).trim() && !String(p.cada).trim(); });
+    var tipo = document.getElementById("equip-tipo").value.trim().toLowerCase();
+    if (!vazio || !tipo) return;
+    var modelo = equipRecords.filter(function (e) { return String(e.tipo).trim().toLowerCase() === tipo && e.planos && e.planos.length; }).pop();
+    var dica = "";
+    if (modelo) {
+      equipPlanosRascunho = modelo.planos.map(function (p) {
+        return { id: uid(), nome: p.nome || "", cada: p.cada ? String(p.cada) : "", unidade: p.unidade || "meses", novo: true, ultima: "" };
+      });
+      dica = "Mesmas manutenções de " + modelo.nome + " - ajuste se precisar.";
+    } else if (SERVICO_SUGERIDO_POR_TIPO[tipo]) {
+      if (!equipPlanosRascunho.length) equipPlanosRascunho.push(planoVazioEquip_());
+      equipPlanosRascunho[0].nome = SERVICO_SUGERIDO_POR_TIPO[tipo];
+      dica = "Agora diz de quanto em quanto tempo é a " + SERVICO_SUGERIDO_POR_TIPO[tipo].toLowerCase() + ".";
+    }
+    document.getElementById("equip-dica").textContent = dica;
+    renderPlanosEquip_();
+  }
+  // "RTU 03" -> "RTU 04" (mantém os zeros); sem número no fim, fica em branco
+  function proximoNomeEquip_(nome) {
+    var m = /^(.*?)(\d+)\s*$/.exec(nome || "");
+    if (!m) return "";
+    var n = String(parseInt(m[2], 10) + 1);
+    while (n.length < m[2].length) n = "0" + n;
+    return m[1] + n;
+  }
+  function salvarEquip_(eProximo) {
+    var nome = document.getElementById("equip-nome").value.trim();
+    var tipo = document.getElementById("equip-tipo").value.trim();
+    var local = document.getElementById("equip-local").value.trim();
+    var bomba = document.getElementById("equip-bomba").value;
+    var obs = document.getElementById("equip-obs").value.trim();
+    if (!nome) { showToast("Dá um nome pro equipamento (ex.: RTU 03)."); return; }
+    var planos = [], ultimas = [];
+    for (var i = 0; i < equipPlanosRascunho.length; i++) {
+      var p = equipPlanosRascunho[i];
+      var pNome = String(p.nome || "").trim(), cada = parseInt(p.cada, 10);
+      if (!pNome && !String(p.cada || "").trim()) continue;   // linha em branco
+      if (!pNome || !(cada > 0)) { showToast("Completa a manutenção: o que fazer e a cada quanto."); return; }
+      if (p.unidade === "horas" && !bomba) { showToast("\"Horas de bomba\" só vale pra bomba do Bombeamento - escolha a bomba ou troque pra dias/meses."); return; }
+      planos.push({ id: p.id || uid(), nome: pNome, cada: cada, unidade: p.unidade || "meses" });
+      if (p.novo && p.ultima) ultimas.push({ planoId: planos[planos.length - 1].id, servico: pNome, data: p.ultima });
+    }
+    var repetido = equipRecords.some(function (e) { return e.id !== editingEquipId && e.nome.trim().toLowerCase() === nome.toLowerCase(); });
+    if (repetido && !confirm("Já tem um equipamento chamado \"" + nome + "\". Salvar mesmo assim?")) return;
+    var id = editingEquipId || uid(), novo = !editingEquipId;
+    if (!salvarEquipFirestore_("equipamentos", id, {
+      nome: nome, tipo: tipo, local: local, bomba: bomba, planos: planos, observacao: obs, excluido: false
+    }, novo)) return;
+    // "última vez (se souber)": vira o primeiro registro do histórico
+    ultimas.forEach(function (u) {
+      salvarEquipFirestore_("equipamentos_manut", uid(), {
+        equipamentoId: id, planoId: u.planoId, servico: u.servico, data: u.data, responsavel: "",
+        observacao: "Última vez antes de começar a usar o app", foto: "", excluido: false
+      }, true);
+    });
+    showToast(novo ? "Equipamento cadastrado." : "Equipamento atualizado.");
+    if (eProximo) {
+      abrirModalEquip_(null, {
+        nome: proximoNomeEquip_(nome), tipo: tipo,
+        planos: equipPlanosRascunho.filter(function (x) { return String(x.nome || "").trim(); }),
+        dica: "Mesmas manutenções de " + nome + " - ajuste se precisar."
+      });
+      return;
+    }
+    fecharModalEquip_();
+  }
+  function excluirEquip_() {
+    var eq = equipPorId_(editingEquipId);
+    if (!eq) return;
+    if (!confirm("Excluir " + eq.nome + "? Ele e o histórico de manutenções dele saem da lista.")) return;
+    if (!salvarEquipFirestore_("equipamentos", eq.id, { excluido: true }, false)) return;
+    showToast("Equipamento excluído.");
+    fecharModalEquip_();
+  }
+  function renderHistoricoEquip_() {
+    var el = document.getElementById("equip-historico");
+    var eq = equipPorId_(editingEquipId);
+    if (!eq) { el.innerHTML = ""; return; }
+    var hist = equipManutRecords.filter(function (m) { return m.equipamentoId === eq.id; });
+    var h = '<div style="border-top:1px dashed #D2C7AB;margin-top:16px;padding-top:12px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">' +
+        '<span class="field-label">Histórico (' + hist.length + ')</span>' +
+        '<button type="button" class="del-btn" id="btn-equip-hist-registrar" style="border:1px solid #4C7C59;border-radius:6px;padding:5px 9px;font-size:12px;color:#2F6B1F;background:#FFFDF8;font-weight:700;">✅ Registrar</button>' +
+      '</div>';
+    if (!hist.length) h += '<div style="font-size:12px;color:#8A8072;">Nenhuma manutenção registrada ainda.</div>';
+    hist.forEach(function (m) { h += linhaManutEquipHtml_(m, false); });
+    el.innerHTML = h + '</div>';
+    document.getElementById("btn-equip-hist-registrar").addEventListener("click", function () { abrirModalEquipManut_({ equipId: eq.id }); });
+    ligarEditarManutEquip_(el);
+  }
+
+  // ---- janela de registrar a manutenção feita ----
+  function preencherPlanosManutEquip_(planoId, servicoAntigo) {
+    var eq = equipPorId_(document.getElementById("equip-manut-equip").value);
+    var planos = eq ? eq.planos || [] : [];
+    var sel = document.getElementById("equip-manut-plano");
+    var existe = planos.some(function (p) { return p.id === planoId; });
+    sel.innerHTML = planos.map(function (p) {
+      return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.nome + " (" + cadaTxtEquip_(p) + ")") + '</option>';
+    }).join("") +
+      // registro antigo de uma manutenção que saiu do cadastro: não troca por outra sem querer
+      (planoId && planoId !== "__outro" && !existe ? '<option value="' + escapeHtml(planoId) + '">' + escapeHtml((servicoAntigo || "Serviço") + " (saiu do cadastro)") + '</option>' : '') +
+      '<option value="__outro">Outro serviço (conserto, troca avulsa...)</option>';
+    sel.value = planoId || "";
+    if (!sel.value) sel.value = planos.length ? planos[0].id : "__outro";   // sem escolha (ou de outro equipamento): a primeira
+    atualizarOutroEquip_();
+  }
+  function atualizarOutroEquip_() {
+    var outro = document.getElementById("equip-manut-plano").value === "__outro";
+    document.getElementById("equip-manut-outro-wrap").style.display = outro ? "" : "none";
+  }
+  function abrirModalEquipManut_(o) {
+    o = o || {};
+    var rec = o.editId ? equipManutRecords.find(function (m) { return m.id === o.editId; }) : null;
+    editingEquipManutId = rec ? rec.id : null;
+    var equipId = rec ? rec.equipamentoId : (o.equipId || (equipRecords[0] && equipRecords[0].id) || "");
+    var sel = document.getElementById("equip-manut-equip");
+    sel.innerHTML = equipRecords.map(function (e) {
+      return '<option value="' + escapeHtml(e.id) + '">' + escapeHtml(e.nome + (e.tipo ? " (" + e.tipo + ")" : "")) + '</option>';
+    }).join("") + (equipId && !equipPorId_(equipId) ? '<option value="' + escapeHtml(equipId) + '">(equipamento excluído)</option>' : '');
+    sel.value = equipId;
+    preencherPlanosManutEquip_(rec ? (rec.planoId || "__outro") : (o.planoId || ""), rec ? rec.servico : "");
+    document.getElementById("equip-manut-outro").value = rec && !rec.planoId ? rec.servico : "";
+    document.getElementById("equip-manut-data").value = rec ? rec.data : todayStr();
+    document.getElementById("equip-manut-quem").value = rec ? rec.responsavel : ((typeof operadorDispositivo !== "undefined" && operadorDispositivo.nome) || "");
+    document.getElementById("equip-manut-obs").value = rec ? rec.observacao : "";
+    pendingFotoEquipManut = rec && rec.foto ? rec.foto : null;
+    renderFotoEquipManut_();
+    document.getElementById("equip-manut-title").textContent = rec ? "Corrigir Manutenção" : "✅ Registrar Manutenção";
+    document.getElementById("btn-del-equip-manut").style.display = rec ? "" : "none";
+    atualizarPreviaEquipManut_();
+    document.getElementById("modal-equip-manut-overlay").classList.add("active");
+  }
+  function fecharModalEquipManut_() {
+    document.getElementById("modal-equip-manut-overlay").classList.remove("active");
+    editingEquipManutId = null;
+    // a janela do equipamento pode estar aberta por baixo: atualiza o histórico dela
+    if (telaAtiva_("modal-equip-overlay")) renderHistoricoEquip_(); else equipMudou_();
+  }
+  function atualizarPreviaEquipManut_() {
+    var el = document.getElementById("equip-manut-previa");
+    var eq = equipPorId_(document.getElementById("equip-manut-equip").value);
+    var planoId = document.getElementById("equip-manut-plano").value;
+    var p = eq ? (eq.planos || []).find(function (x) { return x.id === planoId; }) : null;
+    var data = parseISODate(document.getElementById("equip-manut-data").value);
+    if (!p || !data) { el.innerHTML = ""; return; }
+    var cada = parseFloat(p.cada) || 0, txt;
+    if (p.unidade === "horas") {
+      var media = horasPorDiaBomba_(parseInt(eq.bomba, 10) || 0);
+      txt = "A próxima " + p.nome.toLowerCase() + " fica pra depois de " + horasTxtEquip_(cada) + " h rodadas" +
+        (media > 0 ? " (~" + fmtDateUTC(addDaysUTC(data, Math.round(cada / media))) + ", no ritmo dos últimos 30 dias)" : "") + ".";
+    } else {
+      var prox = p.unidade === "meses" ? addMesesUTC_(data, cada) : addDaysUTC(data, Math.round(cada));
+      txt = "Próxima " + p.nome.toLowerCase() + ": " + fmtDateUTC(prox) + " (" + cadaTxtEquip_(p) + ").";
+    }
+    el.innerHTML = '<div style="background:#EEF5EA;border-radius:4px;padding:8px 10px;">📅 ' + escapeHtml(txt) + '</div>';
+  }
+  function renderFotoEquipManut_() {
+    var el = document.getElementById("equip-manut-foto-preview");
+    el.innerHTML = pendingFotoEquipManut
+      ? '<div class="photo-preview-wrap" style="display:inline-block;"><img src="' + escapeHtml(urlFoto_(pendingFotoEquipManut)) + '" alt="Foto" style="width:70px;height:70px;object-fit:cover;border-radius:4px;border:1px solid #DCD3BC;display:block;">' +
+        '<button type="button" class="photo-remove-btn" id="btn-equip-manut-foto-tirar" style="top:2px;right:2px;padding:2px 6px;">✕</button></div>'
+      : "";
+    var b = document.getElementById("btn-equip-manut-foto-tirar");
+    if (b) b.addEventListener("click", function () { pendingFotoEquipManut = null; renderFotoEquipManut_(); });
+  }
+  function salvarEquipManut_() {
+    var equipId = document.getElementById("equip-manut-equip").value;
+    var eq = equipPorId_(equipId);
+    var planoId = document.getElementById("equip-manut-plano").value;
+    var outro = planoId === "__outro";
+    var rec = editingEquipManutId ? equipManutRecords.find(function (m) { return m.id === editingEquipManutId; }) : null;
+    var servico;
+    if (outro) {
+      servico = document.getElementById("equip-manut-outro").value.trim();
+    } else {
+      var p = eq ? (eq.planos || []).find(function (x) { return x.id === planoId; }) : null;
+      servico = p ? p.nome : (rec ? rec.servico : "");
+    }
+    var data = document.getElementById("equip-manut-data").value;
+    if (!equipId) { showToast("Escolha o equipamento."); return; }
+    if (!servico) { showToast("Diga o que foi feito."); return; }
+    if (!data) { showToast("Escolha a data."); return; }
+    var campos = {
+      equipamentoId: equipId, planoId: outro ? "" : planoId, servico: servico, data: data,
+      responsavel: document.getElementById("equip-manut-quem").value.trim(),
+      observacao: document.getElementById("equip-manut-obs").value.trim(),
+      foto: pendingFotoEquipManut || "", excluido: false
+    };
+    var novo = !editingEquipManutId;
+    if (!salvarEquipFirestore_("equipamentos_manut", editingEquipManutId || uid(), campos, novo)) return;
+    if (ehBase64_(campos.foto)) agendarReenvioFotos_();   // a foto sobe pro Drive depois, sozinha
+    fecharModalEquipManut_();
+    showToast(novo ? "Manutenção registrada." : "Manutenção corrigida.");
+  }
+  function excluirEquipManut_() {
+    if (!editingEquipManutId || !confirm("Excluir esse registro de manutenção?")) return;
+    if (!salvarEquipFirestore_("equipamentos_manut", editingEquipManutId, { excluido: true }, false)) return;
+    fecharModalEquipManut_();
+    showToast("Registro excluído.");
+  }
+  // ================= FIM EQUIPAMENTOS =================
 
   // ================= PRESSÃO: HISTÓRICO DE LEITURAS (v130) =================
   // Antes o cartão só mostrava a última leitura e o botão que aparecia era
@@ -9528,7 +10311,7 @@
       (temCorrecoes ? '<button class="photo-btn" id="btn-corrigir-bomb-2109" style="background:#8A5A44;margin-top:10px;">🛠️ Aplicar correções do bombeamento (backup de 21/09)</button>' : '') +
       '<div style="border-top:1px solid #E4DCC8;margin:14px 0 12px;"></div>' +
       '<div style="font-size:13px;font-weight:700;color:#241F1A;margin-bottom:4px;">💾 Backup completo em Excel</div>' +
-      '<div class="modal-sub" style="margin-bottom:8px;">Baixa um arquivo com uma aba pra cada parte do app (Ocorrências, Bombeamento, Rondas, Manutenção, Gerador, Notas, Pressão, Escala) - tudo que está guardado no Firebase, pra você ter uma cópia fora do celular.</div>' +
+      '<div class="modal-sub" style="margin-bottom:8px;">Baixa um arquivo com uma aba pra cada parte do app (Ocorrências, Bombeamento, Rondas, Manutenção, Gerador, Notas, Pressão, Escala, Equipamentos) - tudo que está guardado no Firebase, pra você ter uma cópia fora do celular.</div>' +
       '<button class="save-btn" id="btn-exportar-tudo-excel" style="background:#4C6B2F;margin-top:0;">📥 Baixar Backup em Excel</button>' +
       '<div id="exportar-tudo-result" style="font-size:11.5px;color:#6B6153;margin-top:6px;"></div>' +
       '<button class="photo-btn" id="btn-bloquear-rel" style="background:#8A8072;margin-top:14px;">🔒 Bloquear novamente</button>' +
@@ -14775,6 +15558,8 @@
           iniciarListenerAlarmesDeif_();
           iniciarListenerGeradorAlarmes_();
           iniciarListenerOcorrencias_();
+          iniciarListenerEquipamentos_();
+          iniciarListenerEquipManut_();
           setTimeout(function () {
             registrarDispositivo_();
             tentarVirarEquipe_();
@@ -14966,6 +15751,42 @@
     document.getElementById("btn-rel-ger-whatsapp").addEventListener("click", compartilharRelGeradorImagem_);
     document.getElementById("btn-rel-ger-pdf").addEventListener("click", gerarRelGeradorPDF_);
     document.getElementById("btn-rel-ger-texto").addEventListener("click", enviarRelGeradorTexto_);
+    // (v135) Equipamentos
+    document.getElementById("btn-close-equip").addEventListener("click", fecharModalEquip_);
+    document.getElementById("modal-equip-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-equip-overlay") fecharModalEquip_();
+    });
+    document.getElementById("equip-tipo").addEventListener("change", aoMudarTipoEquip_);
+    document.getElementById("equip-bomba").addEventListener("change", renderPlanosEquip_);
+    document.getElementById("btn-equip-add-plano").addEventListener("click", function () {
+      equipPlanosRascunho.push(planoVazioEquip_());
+      renderPlanosEquip_();
+    });
+    document.getElementById("btn-save-equip").addEventListener("click", function () { salvarEquip_(false); });
+    document.getElementById("btn-save-equip-proximo").addEventListener("click", function () { salvarEquip_(true); });
+    document.getElementById("btn-del-equip").addEventListener("click", excluirEquip_);
+    document.getElementById("btn-close-equip-manut").addEventListener("click", fecharModalEquipManut_);
+    document.getElementById("modal-equip-manut-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-equip-manut-overlay") fecharModalEquipManut_();
+    });
+    document.getElementById("equip-manut-equip").addEventListener("change", function () { preencherPlanosManutEquip_(""); atualizarPreviaEquipManut_(); });
+    document.getElementById("equip-manut-plano").addEventListener("change", function () { atualizarOutroEquip_(); atualizarPreviaEquipManut_(); });
+    document.getElementById("equip-manut-data").addEventListener("change", atualizarPreviaEquipManut_);
+    document.getElementById("btn-equip-manut-camera").addEventListener("click", function () { document.getElementById("equip-manut-foto-camera").click(); });
+    document.getElementById("btn-equip-manut-galeria").addEventListener("click", function () { document.getElementById("equip-manut-foto-galeria").click(); });
+    var processarFotoEquipManut_ = function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      compressImage(file, 1000, 0.62, function (dataUrl) {
+        pendingFotoEquipManut = dataUrl;
+        renderFotoEquipManut_();
+        e.target.value = "";
+      });
+    };
+    document.getElementById("equip-manut-foto-camera").addEventListener("change", processarFotoEquipManut_);
+    document.getElementById("equip-manut-foto-galeria").addEventListener("change", processarFotoEquipManut_);
+    document.getElementById("btn-save-equip-manut").addEventListener("click", salvarEquipManut_);
+    document.getElementById("btn-del-equip-manut").addEventListener("click", excluirEquipManut_);
     document.getElementById("btn-tudo-ok").addEventListener("click", marcarTudoOk_);
     document.getElementById("btn-bomba-ant").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual - 1); });
     document.getElementById("btn-bomba-prox").addEventListener("click", function () { mostrarBombaPasso_(rondaBombaAtual + 1); });
