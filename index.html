@@ -524,7 +524,10 @@
 <div id="foto-lightbox" style="display:none;position:fixed;inset:0;background:rgba(20,25,20,.93);z-index:90;align-items:center;justify-content:center;flex-direction:column;padding:16px;">
   <img id="foto-lightbox-img" alt="Foto ampliada" style="max-width:100%;max-height:82vh;max-height:82dvh;border-radius:6px;">
   <div id="foto-lightbox-legenda" style="color:#D6E4C4;font-size:12.5px;margin-top:10px;text-align:center;"></div>
-  <button id="foto-lightbox-fechar" style="margin-top:14px;background:#F3EEE0;color:#241F1A;border:none;border-radius:20px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;">Fechar</button>
+  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center;">
+    <button id="foto-lightbox-mandar" style="display:none;background:#25A244;color:#fff;border:none;border-radius:20px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;">📤 Mandar esta foto</button>
+    <button id="foto-lightbox-fechar" style="background:#F3EEE0;color:#241F1A;border:none;border-radius:20px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;">Fechar</button>
+  </div>
 </div>
 
 </div>
@@ -768,7 +771,13 @@
     <button class="modal-close" id="btn-close-enviar">✕</button>
     <div class="modal-title">Enviar Ocorrência</div>
     <div class="modal-sub" id="enviar-resumo-ocorrencia">—</div>
-    <div class="field">
+    <!-- (v136) mandar direto, com as fotos anexadas, pra qualquer contato ou grupo -->
+    <div id="enviar-direto-wrap" style="display:none;margin-bottom:14px;">
+      <button class="save-btn" id="btn-enviar-direto" style="background:#25A244;margin-top:0;">📎 Mandar com as fotos</button>
+      <div id="enviar-direto-info" style="font-size:11px;color:#6B6153;margin-top:6px;line-height:1.4;"></div>
+      <div style="font-size:11px;color:#6B6153;text-align:center;margin-top:12px;border-top:1px dashed #D2C7AB;padding-top:10px;">ou mande pro responsável cadastrado:</div>
+    </div>
+    <div class="field" id="enviar-contatos-wrap">
       <span class="field-label">Quem recebe?</span>
       <div id="enviar-lista-contatos"></div>
     </div>
@@ -1373,7 +1382,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v135';
+  var APP_CACHE_NAME = 'registro-irrigacao-v136';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -1443,6 +1452,7 @@
   var records = [];
   var config = { url: "", token: "" };
   var pendingFotos = [];
+  var processandoFotosOcorrencia_ = false; // fotos escolhidas ainda sendo preparadas
   var confirmDelId = null;
   var syncing = false;
   var lastSyncAt = null;
@@ -2190,6 +2200,66 @@
     try { localStorage.setItem(FOTOS_ENVIADAS_KEY, JSON.stringify(m)); } catch (e) {}
   }
 
+  // (v136) CÓPIA DA FOTO NO CELULAR: quando a foto sobe pro Drive, o
+  // registro passa a guardar só o link. Pra mandar a foto anexada depois
+  // (WhatsApp), o app tinha que baixar ela de volta do Drive - e o Drive
+  // muitas vezes não deixa, ou a internet do campo não ajuda. Agora a foto
+  // tirada NESTE celular fica guardada aqui também (as últimas 150, uns
+  // 20 MB no máximo) e anexar é na hora, mesmo sem internet.
+  var FOTOS_LOCAIS_DB = "fotos_locais_v1", FOTOS_LOCAIS_STORE = "fotos", FOTOS_LOCAIS_MAX = 150;
+  var fotosLocaisDb_ = null;
+  function abrirFotosLocais_() {
+    if (!fotosLocaisDb_) {
+      fotosLocaisDb_ = new Promise(function (ok, falha) {
+        if (!window.indexedDB) { falha(new Error("sem IndexedDB")); return; }
+        var req = indexedDB.open(FOTOS_LOCAIS_DB, 1);
+        req.onupgradeneeded = function () {
+          req.result.createObjectStore(FOTOS_LOCAIS_STORE, { keyPath: "k" }).createIndex("t", "t");
+        };
+        req.onsuccess = function () { ok(req.result); };
+        req.onerror = function () { falha(req.error); };
+      });
+      fotosLocaisDb_.catch(function () { fotosLocaisDb_ = null; }); // tenta abrir de novo na próxima
+    }
+    return fotosLocaisDb_;
+  }
+  // O mesmo arquivo do Drive aparece com endereços diferentes (uc?id=,
+  // thumbnail?id=, /d/...): a chave é o código do arquivo.
+  function idFotoDrive_(url) {
+    var s = String(url || "");
+    if (!/google/i.test(s)) return "";
+    var m = s.match(/[?&]id=([\w-]{10,})/) || s.match(/\/d\/([\w-]{10,})/);
+    return m ? m[1] : "";
+  }
+  function chaveFotoLocal_(url) { return idFotoDrive_(url) || String(url || ""); }
+  function guardarCopiaLocalFoto_(url, dataUrl) {
+    if (!url || !ehBase64_(dataUrl)) return;
+    abrirFotosLocais_().then(function (db) {
+      var tx = db.transaction(FOTOS_LOCAIS_STORE, "readwrite");
+      var st = tx.objectStore(FOTOS_LOCAIS_STORE);
+      st.put({ k: chaveFotoLocal_(url), d: dataUrl, t: Date.now() });
+      var qtd = st.count();
+      qtd.onsuccess = function () {
+        var sobra = qtd.result - FOTOS_LOCAIS_MAX;
+        if (sobra <= 0) return;
+        st.index("t").openCursor().onsuccess = function (ev) { // das mais antigas pras mais novas
+          var cur = ev.target.result;
+          if (!cur || sobra <= 0) return;
+          cur["delete"](); sobra--; cur["continue"]();
+        };
+      };
+    }).catch(function (err) { console.warn("[fotos] não guardei a cópia no celular:", err); });
+  }
+  function copiaLocalFoto_(url) {
+    return abrirFotosLocais_().then(function (db) {
+      return new Promise(function (ok) {
+        var req = db.transaction(FOTOS_LOCAIS_STORE, "readonly").objectStore(FOTOS_LOCAIS_STORE).get(chaveFotoLocal_(url));
+        req.onsuccess = function () { ok((req.result && req.result.d) || ""); };
+        req.onerror = function () { ok(""); };
+      });
+    })["catch"](function () { return ""; });
+  }
+
   // Grava os links das fotos de UM registro (só as que já têm link).
   function gravarLinksDoRegistro_(fonte, r, links) {
     var pend = fotosPendentesDoRegistro_(fonte, r).map(function (p) { p.url = links[chaveFoto_(p.foto)] || ""; return p; })
@@ -2282,7 +2352,7 @@
         if (!navigator.onLine) return; // internet caiu no meio - o resto fica pra próxima
         return postToBackend({ token: config.token, action: "upload_fotos_ocorrencia", fotos: [f.foto], id: uid() }).then(function (res) {
           var u = res && res.ok && res.urls && res.urls[0];
-          if (typeof u === "string" && /^https?:\/\//.test(u)) { links[f.k] = u; lembrarFotoEnviada_(f.k, u); ultimoErroFoto_ = ""; }
+          if (typeof u === "string" && /^https?:\/\//.test(u)) { links[f.k] = u; lembrarFotoEnviada_(f.k, u); guardarCopiaLocalFoto_(u, f.foto); ultimoErroFoto_ = ""; }
           else anotarErroFoto_((res && res.error) || "o servidor não devolveu o link da foto");
         }).catch(function (err) {
           anotarErroFoto_(err && err.message);
@@ -3977,11 +4047,21 @@
     showToast("Fundo removido.");
   }
 
-  function compressImage(file, maxW, quality, cb) {
-    var reader = new FileReader();
-    reader.onload = function () {
-      var img = new Image();
-      img.onload = function () {
+  // onErro (opcional) é chamado quando a foto não abre - sem ele, só avisa.
+  // (v136) Abre a foto direto do arquivo (URL.createObjectURL) em vez de
+  // transformar a foto inteira em texto antes (FileReader): uma foto de
+  // 12 MP virava uns 7 MB de texto, e várias de uma vez faziam celular
+  // fraco travar ou recarregar o app no meio.
+  function compressImage(file, maxW, quality, cb, onErro) {
+    var endereco = null;
+    function falhou(msg) {
+      if (endereco) { try { URL.revokeObjectURL(endereco); } catch (e) {} }
+      if (onErro) onErro(msg); else showToast(msg);
+    }
+    try { endereco = URL.createObjectURL(file); } catch (e) { falhou("Não consegui ler o arquivo."); return; }
+    var img = new Image();
+    img.onload = function () {
+      try {
         var scale = Math.min(1, maxW / img.width);
         var w = Math.round(img.width * scale);
         var h = Math.round(img.height * scale);
@@ -3989,13 +4069,18 @@
         canvas.width = w; canvas.height = h;
         var ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, w, h);
-        cb(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = function () { showToast("Não consegui carregar a imagem."); };
-      img.src = reader.result;
+        var dataUrl = canvas.toDataURL("image/jpeg", quality);
+        canvas.width = canvas.height = 0; // devolve a memória já (iPhone segura)
+        URL.revokeObjectURL(endereco);
+        cb(dataUrl);
+      } catch (e) {
+        falhou("Não consegui preparar a foto (memória do celular cheia?).");
+      }
     };
-    reader.onerror = function () { showToast("Não consegui ler o arquivo."); };
-    reader.readAsDataURL(file);
+    img.onerror = function () {
+      falhou("Não consegui abrir essa foto - o formato pode não ser aceito (ex.: HEIC). Tenta outra, ou tira pela câmera do app.");
+    };
+    img.src = endereco;
   }
 
   // Um campo só aparece quando faz sentido: "qual operação causou" só serve
@@ -4159,16 +4244,189 @@
     if (!html) html = '<div style="font-size:12px;color:#B4442E;">Nenhum contato cadastrado ainda - configure em ⚙️ Configurações → Contatos para Avisar.</div>';
     document.getElementById("enviar-lista-contatos").innerHTML = html;
     document.getElementById("enviar-lista-contatos").style.display = "";
+    document.getElementById("enviar-contatos-wrap").style.display = "";
     document.getElementById("enviar-canal-wrap").style.display = "";
     document.getElementById("btn-confirmar-enviar").style.display = "";
     document.getElementById("enviar-result").style.display = "none";
+
+    // (v136) "Mandar com as fotos" direto, sem precisar escolher responsável
+    // cadastrado: abre o compartilhar do celular e a pessoa escolhe o
+    // contato ou grupo. As fotos já começam a ser preparadas agora.
+    var wrapDireto = document.getElementById("enviar-direto-wrap");
+    if (navigator.share) {
+      var nFotos = fotosDaOcorrencia_(r).length;
+      var btnDireto = document.getElementById("btn-enviar-direto");
+      btnDireto.disabled = false;
+      btnDireto.textContent = textoBotaoMandarDireto_(r);
+      document.getElementById("enviar-direto-info").textContent =
+        "Abre o compartilhar do celular" + (nFotos ? " com " + (nFotos === 1 ? "a foto anexada" : "as " + nFotos + " fotos anexadas") : "") +
+        " - você escolhe o contato ou grupo do WhatsApp (ou outro app). Não precisa ter contato cadastrado.";
+      wrapDireto.style.display = "";
+      prepararEnvioFotos_(r);
+    } else {
+      wrapDireto.style.display = "none";
+    }
     document.getElementById("modal-enviar-overlay").classList.add("active");
   }
   function fecharModalEnviarOcorrencia_() {
     document.getElementById("modal-enviar-overlay").classList.remove("active");
     enviarOcorrenciaAtualId = null;
+    envioFotos_ = null; // solta as fotos preparadas (memória)
   }
   var URL_BASE_APP = "https://fernandofckc-del.github.io/Registros-de-ocorrencia/";
+  function textoEnvioOcorrencia_(r) {
+    // UM link só - o da página que mostra a ocorrência com as fotos já
+    // abertas na tela (texto longo + um link por foto travava o WhatsApp
+    // em celulares mais fracos).
+    var linkPagina = URL_BASE_APP + "visualizar-ocorrencia.html?id=" + encodeURIComponent(r.id);
+    return "🌱 Nova ocorrência: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + " - " + r.tipo + "\n" +
+      "Veja os detalhes e as fotos aqui:\n" + linkPagina;
+  }
+  function fotosDaOcorrencia_(r) {
+    return (r.fotos || []).filter(function (f) { return !!f; });
+  }
+  function textoBotaoMandarDireto_(r) {
+    var n = fotosDaOcorrencia_(r).length;
+    if (!n) return "📤 Mandar pelo WhatsApp";
+    return n === 1 ? "📎 Mandar com a foto" : "📎 Mandar com as " + n + " fotos";
+  }
+
+  // ================= (v136) MANDAR COM AS FOTOS ANEXADAS =================
+  // O "compartilhar" do celular só abre se for chamado logo depois do toque
+  // no botão. Antes, o app só começava a buscar as fotos DEPOIS do toque
+  // (baixando do Drive) e, com a internet fraca do campo, passava desse
+  // tempo: dava erro ou não abria nada. Agora as fotos viram arquivo assim
+  // que a janela abre. Se ainda não ficaram prontas quando a pessoa toca, o
+  // botão mostra "Fotos prontas - toque pra mandar" e o toque seguinte abre.
+  var envioFotos_ = null; // fotos preparadas da janela "Enviar Ocorrência"
+  function prepararArquivosDeFotos_(fotos, nomeBase) {
+    var est = { pronto: false, arquivos: [], faltaram: 0, total: fotos.length };
+    est.promessa = Promise.all(fotos.map(function (f, i) {
+      return arquivoDeFoto_(f, nomeBase + (fotos.length > 1 ? (i + 1) : "") + ".jpg");
+    })).then(function (lista) {
+      est.arquivos = lista.filter(Boolean);
+      est.faltaram = lista.length - est.arquivos.length;
+      est.pronto = true;
+      return est;
+    });
+    return est;
+  }
+  function prepararEnvioFotos_(r) {
+    var est = prepararArquivosDeFotos_(fotosDaOcorrencia_(r), "ocorrencia_foto");
+    est.id = r.id;
+    envioFotos_ = est;
+    return est;
+  }
+  // Foto -> arquivo pra anexar. Nunca falha: devolve null se não conseguiu.
+  // 1) foto que ainda não subiu (está dentro do registro): vira arquivo na hora;
+  // 2) foto que já subiu: usa a cópia guardada neste celular, se tiver;
+  // 3) senão, baixa do Drive.
+  function arquivoDeFoto_(f, nome) {
+    function arquivo(blob) { return new File([blob], nome, { type: blob.type || "image/jpeg" }); }
+    if (ehBase64_(f)) {
+      try { return Promise.resolve(arquivo(blobDeDataUrl_(f))); }
+      catch (errB64) {
+        console.error("[fotos] foto do celular com defeito:", errB64);
+        return Promise.resolve(null);
+      }
+    }
+    return copiaLocalFoto_(f).then(function (dataUrl) {
+      if (dataUrl) return arquivo(blobDeDataUrl_(dataUrl));
+      return baixarFotoDrive_(f).then(arquivo);
+    }).catch(function (err) {
+      console.error("[fotos] não consegui pegar a foto pra anexar:", f, err);
+      return null;
+    });
+  }
+  function buscarComPrazo_(url, ms) {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var t = ctrl ? setTimeout(function () { ctrl.abort(); }, ms) : null;
+    return fetch(url, ctrl ? { signal: ctrl.signal } : {}).then(function (resp) {
+      if (t) clearTimeout(t);
+      return resp;
+    }, function (err) {
+      if (t) clearTimeout(t);
+      throw err;
+    });
+  }
+  // Tenta o endereço que o app usa pra mostrar a foto e, se não der, o
+  // endereço direto da imagem no Google (lh3), que costuma deixar baixar.
+  function baixarFotoDrive_(f) {
+    var id = idFotoDrive_(f);
+    var enderecos = [urlFoto_(f)];
+    if (id) enderecos.push("https://lh3.googleusercontent.com/d/" + id + "=w1600");
+    return enderecos.reduce(function (cadeia, url) {
+      return cadeia.catch(function () {
+        return buscarComPrazo_(url, 20000).then(function (resp) {
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          return resp.blob();
+        }).then(function (blob) {
+          // o Drive às vezes devolve uma página (login/erro) em vez da imagem
+          if (!blob || !blob.size || (blob.type && blob.type.indexOf("image/") !== 0)) throw new Error("não veio imagem");
+          return blob;
+        });
+      });
+    }, Promise.reject(new Error("início")));
+  }
+  function compartilharOcorrenciaComFotos_(r, btn, textoBtn) {
+    var est = (envioFotos_ && envioFotos_.id === r.id) ? envioFotos_ : prepararEnvioFotos_(r);
+    compartilharArquivosNoToque_(est, btn, textoBtn,
+      { title: "Ocorrência", text: textoEnvioOcorrencia_(r) },
+      { soTextoSemFoto: true, aindaValido: function () { return envioFotos_ === est; } });
+  }
+  // Abre o compartilhar com os arquivos já preparados. Tem que ser chamado
+  // direto no toque do botão.
+  //   est: o que prepararArquivosDeFotos_ devolveu
+  //   dados: { title, text }
+  //   opcoes.soTextoSemFoto: sem nenhuma foto, manda só o texto (o link)
+  //   opcoes.aindaValido: função - false se a janela fechou/mudou no meio
+  function compartilharArquivosNoToque_(est, btn, textoBtn, dados, opcoes) {
+    opcoes = opcoes || {};
+    function voltar() { btn.disabled = false; btn.textContent = textoBtn; }
+    if (!est.pronto) {
+      btn.disabled = true;
+      btn.textContent = "⏳ Preparando " + (est.total === 1 ? "a foto" : "as fotos") + "...";
+      est.promessa.then(function () {
+        if (opcoes.aindaValido && !opcoes.aindaValido()) return;
+        btn.disabled = false;
+        btn.textContent = "✅ " + (est.total === 1 ? "Foto pronta" : "Fotos prontas") + " - toque pra mandar";
+      });
+      return;
+    }
+    var umaSo = est.total === 1;
+    var envio = null, aviso = "";
+    if (est.arquivos.length) {
+      var comFotos = { files: est.arquivos, title: dados.title, text: dados.text };
+      var aceita;
+      try { aceita = !navigator.canShare || navigator.canShare(comFotos); } catch (e) { aceita = false; }
+      if (aceita) {
+        envio = comFotos;
+        if (est.faltaram) aviso = est.faltaram + (est.faltaram === 1 ? " foto não veio - ela abre pelo link." : " fotos não vieram - elas abrem pelo link.");
+      } else {
+        aviso = "O celular não deixou anexar " + (umaSo ? "a foto" : "as fotos");
+      }
+    } else if (est.total) {
+      aviso = "Não consegui pegar " + (umaSo ? "a foto" : "as fotos") + " (sem internet?)";
+    }
+    if (!envio) {
+      if (est.total && !opcoes.soTextoSemFoto) { showToast(aviso + "."); voltar(); return; }
+      envio = { title: dados.title, text: dados.text };
+      if (aviso) aviso += " - vai só o link, e " + (umaSo ? "ela abre" : "elas abrem") + " nele.";
+    }
+    if (aviso) showToast(aviso);
+    btn.disabled = true;
+    btn.textContent = "Abrindo...";
+    navigator.share(envio).then(voltar, function (err) {
+      if (err && err.name === "NotAllowedError") {
+        // passou o tempo do toque - o próximo toque abre
+        btn.disabled = false;
+        btn.textContent = "👆 Toque de novo pra mandar";
+        return;
+      }
+      if (err && err.name !== "AbortError") showToast("Não consegui abrir o compartilhar: " + err.message);
+      voltar();
+    });
+  }
   function confirmarEnvioOcorrencia_() {
     var r = records.find(function (x) { return x.id === enviarOcorrenciaAtualId; });
     if (!r) return;
@@ -4211,13 +4469,8 @@
           avisos.map(escapeHtml).join("<br>") + '</div>'
       : "";
 
-    // Em vez de colar o texto todo + um link por foto na mensagem (o que
-    // ficava grande e travava o WhatsApp em celulares mais fracos), manda
-    // UM link só - o da página que mostra a ocorrência com as fotos já
-    // abertas na tela, sem precisar clicar foto por foto.
     var linkPagina = URL_BASE_APP + "visualizar-ocorrencia.html?id=" + encodeURIComponent(r.id);
-    var textoMsg = "🌱 Nova ocorrência: " + r.setor + (r.cultura ? " (" + r.cultura + ")" : "") + " - " + r.tipo + "\n" +
-      "Veja os detalhes e as fotos aqui:\n" + linkPagina;
+    var textoMsg = textoEnvioOcorrencia_(r);
 
     // Em vez de abrir tudo de uma vez (o celular trava/bloqueia quando o
     // app tenta abrir várias janelas sozinho), monta um botão pra CADA
@@ -4247,7 +4500,8 @@
       return;
     }
 
-    document.getElementById("enviar-lista-contatos").style.display = "none";
+    document.getElementById("enviar-direto-wrap").style.display = "none";
+    document.getElementById("enviar-contatos-wrap").style.display = "none";
     document.getElementById("enviar-canal-wrap").style.display = "none";
     document.getElementById("btn-confirmar-enviar").style.display = "none";
     resultEl.className = "test-result ok";
@@ -4300,58 +4554,9 @@
 
     var btnAnexar = document.getElementById("btn-anexar-fotos-verdade");
     if (btnAnexar) {
-      var voltarBtnAnexar = function () {
-        btnAnexar.disabled = false; btnAnexar.textContent = "📎 Compartilhar com as Fotos de Verdade Anexadas";
-      };
+      var textoBtnAnexar = btnAnexar.textContent;
       btnAnexar.addEventListener("click", function () {
-        btnAnexar.disabled = true;
-        btnAnexar.textContent = "Preparando fotos...";
-        // A foto que ainda está só no celular (base64) vira arquivo na hora,
-        // sem internet; a que já está no Drive é baixada. Se uma não baixar,
-        // as outras vão assim mesmo (antes uma falha cancelava todas).
-        Promise.all(todasFotos.map(function (f, i) {
-          var nome = "ocorrencia_foto" + (i + 1) + ".jpg";
-          if (ehBase64_(f)) {
-            try {
-              var b = blobDeDataUrl_(f);
-              return Promise.resolve(new File([b], nome, { type: b.type }));
-            } catch (errB64) {
-              console.error("[enviar ocorrência] foto " + (i + 1) + " do celular com defeito:", errB64);
-              return Promise.resolve(null);
-            }
-          }
-          return fetch(urlFoto_(f)).then(function (resp) {
-            if (!resp.ok) throw new Error("HTTP " + resp.status);
-            return resp.blob();
-          }).then(function (blob) {
-            return new File([blob], nome, { type: blob.type || "image/jpeg" });
-          }).catch(function (err) {
-            console.error("[enviar ocorrência] não consegui baixar a foto " + (i + 1) + " pra anexar:", err);
-            return null;
-          });
-        })).then(function (lista) {
-          var arquivos = lista.filter(Boolean);
-          if (!arquivos.length) {
-            showToast("Não consegui baixar as fotos pra anexar - tenta pelo link, ou confere a internet.");
-            voltarBtnAnexar();
-            return;
-          }
-          var dadosShare = { files: arquivos, text: textoMsg, title: "Ocorrência Operacional" };
-          if (navigator.canShare && !navigator.canShare(dadosShare)) {
-            showToast("O celular não aceitou anexar essas fotos - tenta pelo link do WhatsApp.");
-            voltarBtnAnexar();
-            return;
-          }
-          var faltaram = lista.length - arquivos.length;
-          if (faltaram) showToast(faltaram + (faltaram === 1 ? " foto não baixou - ela vai só pelo link." : " fotos não baixaram - elas vão só pelo link."));
-          return navigator.share(dadosShare).catch(function (err) {
-            if (err && err.name !== "AbortError") showToast("Não consegui abrir o compartilhar: " + err.message);
-          }).finally(voltarBtnAnexar);
-        }).catch(function (err) {
-          console.error("[enviar ocorrência] erro ao preparar o compartilhar:", err);
-          showToast("Não consegui preparar as fotos - tenta pelo link do WhatsApp.");
-          voltarBtnAnexar();
-        });
+        compartilharOcorrenciaComFotos_(r, btnAnexar, textoBtnAnexar);
       });
     }
   }
@@ -4946,7 +5151,8 @@
           '<div class="tag-footer">' +
             '<span class="tag-enc">' + escapeHtml(r.encarregado) + '</span>' +
             '<span style="display:flex;gap:10px;align-items:center;">' +
-              (r.causa === "Operacional" ? '<button class="del-btn" data-enviar="' + r.id + '" title="Enviar pro responsável" style="color:#2F6B1F;">📤 Enviar</button>' : '') +
+              // (v136) em todas as ocorrências, não só nas de causa "Operacional"
+              '<button class="del-btn" data-enviar="' + r.id + '" title="Enviar (WhatsApp, com as fotos)" style="color:#2F6B1F;">📤 Enviar</button>' +
               '<button class="del-btn" data-edit="' + r.id + '" title="Editar">✏️</button>' +
               '<button class="del-btn" data-del="' + r.id + '" title="Excluir (admin)">🗑</button>' +
             '</span>' +
@@ -12157,14 +12363,36 @@
   }
   // ================= FIM RELATÓRIO DO GERADOR =================
 
+  // (v136) "Mandar esta foto": a foto já começa a ser preparada quando abre
+  // (ver compartilharArquivosNoToque_), pro compartilhar abrir no toque.
+  var fotoAmpliada_ = null; // { est, legenda }
+  var TEXTO_BTN_MANDAR_FOTO = "📤 Mandar esta foto";
   function abrirFotoAmpliada_(url, legenda) {
     document.getElementById("foto-lightbox-img").src = url;
     document.getElementById("foto-lightbox-legenda").textContent = legenda || "";
+    var btnMandar = document.getElementById("foto-lightbox-mandar");
+    if (navigator.share && url) {
+      fotoAmpliada_ = { est: prepararArquivosDeFotos_([url], "foto"), legenda: legenda || "" };
+      btnMandar.disabled = false;
+      btnMandar.textContent = TEXTO_BTN_MANDAR_FOTO;
+      btnMandar.style.display = "";
+    } else {
+      fotoAmpliada_ = null;
+      btnMandar.style.display = "none";
+    }
     document.getElementById("foto-lightbox").style.display = "flex";
   }
   function fecharFotoAmpliada_() {
     document.getElementById("foto-lightbox").style.display = "none";
     document.getElementById("foto-lightbox-img").src = "";
+    fotoAmpliada_ = null;
+  }
+  function mandarFotoAmpliada_() {
+    var atual = fotoAmpliada_;
+    if (!atual) return;
+    compartilharArquivosNoToque_(atual.est, document.getElementById("foto-lightbox-mandar"), TEXTO_BTN_MANDAR_FOTO,
+      { title: "Foto", text: atual.legenda },
+      { aindaValido: function () { return fotoAmpliada_ === atual; } });
   }
 
   function rotuloOperador_() {
@@ -14526,6 +14754,7 @@
   var salvandoOcorrencia = false;
   function handleSave() {
     if (salvandoOcorrencia) return; // já está salvando - ignora toques repetidos
+    if (processandoFotosOcorrencia_) { showToast("Espera as fotos terminarem de carregar."); return; }
     var cultura = document.getElementById("f-cultura").value;
     var setor = document.getElementById("f-setor").value.trim();
     var data = document.getElementById("f-data").value || todayStr();
@@ -15638,31 +15867,50 @@
     });
     // Mesma lógica de processar arquivo pros dois botões - só muda de onde
     // o arquivo veio (câmera ou galeria).
+    // (v136) Antes, se UMA foto não abria (formato HEIC, por exemplo), os
+    // botões ficavam em "Processando..." pra sempre, as outras fotos não
+    // apareciam e escolher a mesma foto de novo não fazia nada. Agora: uma
+    // foto por vez (na ordem escolhida e sem estourar a memória), a que não
+    // abrir é pulada com aviso, e os botões sempre voltam.
     function processarArquivosFoto_(e) {
       var arquivos = e.target.files ? Array.prototype.slice.call(e.target.files) : [];
+      e.target.value = ""; // libera já: escolher a mesma foto de novo volta a funcionar
       if (!arquivos.length) return;
+      if (processandoFotosOcorrencia_) { showToast("Espera terminar as fotos que estão carregando."); return; }
       var vagas = MAX_FOTOS - pendingFotos.length;
       if (vagas <= 0) {
         showToast("Máximo de " + MAX_FOTOS + " fotos por ocorrência.");
-        e.target.value = "";
         return;
       }
       if (arquivos.length > vagas) {
         showToast("Só cabiam mais " + vagas + " foto(s) - o resto foi ignorado.");
         arquivos = arquivos.slice(0, vagas);
       }
-      document.getElementById("btn-foto-camera").textContent = "Processando...";
-      document.getElementById("btn-foto-galeria").textContent = "Processando...";
-      var restantes = arquivos.length;
-      arquivos.forEach(function (file) {
-        compressImage(file, 1000, 0.62, function (dataUrl) {
-          pendingFotos.push(dataUrl);
-          restantes--;
-          if (restantes === 0) {
-            renderFotoGallery();
-            e.target.value = "";
-          }
+      var btnCamera = document.getElementById("btn-foto-camera");
+      var btnGaleria = document.getElementById("btn-foto-galeria");
+      var total = arquivos.length, falhas = 0, ultimoErro = "";
+      processandoFotosOcorrencia_ = true;
+      btnCamera.disabled = btnGaleria.disabled = true;
+      arquivos.reduce(function (cadeia, file, i) {
+        return cadeia.then(function () {
+          btnCamera.textContent = btnGaleria.textContent = "Processando" + (total > 1 ? " " + (i + 1) + "/" + total : "") + "...";
+          return new Promise(function (pronto) {
+            compressImage(file, 1000, 0.62, function (dataUrl) {
+              if (pendingFotos.length < MAX_FOTOS) pendingFotos.push(dataUrl);
+              pronto();
+            }, function (msg) {
+              falhas++; ultimoErro = msg;
+              pronto();
+            });
+          });
         });
+      }, Promise.resolve()).then(function () {
+        processandoFotosOcorrencia_ = false;
+        btnCamera.disabled = btnGaleria.disabled = false;
+        renderFotoGallery();
+        if (falhas === 1) showToast(ultimoErro + (total > 1 ? " As outras entraram." : ""));
+        else if (falhas && falhas === total) showToast("Nenhuma das " + total + " fotos abriu - o formato pode não ser aceito (ex.: HEIC). Tenta outras, ou tira pela câmera do app.");
+        else if (falhas) showToast(falhas + " de " + total + " fotos não abriram (formato não aceito?) - as outras entraram.");
       });
     }
     document.getElementById("f-foto-input-camera").addEventListener("change", processarArquivosFoto_);
@@ -15699,6 +15947,11 @@
     document.getElementById("btn-close-pressao").addEventListener("click", fecharModalLeituraPressao_);
     document.getElementById("btn-close-enviar").addEventListener("click", fecharModalEnviarOcorrencia_);
     document.getElementById("btn-confirmar-enviar").addEventListener("click", confirmarEnvioOcorrencia_);
+    document.getElementById("btn-enviar-direto").addEventListener("click", function () {
+      var r = records.find(function (x) { return x.id === enviarOcorrenciaAtualId; });
+      if (!r) return;
+      compartilharOcorrenciaComFotos_(r, this, textoBotaoMandarDireto_(r));
+    });
     document.getElementById("modal-pressao-overlay").addEventListener("click", function (e) {
       if (e.target.id === "modal-pressao-overlay") fecharModalLeituraPressao_();
     });
@@ -16317,6 +16570,7 @@
       }
     });
     document.getElementById("foto-lightbox-fechar").addEventListener("click", fecharFotoAmpliada_);
+    document.getElementById("foto-lightbox-mandar").addEventListener("click", mandarFotoAmpliada_);
     document.getElementById("foto-lightbox").addEventListener("click", function (e) {
       if (e.target.id === "foto-lightbox") fecharFotoAmpliada_();
     });
