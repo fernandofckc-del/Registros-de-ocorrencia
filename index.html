@@ -972,6 +972,24 @@
   </div>
 </div>
 
+<!-- (v137) FERIADOS NA ESCALA - BARRA (BA) -->
+<div class="modal-overlay" id="modal-plantao-feriados-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="btn-close-plantao-feriados">✕</button>
+    <div class="modal-title">📅 Feriados · Barra (BA)</div>
+    <div class="modal-sub">Ficam marcados na escala e na imagem do WhatsApp: <b style="color:#5B3A8C;">roxo = feriado</b> (nacional, da Bahia ou de Barra) e <b style="color:#1F6670;">verde-azulado = ponto facultativo</b>.</div>
+    <span class="field-label">Próximos 12 meses</span>
+    <div id="feriados-lista" style="max-height:260px;overflow-y:auto;border:1px solid #DCD3BC;border-radius:6px;margin:6px 0 14px;background:#FFFDF8;"></div>
+    <div class="field">
+      <span class="field-label">Feriados de Barra e decretos da prefeitura</span>
+      <textarea id="feriados-municipais" style="min-height:110px;font-size:13.5px;" placeholder="16/06 Aniversário de Barra"></textarea>
+      <div style="font-size:11px;color:#6B6153;line-height:1.45;">Um por linha: <b>dia/mês</b> e o nome (vale todo ano). Com o ano, como <b>24/06/2026 São João</b>, vale só naquele ano. Escreva <b>facultativo</b> no nome pra marcar como ponto facultativo. Os nacionais, o 2 de Julho e Carnaval/Corpus Christi o app já calcula sozinho.</div>
+    </div>
+    <button class="save-btn" id="btn-salvar-feriados" style="background:#5B3A8C;">🔒 Salvar (admin)</button>
+    <div id="feriados-result" class="test-result"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-plantao-config-overlay">
   <div class="modal-box">
     <button class="modal-close" id="btn-close-plantao-config">✕</button>
@@ -1382,7 +1400,7 @@
   // Versão do app. É a MESMA string usada no cache offline e a que aparece
   // no cabeçalho - assim os dois nunca mais se desencontram (foi o que
   // aconteceu com o antigo "v6", que era texto fixo no HTML).
-  var APP_CACHE_NAME = 'registro-irrigacao-v136';
+  var APP_CACHE_NAME = 'registro-irrigacao-v137';
   (function () {
     var m = /-(v\d+)$/.exec(APP_CACHE_NAME);
     var el = document.getElementById("app-versao");
@@ -3115,6 +3133,174 @@
   // ---- Escala Plantão: padrão fixo (se repete toda semana) + exceções pontuais ----
   var DIAS_SEMANA_PLANTAO = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
   var DIAS_SEMANA_PLANTAO_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+
+  // ================= (v137) FERIADOS NA ESCALA - BARRA (BA) =================
+  // Os nacionais, o 2 de Julho (Bahia) e os pontos facultativos nacionais o
+  // app calcula sozinho todo ano, inclusive os que mudam com a Páscoa
+  // (Carnaval, Sexta-feira Santa, Corpus Christi). Os de Barra vêm da lista
+  // abaixo, que o admin corrige no próprio app (📅 Feriados) - fica no
+  // Firebase, no mesmo documento das cores da escala.
+  // Fonte dos de Barra: decretos do TJBA com os feriados de cada comarca
+  // (Barra: 16/06, 10/07 e 04/10). 04/10 = São Francisco das Chagas, padroeiro
+  // (catedral e diocese de Barra).
+  var FERIADOS_BARRA_PADRAO = [
+    "16/06 Aniversário de Barra",
+    "10/07 Feriado municipal",
+    "04/10 São Francisco das Chagas (padroeiro)"
+  ].join("\n");
+  var feriadosMunicipaisTexto_ = FERIADOS_BARRA_PADRAO; // o que vale agora (o do Firebase, se o admin já salvou)
+  var cacheFeriados_ = {};                              // ano -> { "AAAA-MM-DD": [{ nome, tipo }] }
+  var COR_FERIADO = { fundo: "#E3D5F3", texto: "#5B3A8C" };     // roxo: feriado nacional, da Bahia ou de Barra
+  var COR_FACULTATIVO = { fundo: "#D5ECEF", texto: "#1F6670" }; // verde-azulado: ponto facultativo
+  var TIPO_FERIADO_LABEL = { nacional: "Feriado nacional", estadual: "Feriado da Bahia", municipal: "Feriado de Barra", facultativo: "Ponto facultativo" };
+
+  // Domingo de Páscoa (algoritmo de Meeus/Jones/Butcher) -> "AAAA-MM-DD"
+  function pascoa_(ano) {
+    var a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4;
+    var f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    var h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    var l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    var mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+    return ano + "-" + String(mes).padStart(2, "0") + "-" + String(dia).padStart(2, "0");
+  }
+  // Uma linha por feriado: "16/06 Nome" vale todo ano; "24/06/2026 Nome" só
+  // naquele ano. Com "facultativo" no nome vira ponto facultativo.
+  function lerListaFeriados_(texto) {
+    var itens = [], erros = [];
+    String(texto || "").split("\n").forEach(function (linha) {
+      var l = linha.trim();
+      if (!l) return;
+      var m = l.match(/^(\d{1,2})\s*[\/.-]\s*(\d{1,2})(?:\s*[\/.-]\s*(\d{4}))?(?:\s*[-–:]\s*|\s+|$)(.*)$/);
+      if (!m || +m[1] < 1 || +m[1] > 31 || +m[2] < 1 || +m[2] > 12) { erros.push(l); return; }
+      var nome = m[4].trim() || "Feriado municipal";
+      itens.push({ dia: +m[1], mes: +m[2], ano: m[3] ? +m[3] : null, nome: nome,
+                   tipo: /facultativ/i.test(nome) ? "facultativo" : "municipal" });
+    });
+    return { itens: itens, erros: erros };
+  }
+  function linhaFeriado_(f) {
+    return String(f.dia).padStart(2, "0") + "/" + String(f.mes).padStart(2, "0") + (f.ano ? "/" + f.ano : "") + " " + f.nome;
+  }
+  function feriadosDoAno_(ano) {
+    if (cacheFeriados_[ano]) return cacheFeriados_[ano];
+    var mapa = {};
+    function por(dataStr, nome, tipo) { (mapa[dataStr] = mapa[dataStr] || []).push({ nome: nome, tipo: tipo }); }
+    function dm(dia, mes) { return ano + "-" + String(mes).padStart(2, "0") + "-" + String(dia).padStart(2, "0"); }
+    var p = pascoa_(ano);
+    // nacionais (Leis 662/1949, 6.802/1980 e 14.759/2023)
+    por(dm(1, 1), "Confraternização Universal", "nacional");
+    por(addDiasStr_(p, -2), "Sexta-feira Santa", "nacional");
+    por(dm(21, 4), "Tiradentes", "nacional");
+    por(dm(1, 5), "Dia do Trabalho", "nacional");
+    por(dm(7, 9), "Independência do Brasil", "nacional");
+    por(dm(12, 10), "Nossa Senhora Aparecida", "nacional");
+    por(dm(2, 11), "Finados", "nacional");
+    por(dm(15, 11), "Proclamação da República", "nacional");
+    if (ano >= 2024) por(dm(20, 11), "Consciência Negra", "nacional");
+    por(dm(25, 12), "Natal", "nacional");
+    // Bahia
+    por(dm(2, 7), "Independência da Bahia", "estadual");
+    // pontos facultativos nacionais
+    por(addDiasStr_(p, -48), "Carnaval", "facultativo");
+    por(addDiasStr_(p, -47), "Carnaval", "facultativo");
+    por(addDiasStr_(p, -46), "Quarta-feira de Cinzas (até 14h)", "facultativo");
+    por(addDiasStr_(p, 60), "Corpus Christi", "facultativo");
+    por(dm(24, 12), "Véspera de Natal (após 14h)", "facultativo");
+    por(dm(31, 12), "Véspera de Ano Novo (após 14h)", "facultativo");
+    // Barra
+    lerListaFeriados_(feriadosMunicipaisTexto_).itens.forEach(function (f) {
+      if (f.ano && f.ano !== ano) return;
+      por(dm(f.dia, f.mes), f.nome, f.tipo);
+    });
+    cacheFeriados_[ano] = mapa;
+    return mapa;
+  }
+  function feriadosDoDia_(dataStr) {
+    return feriadosDoAno_(+String(dataStr).slice(0, 4))[dataStr] || [];
+  }
+  // Resumo do dia pra marcar na escala: feriado (de qualquer tipo) vence
+  // ponto facultativo. null = dia normal.
+  function resumoFeriadoDia_(dataStr) {
+    var todos = feriadosDoDia_(dataStr);
+    if (!todos.length) return null;
+    var feriados = todos.filter(function (f) { return f.tipo !== "facultativo"; });
+    var vale = feriados.length ? feriados : todos;
+    return {
+      facultativo: !feriados.length,
+      cor: feriados.length ? COR_FERIADO : COR_FACULTATIVO,
+      rotulo: feriados.length ? "Feriado" : "Ponto facultativo",
+      nome: vale.map(function (f) { return f.nome; }).join(" / "),
+      detalhe: todos.map(function (f) { return TIPO_FERIADO_LABEL[f.tipo] + ": " + f.nome; }).join(" · ")
+    };
+  }
+  // texto: o que veio do Firebase (sem nada salvo ainda = a lista padrão de Barra)
+  function definirFeriadosMunicipais_(texto) {
+    var novo = (typeof texto === "string") ? texto : FERIADOS_BARRA_PADRAO;
+    if (novo === feriadosMunicipaisTexto_) return false;
+    feriadosMunicipaisTexto_ = novo;
+    cacheFeriados_ = {};
+    return true;
+  }
+  // ---- janela "📅 Feriados": a lista dos próximos 12 meses e a de Barra (admin) ----
+  function abrirFeriadosPlantao_() {
+    document.getElementById("feriados-municipais").value = feriadosMunicipaisTexto_;
+    document.getElementById("feriados-result").style.display = "none";
+    renderListaFeriados_();
+    document.getElementById("modal-plantao-feriados-overlay").classList.add("active");
+  }
+  function fecharFeriadosPlantao_() {
+    document.getElementById("modal-plantao-feriados-overlay").classList.remove("active");
+    if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao();
+  }
+  function renderListaFeriados_() {
+    var hoje = todayStr(), fim = addDiasStr_(hoje, 365);
+    var anoIni = +hoje.slice(0, 4), anoFim = +fim.slice(0, 4), datas = [];
+    for (var a = anoIni; a <= anoFim; a++) {
+      Object.keys(feriadosDoAno_(a)).forEach(function (d) { if (d >= hoje && d <= fim) datas.push(d); });
+    }
+    datas.sort();
+    var html = datas.map(function (d) {
+      var p = d.split("-"), dt = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+      return feriadosDoDia_(d).map(function (f) {
+        var cor = f.tipo === "facultativo" ? COR_FACULTATIVO : COR_FERIADO;
+        return '<div style="display:flex;gap:10px;align-items:baseline;padding:7px 10px;border-bottom:1px solid #EFE7D3;font-size:12.5px;">' +
+          '<span style="font-family:\'IBM Plex Mono\',monospace;font-weight:600;white-space:nowrap;">' + escapeHtml(fmtDate(d).slice(0, 5)) + ' ' +
+            escapeHtml(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()].slice(0, 3).toLowerCase()) + '</span>' +
+          '<span style="flex:1;">' + escapeHtml(f.nome) + '<br><span style="font-size:10.5px;font-weight:700;color:' + cor.texto + ';">' + escapeHtml(TIPO_FERIADO_LABEL[f.tipo]) + '</span></span>' +
+        '</div>';
+      }).join("");
+    }).join("");
+    document.getElementById("feriados-lista").innerHTML = html || '<div style="padding:10px;font-size:12px;color:#6B6153;">Nenhum.</div>';
+  }
+  function salvarFeriadosPlantao_() {
+    var res = document.getElementById("feriados-result");
+    var lido = lerListaFeriados_(document.getElementById("feriados-municipais").value);
+    res.style.display = "block";
+    if (lido.erros.length) {
+      res.className = "test-result fail";
+      res.textContent = "Não entendi: " + lido.erros.join(" | ") + ". Use dia/mês e o nome, ex.: 16/06 Aniversário de Barra";
+      return;
+    }
+    if (!db) { res.className = "test-result fail"; res.textContent = "Firebase ainda não carregou - tenta de novo em instantes."; return; }
+    res.style.display = "none";
+    garantirAdminPlantao_(function () {
+      var limpo = lido.itens.map(linhaFeriado_).join("\n");
+      res.style.display = "block"; res.className = "test-result"; res.textContent = "Salvando...";
+      db.collection("escala_plantao_padrao").doc(ID_CORES_PLANTAO).set(
+        { tipo: "cores", ativo: false, feriadosMunicipais: limpo, feriadosAtualizadoEm: firebase.firestore.FieldValue.serverTimestamp() },
+        { merge: true }).then(function () {
+          res.className = "test-result ok"; res.textContent = "Feriados salvos! Já valem pra todos os celulares.";
+        }).catch(function (err) {
+          console.error("[plantao] feriados:", err);
+          res.className = "test-result fail"; res.textContent = "Não consegui salvar no Firebase.";
+          avisarErroFirestore_(err);
+        });
+      // já mostra (o Firebase confirma logo)
+      definirFeriadosMunicipais_(limpo);
+      document.getElementById("feriados-municipais").value = limpo;
+      renderListaFeriados_();
+    });
+  }
   // Ordem de exibição (duplas lado a lado: Alex+Yverson, Ivonaldo+André).
   // Quem é FIXO agora vem do banco (cada pessoa com padrão cadastrado e
   // ativa) - antes a lista era escrita no código e não dava pra tirar
@@ -3252,12 +3438,13 @@
       // Só conta como "conexão ok" quando a resposta veio do SERVIDOR
       // (a primeira costuma vir do cache do celular).
       if (!snapshot.metadata.fromCache) listenerVoltou_("Plantão (padrão)");
-      var novos = [], cores = null, ordemNova = null;
+      var novos = [], cores = null, ordemNova = null, feriadosTexto;
       snapshot.forEach(function (doc) {
         var d = doc.data();
-        if (doc.id === ID_CORES_PLANTAO) {   // não é pessoa: são as cores e a ordem escolhidas
+        if (doc.id === ID_CORES_PLANTAO) {   // não é pessoa: são as cores, a ordem e (v137) os feriados de Barra
           cores = (d && d.cores) || {};
           ordemNova = (d && Array.isArray(d.ordemPessoas)) ? d.ordemPessoas : [];
+          feriadosTexto = d ? d.feriadosMunicipais : undefined;
           return;
         }
         novos.push({ id: doc.id, pessoa: d.pessoa, alterna: !!d.alterna, semanaA: d.semanaA || {}, semanaB: d.semanaB || {},
@@ -3269,6 +3456,7 @@
       coresEscolhidasPlantao_ = {};
       if (cores) Object.keys(cores).forEach(function (n) { if (cores[n]) coresEscolhidasPlantao_[n] = String(cores[n]); });
       ordemEscolhidaPlantao_ = (ordemNova || []).filter(function (n, i, arr) { return typeof n === "string" && n && arr.indexOf(n) === i; });
+      definirFeriadosMunicipais_(feriadosTexto);
       try { if (document.getElementById("tab-plantao").classList.contains("active") && !algumModalAberto_()) renderPlantao(); } catch (e) {}
     }, function (err) { plantaoPadroesListenerAtivo = false; falhaListener_("Plantão (padrão)", "escala_plantao_padrao", err, iniciarListenerPlantaoPadroes_, function () { return plantaoPadroesListenerAtivo; }); });
   }
@@ -6487,7 +6675,10 @@
   // semanas, de quase 4.000 px: o WhatsApp reduzia pra menos da metade e a
   // letra (que já era pequena) ficava ilegível no celular.
   function construirImagemSemanaPlantao_(dias, pessoas, titulo) {
-    var NOME = 250, DIA = 192, TOPO = 100, CAB = 108, LIN = 116, RODAPE = 96;
+    // (v137) semana com feriado: cabeçalho mais alto (cabe "FERIADO") e uma linha a mais no rodapé
+    var fers = dias.map(resumoFeriadoDia_);
+    var temFeriado = fers.some(Boolean);
+    var NOME = 250, DIA = 192, TOPO = 100, CAB = temFeriado ? 142 : 108, LIN = 116, RODAPE = temFeriado ? 136 : 96;
     var W = NOME + DIA * dias.length, H = TOPO + CAB + LIN * pessoas.length + RODAPE;
     var cv = document.createElement("canvas");
     cv.width = W; cv.height = H;
@@ -6517,11 +6708,16 @@
     dias.forEach(function (d, i) {
       var x = NOME + i * DIA;
       var p = d.split("-"), dt = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
-      ctx.fillStyle = cob[i].falta ? "#F6C9BE" : (d === hoje ? "#FFE7A3" : (i % 2 ? "#E9E2CF" : "#F1EBDB"));
+      ctx.fillStyle = cob[i].falta ? "#F6C9BE" : (fers[i] ? fers[i].cor.fundo : (d === hoje ? "#FFE7A3" : (i % 2 ? "#E9E2CF" : "#F1EBDB")));
       ctx.fillRect(x, TOPO, DIA, CAB);
       ctx.fillStyle = "#241F1A"; ctx.textAlign = "center";
       fonte(32, true); ctx.fillText(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()].slice(0, 3).toUpperCase(), x + DIA / 2, TOPO + 36);
       fonte(28, false); ctx.fillText(fmtDate(d).slice(0, 5), x + DIA / 2, TOPO + 76);
+      if (fers[i]) {
+        var rot = fers[i].facultativo ? "FACULTATIVO" : "FERIADO";
+        fonte(caber(rot, 22, true, DIA - 16), true); ctx.fillStyle = fers[i].cor.texto;
+        ctx.fillText(rot, x + DIA / 2, TOPO + 116);
+      }
     });
     // uma linha por pessoa
     pessoas.forEach(function (pessoa, li) {
@@ -6571,8 +6767,19 @@
     ctx.fillStyle = "#F4F0E6"; ctx.fillRect(0, fimTab, W, RODAPE);
     ctx.textAlign = "left"; ctx.fillStyle = "#4A4136"; fonte(26, false);
     ctx.fillText("↔ troca   ·   vermelho = mudou do padrão   ·   laranja = férias/afastamento" + (cob.some(function (c) { return c.falta; }) ? "   ·   dia em rosa = falta gente" : ""), 24, fimTab + 34);
+    var yGerado = fimTab + 70;
+    if (temFeriado) {
+      // qual é o feriado de cada dia marcado (roxo = feriado, verde-azulado = ponto facultativo)
+      var txtFer = dias.map(function (d, i) {
+        return fers[i] ? fmtDate(d).slice(0, 5) + " " + fers[i].nome + (fers[i].facultativo ? " (ponto facultativo)" : "") : "";
+      }).filter(Boolean).join("   ·   ");
+      ctx.fillStyle = COR_FERIADO.texto;
+      fonte(caber(txtFer, 26, true, W - 48), true);
+      ctx.fillText(txtFer, 24, fimTab + 74);
+      yGerado = fimTab + 110;
+    }
     fonte(22, false); ctx.fillStyle = "#8A8072";
-    ctx.fillText("Gerado em " + fmtDate(todayStr()) + " às " + new Date().toTimeString().slice(0, 5), 24, fimTab + 70);
+    ctx.fillText("Gerado em " + fmtDate(todayStr()) + " às " + new Date().toTimeString().slice(0, 5), 24, yGerado);
     return cv;
   }
   var imagensPlantaoProntas_ = [];
@@ -6681,6 +6888,7 @@
     // tiverem algum registro pontual dentro desse bloco de 14 dias
     var pessoas = pessoasDoBloco_(dias);
     var cobertura = dias.map(function (d) { return coberturaPlantao_(pessoas, d); });
+    var feriadosBloco = dias.map(resumoFeriadoDia_);
 
     var html = '<div class="modal-sub" style="margin-bottom:10px;">Padrão fixo se repete sozinho toda semana. Pra troca, férias ou pra colocar e tirar gente, use os botões abaixo; pra mudar um dia só, toque na célula.</div>';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
@@ -6703,6 +6911,18 @@
           return fmtDate(d).slice(0, 5) + " (" + partes.join(", ") + ")";
         }).join(" · ") + '</div>';
     }
+    // (v137) feriados e pontos facultativos dessas 2 semanas
+    var diasFeriado = [];
+    dias.forEach(function (d, i) { if (feriadosBloco[i]) diasFeriado.push(i); });
+    if (diasFeriado.length) {
+      html += '<div style="background:#F4EEFA;border-left:4px solid ' + COR_FERIADO.texto + ';border-radius:4px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#3F2A63;line-height:1.5;">' +
+        '<b>📅 Feriados nestas 2 semanas:</b><br>' + diasFeriado.map(function (i) {
+          var f = feriadosBloco[i], d = dias[i];
+          var p = d.split("-"), dt = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+          return '<span style="color:' + f.cor.texto + ';">' + escapeHtml(fmtDate(d).slice(0, 5) + " (" + DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()].slice(0, 3).toLowerCase() + ")") + '</span> ' +
+            escapeHtml(f.nome) + (f.facultativo ? ' <i style="color:' + f.cor.texto + ';">- ponto facultativo</i>' : '');
+        }).join("<br>") + '</div>';
+    }
 
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
       '<button class="del-btn" id="btn-plantao-anterior" style="padding:6px 14px;">← 2 semanas</button>' +
@@ -6720,9 +6940,14 @@
       var dt = new Date(Date.UTC(+partes[0], +partes[1] - 1, +partes[2]));
       var corFundo = (i % 2 === 0) ? "#F3EEE0" : "#E5DFC9";
       var separador = (i === 7) ? "border-left:3px solid #4C6B2F;" : "";
+      var fer = feriadosBloco[i];
+      if (fer) corFundo = fer.cor.fundo;
       if (cobertura[i].falta) corFundo = "#F2C9BF";
-      html += '<th style="background:' + corFundo + ';padding:5px 6px;text-align:center;min-width:78px;' + separador + '">' +
-        escapeHtml(fmtDate(d)) + '<br>' + escapeHtml(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()]) + (cobertura[i].falta ? '<br><span style="color:#8A2E2E;">⚠ falta</span>' : '') + '</th>';
+      html += '<th' + (fer ? ' title="' + escapeHtml(fer.detalhe) + '"' : '') + ' style="background:' + corFundo + ';padding:5px 6px;text-align:center;min-width:78px;vertical-align:top;' + separador + '">' +
+        escapeHtml(fmtDate(d)) + '<br>' + escapeHtml(DIAS_SEMANA_PLANTAO_LABEL[dt.getUTCDay()]) +
+        (fer ? '<br><span style="display:inline-block;margin-top:3px;color:' + fer.cor.texto + ';font-size:9.5px;line-height:1.2;">' +
+          (fer.facultativo ? 'Ponto facultativo' : '🎉 Feriado') + '<br><span style="font-weight:600;">' + escapeHtml(fer.nome) + '</span></span>' : '') +
+        (cobertura[i].falta ? '<br><span style="color:#8A2E2E;">⚠ falta</span>' : '') + '</th>';
     });
     html += '</tr>';
 
@@ -6749,8 +6974,10 @@
     html += '<button class="save-btn" id="btn-plantao-compartilhar" style="background:#25A244;margin-top:12px;">📤 Compartilhar no WhatsApp</button>';
     html += '<button class="photo-btn" id="btn-plantao-substituicao" style="background:#D6A233;margin-top:8px;">🔄 Substituição Temporária (segue padrão de outra pessoa)</button>';
     html += '<button class="photo-btn" id="btn-plantao-config" style="background:#8A5A44;margin-top:8px;">🔒 Horários fixos de cada um (admin)</button>';
+    html += '<button class="photo-btn" id="btn-plantao-feriados" style="background:' + COR_FERIADO.texto + ';margin-top:8px;">📅 Feriados (Barra - BA)</button>';
 
     el.innerHTML = html;
+    document.getElementById("btn-plantao-feriados").addEventListener("click", abrirFeriadosPlantao_);
     document.getElementById("btn-plantao-anterior").addEventListener("click", function () {
       plantaoInicioBloco = addDiasStr_(plantaoInicioBloco, -14);
       renderPlantao();
@@ -16304,6 +16531,8 @@
     });
     document.getElementById("btn-confirmar-troca").addEventListener("click", confirmarTrocaPlantao_);
     document.getElementById("btn-close-plantao-ausencia").addEventListener("click", fecharAusenciaPlantao_);
+    document.getElementById("btn-close-plantao-feriados").addEventListener("click", fecharFeriadosPlantao_);
+    document.getElementById("btn-salvar-feriados").addEventListener("click", salvarFeriadosPlantao_);
     ["aus-pessoa", "aus-ini", "aus-fim", "aus-cobre"].forEach(function (id) {
       document.getElementById(id).addEventListener("change", atualizarPreviaAusencia_);
     });
